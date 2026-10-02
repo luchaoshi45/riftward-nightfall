@@ -1,0 +1,294 @@
+class_name NightfallWorld
+extends Node3D
+## Ash outpost and explorable ruin perimeter; no lanes or opposing bases.
+const FORT_HEIGHT := 5.0
+const LIGHT_TRANSITION_SECONDS := 6.0
+
+var salvage: Array[Dictionary] = []
+var tower_pads: Array[Dictionary] = []
+var relays: Array[Dictionary] = []
+var nests: Array[Dictionary] = []
+var beacon: Node3D
+var environment: WorldEnvironment
+var sun: DirectionalLight3D
+var beacon_light: OmniLight3D
+var ashfall: GPUParticles3D
+var ash_material: StandardMaterial3D
+var gate_lights: Array[OmniLight3D] = []
+var gate_spots: Array[SpotLight3D] = []
+var gate_flames: Array[MeshInstance3D] = []
+var gate_light_drain: Array[float] = [0.0,0.0]
+var hero_lantern: OmniLight3D
+var night_active:=false
+var night_mix:=0.0
+var wave_warning:=false
+var light_time:=0.0
+
+func _process(delta: float) -> void:
+	if beacon_light==null:return
+	light_time+=delta
+	night_mix=move_toward(night_mix,1.0 if night_active else 0.0,delta/LIGHT_TRANSITION_SECONDS)
+	apply_lighting()
+
+func build() -> void:
+	var terrain := (load("res://assets/models/outpost_ground.glb") as PackedScene).instantiate() as Node3D
+	add_child(terrain)
+	for part in terrain.find_children("*","MeshInstance3D",true,false):
+		var surface := part as MeshInstance3D
+		if "Sculpted" in surface.name:
+			var ash := ShaderMaterial.new()
+			ash.shader=load("res://assets/shaders/wasteland.gdshader")
+			surface.material_override=ash
+	beacon=place("res://assets/models/watch_beacon.glb",Vector3(0,FORT_HEIGHT,0),1.0,0)
+	var fence_scene := load("res://assets/models/barricade.glb") as PackedScene
+	for offset in [-5.05,-1.85,1.85,5.05]:
+		place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,-7.3),1.45,0)
+		if absf(offset)>2.0:
+			place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,7.3),1.45,0)
+		for side in [-1,1]:
+			place_scene(fence_scene,Vector3(side*7.3,FORT_HEIGHT,offset),1.45,PI*.5)
+	for side in [-1,1]:create_gate_lamp(Vector3(side*2.45,FORT_HEIGHT,7.15))
+	var tree_scene := load("res://assets/models/dead_tree.glb") as PackedScene
+	var ruin_scene := load("res://assets/models/ruined_house.glb") as PackedScene
+	var rock_scene := load("res://assets/models/rock_v2.glb") as PackedScene
+	var relay_scene := load("res://assets/models/relay_mast.glb") as PackedScene
+	var truck_scene := load("res://assets/models/truck_wreck.glb") as PackedScene
+	var pad_scene := load("res://assets/models/tower_pad.glb") as PackedScene
+	var rng := RandomNumberGenerator.new();rng.seed=99431
+	for i in range(210):
+		var angle := rng.randf_range(0,TAU)
+		var radius := rng.randf_range(15,104)
+		place_scene(tree_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.74,1.35),angle)
+	for i in range(48):
+		var angle := TAU*i/48.0+rng.randf_range(-.18,.18)
+		var radius := rng.randf_range(23,102)
+		place_scene(ruin_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.8,1.18),angle)
+	for i in range(160):
+		var angle := rng.randf_range(0,TAU)
+		var radius := rng.randf_range(10,104)
+		place_scene(rock_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.25,.68),angle)
+	for i in range(8):
+		var angle := TAU*i/8.0+.26
+		var radius := 46.0+float(i%3)*21.0
+		var point:=Vector3(cos(angle)*radius,0,sin(angle)*radius)
+		var relay:=place_scene(relay_scene,point,1.0,angle)
+		var relay_light:=OmniLight3D.new()
+		relay_light.position=point+Vector3(0,3.1,0)
+		relay_light.light_color=Color("79d9df")
+		relay_light.omni_range=13
+		relay_light.light_energy=0.0
+		relay_light.shadow_enabled=false
+		add_child(relay_light)
+		relays.append({"node":relay,"position":point,"activated":false,"light":relay_light})
+	for i in range(18):
+		var angle := TAU*i/18.0+.43
+		var radius := 30.0+float(i%4)*19.0
+		place_scene(truck_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.82,1.1),angle)
+	var nest_scene:=load("res://assets/models/night_nest.glb") as PackedScene
+	var sealed_scene:=load("res://assets/models/sealed_nest.glb") as PackedScene
+	for point in [Vector3(-22,0,31),Vector3(34,0,46),Vector3(-42,0,65)]:
+		var nest:=place_scene(nest_scene,point,1.0,0)
+		var sealed:=place_scene(sealed_scene,point,.05,0)
+		sealed.visible=false
+		var nest_light:=OmniLight3D.new()
+		nest_light.position=Vector3(0,1.15,0)
+		nest_light.light_color=Color("d46269")
+		nest_light.light_energy=1.25
+		nest_light.omni_range=7.5
+		nest_light.shadow_enabled=false
+		nest.add_child(nest_light)
+		var sealed_light:=OmniLight3D.new()
+		sealed_light.position=Vector3(0,.7,0)
+		sealed_light.light_color=Color("7ac9c5")
+		sealed_light.light_energy=0.0
+		sealed_light.omni_range=6.0
+		sealed_light.shadow_enabled=false
+		sealed.add_child(sealed_light)
+		nests.append({"node":nest,"sealed_node":sealed,"light":nest_light,"sealed_light":sealed_light,"position":point,"cleansed":false})
+	for i in range(8):
+		var angle := TAU*i/8.0+PI/8.0
+		var point := Vector3(cos(angle)*11.8,0,sin(angle)*11.8)
+		point.y=terrain_height(point)
+		var pad := place_scene(pad_scene,point,1.0,angle)
+		var tower_light:=OmniLight3D.new()
+		tower_light.position=point+Vector3(0,2.4,0)
+		tower_light.light_color=Color("ffb56c")
+		tower_light.omni_range=12
+		tower_light.light_energy=0.0
+		tower_light.shadow_enabled=false
+		add_child(tower_light)
+		tower_pads.append({"node":pad,"position":point,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
+	var salvage_scene := load("res://assets/models/salvage_crate.glb") as PackedScene
+	for i in range(36):
+		var angle := TAU*i/36.0+.23
+		var radius := 17.0+float(i%6)*15.5
+		var point := Vector3(cos(angle)*radius,0,sin(angle)*radius)
+		var crate := place_scene(salvage_scene,point,1.0,angle)
+		salvage.append({"node":crate,"position":point,"collected":false,"amount":35+int(i%5==0)*25})
+	environment=WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode=Environment.BG_COLOR
+	env.background_color=Color("101a20")
+	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color=Color("a6b2ac")
+	env.ambient_light_energy=.42
+	env.tonemap_mode=Environment.TONE_MAPPER_ACES
+	env.glow_enabled=true
+	env.glow_intensity=.36
+	env.ssao_enabled=true
+	env.ssao_radius=1.7
+	env.ssao_intensity=1.55
+	env.fog_enabled=true
+	env.fog_light_color=Color("303c42")
+	env.fog_density=.012
+	env.fog_height_density=.04
+	environment.environment=env
+	add_child(environment)
+	sun=DirectionalLight3D.new()
+	sun.rotation_degrees=Vector3(-38,-42,0)
+	sun.light_color=Color("d6bbb0")
+	sun.light_energy=.75
+	sun.shadow_enabled=true
+	sun.light_angular_distance=1.0
+	sun.directional_shadow_max_distance=100
+	add_child(sun)
+	beacon_light=OmniLight3D.new()
+	beacon_light.position=Vector3(0,FORT_HEIGHT+4.5,0)
+	beacon_light.light_color=Color("ffaf59")
+	beacon_light.light_energy=1.9
+	beacon_light.omni_range=25
+	beacon_light.shadow_enabled=true
+	add_child(beacon_light)
+	hero_lantern=OmniLight3D.new()
+	hero_lantern.light_color=Color("ffd0a0")
+	hero_lantern.omni_range=10.5
+	hero_lantern.light_energy=0.0
+	hero_lantern.shadow_enabled=false
+	add_child(hero_lantern)
+	create_ashfall()
+	set_night(false)
+
+func create_ashfall() -> void:
+	ashfall=GPUParticles3D.new()
+	ashfall.amount=220
+	ashfall.lifetime=10.0
+	ashfall.preprocess=8.0
+	ashfall.visibility_aabb=AABB(Vector3(-30,-15,-27),Vector3(60,36,54))
+	var drift:=ParticleProcessMaterial.new()
+	drift.emission_shape=ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	drift.emission_box_extents=Vector3(26,6,22)
+	drift.direction=Vector3(-.6,-.45,-.2)
+	drift.spread=38.0
+	drift.initial_velocity_min=.6
+	drift.initial_velocity_max=1.6
+	drift.gravity=Vector3(0,-.13,0)
+	drift.scale_min=.55
+	drift.scale_max=1.45
+	ashfall.process_material=drift
+	var flake:=QuadMesh.new()
+	flake.size=Vector2(.14,.04)
+	ash_material=StandardMaterial3D.new()
+	ash_material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	ash_material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	ash_material.billboard_mode=BaseMaterial3D.BILLBOARD_ENABLED
+	ash_material.albedo_color=Color(.55,.51,.46,.44)
+	flake.material=ash_material
+	ashfall.draw_pass_1=flake
+	add_child(ashfall)
+	ashfall.emitting=true
+
+func follow_ashfall(point: Vector3) -> void:
+	if ashfall:ashfall.position=point+Vector3(0,8,0)
+	if hero_lantern:hero_lantern.position=point+Vector3(0,2.25,0)
+
+func create_gate_lamp(point: Vector3) -> void:
+	var metal:=StandardMaterial3D.new()
+	metal.albedo_color=Color("353b39")
+	metal.metallic=.55
+	metal.roughness=.75
+	var post:=MeshInstance3D.new()
+	var post_mesh:=CylinderMesh.new()
+	post_mesh.top_radius=.12;post_mesh.bottom_radius=.17;post_mesh.height=2.35
+	post.mesh=post_mesh;post.material_override=metal
+	add_child(post);post.position=point+Vector3(0,1.18,0)
+	var flame:=MeshInstance3D.new()
+	var globe:=SphereMesh.new()
+	globe.radius=.27;globe.height=.48
+	flame.mesh=globe
+	var amber:=StandardMaterial3D.new()
+	amber.albedo_color=Color("e99a45")
+	amber.emission_enabled=true
+	amber.emission=Color("ffad57")
+	amber.emission_energy_multiplier=3.2
+	flame.material_override=amber
+	add_child(flame);flame.position=point+Vector3(0,2.5,0);gate_flames.append(flame)
+	var lamp:=OmniLight3D.new()
+	lamp.position=point+Vector3(0,2.5,0)
+	lamp.light_color=Color("ff9d53")
+	lamp.omni_range=12
+	lamp.light_energy=2.0
+	lamp.shadow_enabled=false
+	add_child(lamp);gate_lights.append(lamp)
+	var searchlight:=SpotLight3D.new()
+	searchlight.position=point+Vector3(0,2.65,0)
+	searchlight.light_color=Color("ffc080")
+	searchlight.light_energy=0.0
+	searchlight.spot_range=34.0
+	searchlight.spot_angle=36.0
+	searchlight.spot_attenuation=.62
+	searchlight.shadow_enabled=false
+	add_child(searchlight)
+	searchlight.look_at(Vector3(point.x,terrain_height(Vector3(point.x,0,point.z+17.0)),point.z+17.0),Vector3.UP)
+	gate_spots.append(searchlight)
+
+func terrain_height(point: Vector3) -> float:
+	var edge:=maxf(absf(point.x),absf(point.z))
+	var rise:=clampf((19.0-point.z)/12.0,0,1) if point.z>7.0 and absf(point.x)<3.2 else clampf((9.5-edge)/2.5,0,1)
+	return FORT_HEIGHT*rise*rise*(3.0-2.0*rise)
+
+func place(path: String, point: Vector3, size_factor: float, angle: float) -> Node3D:
+	return place_scene(load(path) as PackedScene,point,size_factor,angle)
+
+func place_scene(scene: PackedScene, point: Vector3, size_factor: float, angle: float) -> Node3D:
+	var node := scene.instantiate() as Node3D
+	add_child(node)
+	node.position=point
+	node.scale=Vector3.ONE*size_factor
+	node.rotation.y=angle
+	return node
+
+func set_night(is_night: bool) -> void:
+	night_active=is_night
+	apply_lighting()
+
+func apply_lighting() -> void:
+	if environment==null:return
+	var blend:=night_mix*night_mix*(3.0-2.0*night_mix)
+	if ashfall:
+		ashfall.amount_ratio=lerpf(.35,.8,blend)
+		ash_material.albedo_color=Color(.55,.51,.46,.44).lerp(Color(.54,.59,.64,.53),blend)
+	var env := environment.environment
+	env.background_color=Color("343a3d").lerp(Color("03060b"),blend)
+	env.ambient_light_color=Color("b8b3a5").lerp(Color("697587"),blend)
+	env.ambient_light_energy=lerpf(.56,.028,blend)
+	env.fog_light_color=Color("565b57").lerp(Color("090f1a"),blend)
+	env.fog_density=lerpf(.010,.020,blend)
+	sun.light_color=Color("e4c6a7").lerp(Color("587090"),blend)
+	sun.light_energy=lerpf(.86,.018,blend)
+	beacon_light.light_energy=lerpf(1.4,8.2,blend)+sin(light_time*4.3)*.13+sin(light_time*8.1)*.06
+	beacon_light.omni_range=lerpf(25.0,22.0,blend)
+	hero_lantern.light_energy=blend*3.4
+	hero_lantern.visible=hero_lantern.light_energy>.001
+	for relay in relays:
+		(relay.light as OmniLight3D).light_energy=blend*3.2 if relay.activated else 0.0
+		(relay.light as OmniLight3D).visible=relay.light.light_energy>.001
+	for pad in tower_pads:
+		(pad.light as OmniLight3D).light_energy=blend*(1.65+float(pad.level)*.45) if pad.level>0 else 0.0
+		(pad.light as OmniLight3D).visible=pad.light.light_energy>.001
+	for i in gate_lights.size():
+		var drain:=1.0-clampf(gate_light_drain[i],0.0,.85)
+		gate_lights[i].light_energy=((5.0+sin(light_time*10.0+float(i)*1.7)*.7) if wave_warning else (lerpf(.9,5.2,blend)+sin(light_time*5.1+float(i)*1.7)*.11))*drain
+		gate_lights[i].light_color=Color("df5f4c") if wave_warning else Color("ff9d53")
+		gate_spots[i].light_energy=lerpf(0.0,11.0,blend)*(1.25 if wave_warning else 1.0)*drain
+		gate_spots[i].visible=gate_spots[i].light_energy>.001
+		(gate_flames[i].material_override as StandardMaterial3D).emission_energy_multiplier=3.2*drain

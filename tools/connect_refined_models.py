@@ -1,0 +1,2 @@
+from pathlib import Path
+p=Path('art_source/create_assets.py');s=p.read_text(encoding='utf-8-sig');marker="for team,armor,glow in [('blue',blue,blue_glow),('red',red,red_glow)]:";s=s.replace(marker,"import sys\nsys.path.insert(0, os.path.dirname(__file__))\nimport refined_models\nrefined_models.build_assets(globals())\nhero = refined_models.hero\ntower = refined_models.tower\n\n"+marker);p.write_text(s,encoding='utf-8')

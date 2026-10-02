@@ -1,0 +1,28 @@
+Music by RUSTED MUSIC STUDIO / Fabien C.
+Author: https://rustedstudio.itch.io/
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License URL: https://creativecommons.org/licenses/by/4.0/
+
+day_exploration.ogg
+Original: Wet Sand, from Dark Ambient Piano
+Source: https://rustedstudio.itch.io/free-music-dark-ambient-piano
+The author marks this pack as AI-assisted audio (harmony and mastering).
+Changes: excerpt, bar-aligned loop overlap, loudness normalization, OGG conversion.
+
+night_watch.ogg
+Original: 03 - Perish Lane (level, mood, menu), from Apocalypse Z
+Source: https://rustedstudio.itch.io/free-music-apocalypse-z
+The author states that no generative AI was used for this pack.
+Changes: loop overlap, loudness normalization and OGG re-encoding.
+
+siege_combat.ogg
+Original: Dark Sorcery Siege, from Orchestral Fantasy - WAR (mastered version)
+Source: https://rustedstudio.itch.io/free-music-orchestral-fantasy-war
+Original notice: Orchestral Fantasy - WAR copyright 2024 Rusted Music Studio - Fabien C.
+The author marks this pack as AI-assisted audio.
+Changes: excerpt, bar-aligned loop overlap, loudness normalization, OGG conversion.
+
+These tracks were selected from the author's licensed public packs, not newly
+generated in Suno, AIVA, or Stable Audio for this project. The license applies
+to the music, not to unrelated code or artwork in Riftward Nightfall.
+No endorsement of this game by the composer is implied.

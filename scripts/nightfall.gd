@@ -1,0 +1,1456 @@
+extends Node3D
+## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
+const UnitScript = preload("res://scripts/unit.gd")
+const HudScript = preload("res://scripts/nightfall_hud.gd")
+const DAY_LENGTH := 90.0
+const NIGHT_LENGTH := 105.0
+const HERO_MOVE_SPEED := 8.4
+const WAVES_PER_NIGHT := 5
+const BEACON_MAX := 1200.0
+const TOWER_COSTS := [60,50,75]
+const GATE_TRAP_COST := 45
+const GATE_TRAP_MAX := 3
+const BARRICADE_COST := 65
+const BARRICADE_MAX := 520.0
+const FOCUS_DURATION := 8.0
+const FOCUS_COOLDOWN := 22.0
+const COSTS := [35.0,45.0,30.0,85.0,0.0]
+const COOLDOWNS := [4.5,9.0,6.5,28.0,38.0]
+const WALK_BLOCKS := [Rect2(-8.1,-8.1,1.6,16.2),Rect2(6.5,-8.1,1.6,16.2),Rect2(-8.1,-8.1,16.2,1.6),Rect2(-8.1,6.5,5.45,1.6),Rect2(2.65,6.5,5.45,1.6),Rect2(-3.9,8,1.3,10.6),Rect2(2.6,8,1.3,10.6)]
+
+var world: NightfallWorld
+var hero: BattleUnit
+var camera: Camera3D
+var hud: Control
+var effects: Node3D
+var phase := "draft"
+var day_number := 1
+var phase_time := NIGHT_LENGTH
+var beacon_hp := BEACON_MAX
+var beacon_alarm_time := 0.0
+var beacon_alarm_damage := 0.0
+var scrap := 90
+var kills := 0
+var attack_count := 0
+var essence := 0
+var mana := 300.0
+var max_mana := 300.0
+var cooldowns: Array[float] = [0,0,0,0,0]
+var enemies: Array[BattleUnit] = []
+var run := RunBuild.new()
+var rng := RandomNumberGenerator.new()
+var spawn_timer := 4.0
+var wave_index := 0
+var wave_warning_issued := false
+var pulse_timer := 3.0
+var guardian_timer := 12.0
+var aim := Vector3(8,0,0)
+var move_goal := Vector3.ZERO
+var hero_navigation: AStarGrid2D
+var hero_path := PackedVector3Array()
+var hero_keyboard_active := false
+var notice := ""
+var notice_time := 0.0
+var skill_notice_key := ""
+var skill_notice_until := 0.0
+var victory := false
+var ending_key := ""
+var return_phase := "night"
+var opening_night_pending := true
+var paused_from := "day"
+var delayed_blasts: Array[Dictionary] = []
+var gate_trap_charges := 0
+var gate_trap_cooldown := 0.0
+var gate_trap_marks: Array[Node3D] = []
+var gate_trap_light: OmniLight3D
+var gate_barricade: Node3D
+var gate_barricade_hp := 0.0
+var gate_barricade_ring: MeshInstance3D
+var light_eater_warning_issued := false
+var focus_target: BattleUnit
+var focus_ring: MeshInstance3D
+var focus_time := 0.0
+var focus_cooldown := 0.0
+var expeditions: DayExpeditions
+var generator_cells := 0
+var survivors_rescued := 0
+var discoveries: Node3D
+var wildlife: Node3D
+var exploration_count := 0
+var exploration_milestones := 0
+var reward_toasts: Array[Dictionary] = []
+var pickup_sound: AudioStreamWAV
+var draft_reroll_ready_at := 0.0
+var music: Node
+var music_credits_open := false
+var combat: Node
+var hero_attack_target: BattleUnit
+var hero_attack_delay := 0.0
+var hero_attack_step := 0
+var player_attack_resolving := false
+var attack_chain := 0
+var attack_chain_time := 0.0
+var kill_chain := 0
+var kill_chain_time := 0.0
+var combat_milestone_time := 0.0
+var combat_milestone_title := ""
+var combat_milestone_detail := ""
+var camera_follow := Vector3.ZERO
+var quitting := false
+const SALVAGE_REFRESH := 55.0
+
+func _ready() -> void:
+	get_tree().auto_accept_quit=false
+	rng.seed=29045
+	world=NightfallWorld.new();add_child(world);world.build()
+	build_hero_navigation()
+	effects=Node3D.new();add_child(effects)
+	create_gate_trap_visuals()
+	create_gate_barricade()
+	hero=UnitScript.new() as BattleUnit;add_child(hero)
+	hero.position=Vector3(0,NightfallWorld.FORT_HEIGHT,3.1);hero.setup("hero",0)
+	hero.speed=HERO_MOVE_SPEED
+	hero.title="余烬守望者"
+	hero.defeated.connect(_on_hero_defeated)
+	hero.damaged.connect(_on_hero_damaged)
+	move_goal=hero.position
+	camera=Camera3D.new();add_child(camera)
+	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
+	camera.size=31
+	camera.far=130
+	camera.position=hero.position+Vector3(0,25,29)
+	camera.look_at(hero.position)
+	camera.current=true
+	camera_follow=camera.position
+	var layer:=CanvasLayer.new();add_child(layer)
+	hud=HudScript.new();hud.game=self;layer.add_child(hud)
+	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
+	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
+	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
+	for item in world.salvage:item.respawn=0.0
+	prepare_opening_defenses()
+	pickup_sound=make_pickup_sound()
+	world.night_mix=1.0;world.set_night(true)
+	run.grant("守夜者的第一段记忆")
+	open_draft()
+	notify("黑夜中的第一束灯火 · 选择能力，守住南门",6)
+	music=load("res://scripts/music_director.gd").new()
+	music.name="MusicDirector";add_child(music)
+	music.update_game(self,0.0)
+	combat=load("res://scripts/combat_feedback.gd").new()
+	combat.name="CombatFeedback";add_child(combat);combat.setup(self)
+
+func prepare_opening_defenses() -> void:
+	for index in [1,2]:
+		var pad: Dictionary=world.tower_pads[index]
+		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
+		pad.level=1;pad.max_hp=280.0;pad.hp=280.0
+		pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
+		pad.damage_ring.visible=false
+	gate_trap_charges=1
+	show_gate_trap_charges()
+
+func _process(delta: float) -> void:
+	if phase=="day" or phase=="night":simulate(delta)
+	update_beacon_alarm(delta)
+	for i in range(reward_toasts.size()-1,-1,-1):
+		reward_toasts[i].time-=delta
+		if reward_toasts[i].time<=0:reward_toasts.remove_at(i)
+	if notice_time>0:notice_time=maxf(0,notice_time-delta)
+	if is_instance_valid(hero):
+		world.follow_ashfall(hero.position)
+		var target:=hero.position+Vector3(0,25,29)
+		camera_follow=camera_follow.lerp(target,1.0-exp(-delta*6.0))
+		if combat:combat.tick(delta)
+		camera.position=camera_follow+(combat.camera_offset() if combat else Vector3.ZERO)
+	if hud:hud.queue_redraw()
+	if music:music.update_game(self,delta)
+
+func simulate(delta: float) -> void:
+	if phase!="day" and phase!="night":return
+	phase_time-=delta
+	update_combat_chains(delta)
+	update_focus(delta)
+	for i in cooldowns.size():cooldowns[i]=maxf(0,cooldowns[i]-delta)
+	mana=minf(max_mana,mana+delta*(8.0+float(run.stats.mana_regen)))
+	hero.hp=minf(hero.max_hp,hero.hp+(2.0+float(run.stats.regen))*delta)
+	if run.school_count(2)>=6:
+		guardian_timer-=delta
+		if guardian_timer<=0:
+			hero.shield=maxf(hero.shield,hero.max_hp*.12*float(run.stats.shield))
+			hero.shield_time=5.0
+			guardian_timer=12.0
+	for i in range(delayed_blasts.size()-1,-1,-1):
+		delayed_blasts[i].delay-=delta
+		if delayed_blasts[i].delay<=0:
+			var blast: Dictionary=delayed_blasts[i]
+			hit_area(blast.position,blast.radius,blast.damage)
+			BattleVisuals.burst(effects,blast.position,blast.radius,Color("efb179"),.42)
+			delayed_blasts.remove_at(i)
+	move_hero(delta)
+	hero.tick(delta)
+	update_hero_attack(delta)
+	if phase!="day" and phase!="night":return
+	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
+	for i in range(enemies.size()-1,-1,-1):
+		var creature:=enemies[i]
+		if not is_instance_valid(creature) or not creature.alive:
+			enemies.remove_at(i)
+			continue
+		creature.tick(delta)
+		update_creature(creature,delta)
+		if creature.get_meta("threat","")=="light_eater":
+			var eater:=creature.get_node_or_null("LightEater") as NightLightEater
+			if eater:
+				eater.tick(delta)
+				for lamp_index in world.gate_lights.size():
+					world.gate_light_drain[lamp_index]=maxf(world.gate_light_drain[lamp_index],eater.drain_at(world.gate_lights[lamp_index].global_position))
+	var gate_drain:=maxf(world.gate_light_drain[0],world.gate_light_drain[1])
+	if gate_drain>.48 and not light_eater_warning_issued:
+		light_eater_warning_issued=true
+		notify("噬灯蛾正在吞噬南门灯光 · 击杀可恢复照明",4)
+	elif gate_drain<.1:light_eater_warning_issued=false
+	update_towers(delta)
+	update_gate_trap(delta)
+	auto_attack()
+	expeditions.tick(delta)
+	discoveries.tick(delta)
+	wildlife.tick(delta)
+	update_salvage_refresh(delta)
+	if phase=="night":
+		if wave_index<WAVES_PER_NIGHT:
+			spawn_timer-=delta
+			if spawn_timer<=4.0 and not wave_warning_issued:
+				wave_warning_issued=true
+				world.wave_warning=true
+				notify("南门警报 · 第 %d 波即将到达" % (wave_index+1),3)
+			if spawn_timer<=0:spawn_night_wave()
+		pulse_timer-=delta
+		if pulse_timer<=0:
+			beacon_pulse()
+			pulse_timer=beacon_pulse_interval()
+	if phase_time<=0 and (phase=="day" or phase=="night"):
+		if phase=="day":start_night()
+		else:finish_night()
+
+func start_night() -> void:
+	cancel_hero_attack()
+	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
+	var withdrew_expedition:=expeditions.on_night()
+	phase="night";phase_time=NIGHT_LENGTH
+	spawn_timer=night_spawn_interval();pulse_timer=2.0
+	wave_index=0;wave_warning_issued=false
+	world.set_night(true)
+	world.wave_warning=false
+	for creature in enemies:
+		if is_instance_valid(creature):creature.queue_free()
+	enemies.clear()
+	BattleVisuals.burst(effects,Vector3(0,0,19),4.5,Color("b85b4a"),.7)
+	var night_lines:=["许弦：灯塔的回声太响了。夜行体正从南门涌来。",
+		"林舟：快的先到，破城体跟在后面。通信塔会帮守塔锁敌。",
+		"闻澈：守住最后一夜，我告诉你地下那座设施在哪。"]
+	notify("黑夜降临 · 未完成远征撤离，明日可重试；立刻回防南门" if withdrew_expedition else night_lines[mini(day_number-1,2)],6)
+	spawn_night_wave()
+
+func spawn_night_wave() -> void:
+	if phase!="night" or wave_index>=WAVES_PER_NIGHT:return
+	wave_index+=1
+	var count:=initial_night_pack() if wave_index==1 else maxi(4,6+day_number*2+wave_index*2-cleansed_nests())
+	for i in range(count):spawn_creature(true)
+	spawn_timer=night_spawn_interval() if wave_index<WAVES_PER_NIGHT else 0.0
+	wave_warning_issued=false
+	world.wave_warning=false
+	BattleVisuals.burst(effects,Vector3(0,0,19),3.2,Color("dc7957"),.5)
+	if wave_index>1:notify("第 %d/%d 波抵达南门 · %d 只夜行体" % [wave_index,WAVES_PER_NIGHT,count],3)
+
+func initial_night_pack() -> int:
+	return maxi(5,8+day_number*3-cleansed_nests()*2)
+
+func night_spawn_interval() -> float:
+	return 19.0-float(day_number)*.5+float(cleansed_nests())*1.4
+
+func beacon_pulse_interval() -> float:
+	return maxf(2.5,3.1-float(generator_cells)*.2)
+
+func beacon_repair_cost() -> int:
+	return maxi(14,20-survivors_rescued*3)
+
+func finish_night() -> void:
+	cancel_hero_attack()
+	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
+	world.wave_warning=false
+	clear_gate_barricade()
+	if day_number>=3:
+		victory=true;phase="ended";world.set_night(false)
+		ending_key="signal" if remaining_nests()==0 else "hold"
+		if ending_key=="signal":
+			world.beacon_light.light_color=Color("96d9d6")
+			BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),11.0,Color("8bd9d5"),.9)
+			notify("第四次日出 · 三处夜巢封印，地下阵列坐标已显现",8)
+		else:
+			BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),8.0,Color("e9aa65"),.8)
+			notify("灯火未灭 · 荒原的夜巢仍在呼吸",8)
+		return
+	day_number+=1
+	phase="draft"
+	return_phase="day"
+	phase_time=DAY_LENGTH
+	world.set_night(false)
+	for item in world.salvage:
+		item.collected=false
+		item.respawn=0.0
+		(item.node as Node3D).visible=true
+	for creature in enemies:
+		if is_instance_valid(creature):creature.queue_free()
+	enemies.clear()
+	for i in range(5+day_number):spawn_creature(false)
+	spawn_nest_guards()
+	run.grant("熬过第 %d 夜 · 选择新的守望能力" % (day_number-1))
+	open_draft()
+
+func begin_day() -> void:
+	phase="day";phase_time=DAY_LENGTH
+	world.set_night(false)
+	expeditions.on_day()
+	spawn_timer=4
+	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
+		"林舟：启动发电机会惊醒潜伏体，先准备好再接通。",
+		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
+	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
+
+func spawn_creature(night: bool) -> BattleUnit:
+	var creature:=UnitScript.new() as BattleUnit
+	add_child(creature)
+	var angle:=rng.randf_range(0,TAU)
+	var radius:=rng.randf_range(20,98)
+	creature.position=Vector3(rng.randf_range(-10,10),0,rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
+	creature.set_meta("gate_lane",rng.randf_range(-1.15,1.15))
+	var roll:=rng.randf() if night else 1.0
+	var is_light_eater: bool=night and roll>=.34+day_number*.035 and roll<.43+day_number*.035
+	creature.setup("monster",2)
+	creature.title="夜行体" if night else "潜伏体"
+	creature.visual.queue_free()
+	var model_path: String="res://assets/models/night_breaker_v2.glb" if night and roll<.06+day_number*.025 else ("res://assets/models/night_light_eater.glb" if is_light_eater else "res://assets/models/night_stalker_v2.glb")
+	creature.visual=(load(model_path) as PackedScene).instantiate() as Node3D
+	creature.add_child(creature.visual)
+	creature.bind_stalker_rig()
+	creature.visual_yaw_offset=PI
+	creature.visual.scale=Vector3.ONE*(1.12 if night else 1.0)
+	creature.max_hp=(155.0+day_number*28) if night else (105.0+day_number*16)
+	creature.hp=creature.max_hp
+	creature.damage=20.0 if night else 13.0
+	creature.speed=3.8 if night else 2.3
+	creature.attack_range=1.6
+	creature.attack_interval=1.1
+	if night:
+		if roll<.06+day_number*.025:
+			creature.set_meta("threat","breaker")
+			creature.title="破城体"
+			creature.max_hp*=2.35
+			creature.hp=creature.max_hp
+			creature.damage*=2.6
+			creature.speed=2.45
+			creature.visual.scale=Vector3.ONE*1.5
+			BattleVisuals.ring(creature,Vector3(0,.08,0),.95,Color("df7854"),.045)
+		elif roll<.23+day_number*.035:
+			creature.set_meta("threat","runner")
+			creature.title="疾行体"
+			creature.max_hp*=.64
+			creature.hp=creature.max_hp
+			creature.damage*=.75
+			creature.speed=5.4
+			creature.visual.scale=Vector3.ONE*.94
+			BattleVisuals.ring(creature,Vector3(0,.08,0),.56,Color("75ced1"),.035)
+		elif roll<.34+day_number*.035:
+			creature.set_meta("threat","sapper")
+			creature.title="蚀塔体"
+			creature.max_hp*=1.28
+			creature.hp=creature.max_hp
+			creature.damage*=1.35
+			creature.speed=4.3
+			creature.visual.scale=Vector3.ONE*1.1
+			BattleVisuals.ring(creature,Vector3(0,.08,0),.72,Color("b4d66d"),.05)
+		elif is_light_eater:
+			creature.set_meta("threat","light_eater")
+			creature.title="噬灯蛾"
+			creature.max_hp*=.82
+			creature.hp=creature.max_hp
+			creature.damage*=.7
+			creature.speed=4.1
+			creature.visual.scale=Vector3.ONE*1.2
+			var eater:=NightLightEater.new()
+			eater.name="LightEater"
+			creature.add_child(eater)
+			eater.setup(creature)
+			BattleVisuals.ring(creature,Vector3(0,.08,0),.63,Color("70c9c9"),.045)
+		else:creature.set_meta("threat","stalker")
+	creature.defeated.connect(_on_creature_defeated)
+	enemies.append(creature)
+	return creature
+
+func spawn_nest_guards() -> void:
+	for nest in world.nests:
+		if nest.cleansed:continue
+		for side in [-1,1]:
+			var guard:=spawn_creature(false)
+			guard.position=nest.position+Vector3(float(side)*2.8,0,1.5)
+			guard.title="夜巢守卫"
+
+func update_creature(creature: BattleUnit, delta: float) -> void:
+	var threat: String=creature.get_meta("threat","")
+	var day_hunter: bool=phase=="day" and creature.get_meta("day_hunter",false)
+	var pursuing_hero: bool=(creature.position.distance_to(hero.position)<4.0 or day_hunter) and hero.alive and threat!="breaker" and threat!="sapper"
+	var target_pad: int=-1
+	if phase=="night" and threat=="sapper":target_pad=south_tower_target(creature.position)
+	var attacking_barricade: bool=phase=="night" and gate_barricade_hp>0 and not pursuing_hero and target_pad<0 and creature.position.z>gate_barricade.position.z-.3 and creature.position.z<=19.5 and absf(creature.position.x)<2.8
+	if creature.attack_queued and (creature.attack_target_hero!=pursuing_hero or creature.attack_target_pad!=target_pad or creature.attack_target_barricade!=attacking_barricade):
+		creature.attack_queued=false
+		creature.attack_windup=0
+	if phase=="day" and not pursuing_hero:
+		creature.moving=false
+		return
+	var lane: float=creature.get_meta("gate_lane",0.0)
+	var target:=hero.position if pursuing_hero else Vector3(0,NightfallWorld.FORT_HEIGHT,0)
+	if phase=="night" and not pursuing_hero and creature.position.z>19.5:
+		target=Vector3(lane,0,19.0)
+	elif phase=="night" and not pursuing_hero and creature.position.z>5.1:
+		target=Vector3(lane,NightfallWorld.FORT_HEIGHT,4.4)
+	if phase=="night" and not pursuing_hero and threat=="sapper":
+		if target_pad>=0:
+			var pad_position: Vector3=world.tower_pads[target_pad].position
+			if creature.position.z>19.5:target=Vector3(signf(pad_position.x)*5.3,0,19.0)
+			else:target=pad_position
+		elif absf(creature.position.x)>3.7 and creature.position.z<19.5 and creature.position.z>7.5:
+			target=Vector3(signf(creature.position.x)*5.3,0,20.0)
+	if attacking_barricade:target=gate_barricade.position
+	var distance:=creature.position.distance_to(target)
+	var attacking_tower: bool=target_pad>=0 and target==world.tower_pads[target_pad].position
+	var reach:=creature.attack_range if pursuing_hero or target.z==0 or attacking_tower or attacking_barricade else .2
+	if distance>reach or (day_hunter and not can_traverse(creature.position,target)):
+		creature.attack_queued=false
+		creature.attack_windup=0
+		if day_hunter:
+			var waypoint:=day_hunter_waypoint(creature,target)
+			var direction:=waypoint-creature.position;direction.y=0
+			var previous:=creature.position
+			if direction.length()>.05:
+				var next:=previous+direction.normalized()*minf(direction.length(),creature.speed*delta)
+				if can_traverse(previous,next):
+					next.y=outpost_height(next)
+					creature.position=next
+				else:
+					creature.path.clear();creature.path_timer=0
+			creature.face(waypoint,delta)
+			creature.moving=creature.position.distance_squared_to(previous)>.000001
+		else:
+			var direction:=(target-creature.position).normalized()
+			var next:=creature.position+direction*creature.speed*delta
+			if outpost_walkable(next):
+				next.y=outpost_height(next)
+				creature.position=next
+			creature.face(target,delta)
+			creature.moving=true
+	else:
+		creature.moving=false
+		creature.face(target,delta)
+		if creature.attack_queued and creature.attack_windup<=0:
+			creature.attack_queued=false
+			creature.attack_timer=creature.attack_interval
+			creature.attack_pose=1.0
+			if threat=="breaker":BattleVisuals.breaker_slam(effects,creature.position)
+			if attacking_tower:
+				damage_tower(target_pad,creature.damage)
+			elif attacking_barricade:
+				damage_gate_barricade(creature.damage)
+			elif not pursuing_hero and target.z==0:
+				var previous_hp:=beacon_hp
+				beacon_hp=maxf(0,beacon_hp-creature.damage)
+				record_beacon_hit(previous_hp-beacon_hp)
+				BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),1.15,Color("ff9a4d"),.28)
+				if beacon_hp<=0:end_defeat("灯塔熄灭 · 哨站失守")
+			else:
+				hero.hurt(creature.damage,creature)
+				BattleVisuals.sparks(effects,hero.position+Vector3.UP,Color("ef9d76"),5)
+				BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
+		elif not creature.attack_queued and creature.attack_timer<=0:
+			creature.attack_queued=true
+			creature.attack_target_hero=pursuing_hero
+			creature.attack_target_pad=target_pad
+			creature.attack_target_barricade=attacking_barricade
+			creature.windup_duration=.22 if creature.get_meta("threat","")=="runner" else (.55 if creature.get_meta("threat","")=="breaker" else .34)
+			creature.attack_windup=creature.windup_duration
+
+func day_hunter_waypoint(creature: BattleUnit, destination: Vector3) -> Vector3:
+	# Expedition pursuers follow the same gate geometry as the player.
+	# Keep the normal night lanes unchanged, and refresh when the player moves.
+	if can_traverse(creature.position,destination):
+		creature.path.clear();creature.path_goal=destination
+		return destination
+	while not creature.path.is_empty() and creature.position.distance_to(creature.path[0])<.18:
+		creature.path.remove_at(0)
+	if creature.path.is_empty() or (creature.path_timer<=0 and creature.path_goal.distance_to(destination)>.8):
+		build_day_hunter_route(creature,destination)
+	if creature.path.is_empty():return creature.position
+	return creature.path[0]
+
+func build_day_hunter_route(creature: BattleUnit, destination: Vector3) -> void:
+	creature.path.clear();creature.path_goal=destination;creature.path_timer=.45
+	var start_cell:=nearest_navigation_cell(creature.position,true)
+	var end_cell:=nearest_navigation_cell(destination,false)
+	if start_cell.x==999 or end_cell.x==999:return
+	var grid_path:=hero_navigation.get_point_path(start_cell,end_cell)
+	var cursor:=creature.position
+	var index:=0
+	while index<grid_path.size():
+		var furthest:=index
+		for i in range(index,grid_path.size()):
+			var point:=Vector3(grid_path[i].x,0,grid_path[i].y)
+			if can_traverse(cursor,point):furthest=i
+			else:break
+		var waypoint:=Vector3(grid_path[furthest].x,0,grid_path[furthest].y)
+		if not can_traverse(cursor,waypoint):
+			creature.path.clear()
+			return
+		waypoint.y=outpost_height(waypoint)
+		creature.path.append(waypoint)
+		cursor=waypoint;index=furthest+1
+	if can_traverse(cursor,destination):creature.path.append(destination)
+
+func south_tower_target(from: Vector3) -> int:
+	var selected:=-1
+	var nearest:=INF
+	for i in [1,2]:
+		var pad: Dictionary=world.tower_pads[i]
+		if pad.level<=0 or pad.hp<=0:continue
+		var distance: float=from.distance_squared_to(pad.position)
+		if distance<nearest:selected=i;nearest=distance
+	return selected
+
+func damage_tower(index: int, amount: float) -> void:
+	var pad: Dictionary=world.tower_pads[index]
+	if pad.level<=0:return
+	pad.hp=maxf(0.0,float(pad.hp)-amount)
+	BattleVisuals.sparks(effects,pad.position+Vector3(0,1.4,0),Color("cbdd82"),5)
+	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=pad.hp<pad.max_hp*.6
+	if pad.hp>0:return
+	(pad.turret as Node3D).queue_free()
+	pad.turret=null
+	pad.level=0
+	pad.max_hp=0.0
+	pad.cooldown=0.0
+	pad.mode="nearest"
+	BattleVisuals.burst(effects,pad.position,2.5,Color("db8757"),.45)
+	notify("南门防御塔被蚀塔体摧毁 · 可重新建造",3)
+
+func record_beacon_hit(amount: float) -> void:
+	if amount<=0:return
+	if beacon_alarm_time>0:beacon_alarm_damage+=amount
+	else:beacon_alarm_damage=amount
+	beacon_alarm_time=3.0
+
+func update_beacon_alarm(delta: float) -> void:
+	beacon_alarm_time=maxf(0.0,beacon_alarm_time-delta)
+	if beacon_alarm_time<=0:beacon_alarm_damage=0.0
+
+func move_hero(delta: float) -> void:
+	var old_position:=hero.position
+	var input:=Vector3.ZERO
+	if Input.is_key_pressed(KEY_Z) or Input.is_key_pressed(KEY_UP):input.z-=1
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):input.z+=1
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):input.x-=1
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):input.x+=1
+	if input.length_squared()>0:
+		hero_keyboard_active=true
+		hero_path.clear()
+		move_goal=hero.position+input.normalized()*2
+	elif hero_keyboard_active:
+		hero_keyboard_active=false
+		hero_path.clear()
+		move_goal=hero.position
+	while not hero_path.is_empty() and hero.position.distance_to(hero_path[0])<.18:
+		hero_path.remove_at(0)
+	var target: Vector3=hero_path[0] if not hero_path.is_empty() else move_goal
+	var to_goal:=target-hero.position
+	to_goal.y=0
+	if to_goal.length()>.11:
+		var move:=to_goal.normalized()*minf(to_goal.length(),hero.speed*delta)
+		var next:=hero.position+move
+		if can_traverse(hero.position,next):
+			next.y=outpost_height(next)
+			hero.position=next
+			hero.moving=true
+			hero.face(hero.position+to_goal.normalized(),delta)
+		else:
+			hero.moving=false
+			hero_path.clear()
+			move_goal=hero.position
+	else:hero.moving=false
+	hero.set_locomotion_velocity((hero.position-old_position)/maxf(delta,.001))
+
+func build_hero_navigation() -> void:
+	hero_navigation=AStarGrid2D.new()
+	hero_navigation.region=Rect2i(-123,-107,247,215)
+	hero_navigation.cell_size=Vector2.ONE
+	hero_navigation.diagonal_mode=AStarGrid2D.DIAGONAL_MODE_NEVER
+	hero_navigation.update()
+	for z in range(-107,108):
+		for x in range(-123,124):
+			if not outpost_walkable(Vector3(x,0,z)):
+				hero_navigation.set_point_solid(Vector2i(x,z))
+
+func nearest_navigation_cell(point: Vector3, require_reachable: bool) -> Vector2i:
+	var center:=Vector2i(clampi(roundi(point.x),-123,123),clampi(roundi(point.z),-107,107))
+	for radius in range(0,7):
+		var best:=Vector2i(999,999)
+		var best_distance:=INF
+		for z in range(center.y-radius,center.y+radius+1):
+			for x in range(center.x-radius,center.x+radius+1):
+				var cell:=Vector2i(x,z)
+				if not hero_navigation.is_in_boundsv(cell) or hero_navigation.is_point_solid(cell):continue
+				var waypoint:=Vector3(x,0,z)
+				if require_reachable and not can_traverse(point,waypoint):continue
+				var distance:=Vector2(point.x-x,point.z-z).length_squared()
+				if distance<best_distance:best=cell;best_distance=distance
+		if best.x!=999:return best
+	return Vector2i(999,999)
+
+func plan_hero_path(destination: Vector3) -> void:
+	hero_keyboard_active=false
+	hero_path.clear()
+	var goal:=Vector3(clampf(destination.x,-122.5,122.5),0,clampf(destination.z,-106.5,106.5))
+	var end_cell:=nearest_navigation_cell(goal,false)
+	if end_cell.x==999:
+		move_goal=hero.position
+		return
+	if not outpost_walkable(goal):goal=Vector3(end_cell.x,0,end_cell.y)
+	goal.y=outpost_height(goal)
+	move_goal=goal
+	if can_traverse(hero.position,goal):
+		hero_path.append(goal)
+		return
+	var start_cell:=nearest_navigation_cell(hero.position,true)
+	if start_cell.x==999:
+		move_goal=hero.position
+		return
+	var grid_path:=hero_navigation.get_point_path(start_cell,end_cell)
+	if grid_path.is_empty():
+		move_goal=hero.position
+		return
+	var cursor:=hero.position
+	var index:=0
+	while index<grid_path.size():
+		var furthest:=index
+		for i in range(index,grid_path.size()):
+			var point:=Vector3(grid_path[i].x,0,grid_path[i].y)
+			if can_traverse(cursor,point):furthest=i
+			else:break
+		var waypoint:=Vector3(grid_path[furthest].x,0,grid_path[furthest].y)
+		if not can_traverse(cursor,waypoint):
+			hero_path.clear()
+			move_goal=hero.position
+			return
+		waypoint.y=outpost_height(waypoint)
+		hero_path.append(waypoint)
+		cursor=waypoint
+		index=furthest+1
+	if can_traverse(cursor,goal):hero_path.append(goal)
+	else:move_goal=cursor
+
+func outpost_walkable(point: Vector3) -> bool:
+	if absf(point.x)>123 or absf(point.z)>107:return false
+	if absf(absf(point.x)-7.3)<.8 and absf(point.z)<8.1:return false
+	if absf(point.z+7.3)<.8 and absf(point.x)<8.1:return false
+	if absf(point.z-7.3)<.8 and absf(point.x)>2.65 and absf(point.x)<8.1:return false
+	if absf(absf(point.x)-3.25)<.65 and point.z>8.0 and point.z<18.6:return false
+	return true
+
+func outpost_height(point: Vector3) -> float:
+	return world.terrain_height(point)
+
+func can_traverse(start: Vector3, end: Vector3) -> bool:
+	if not outpost_walkable(end):return false
+	var origin:=Vector2(start.x,start.z)
+	var direction:=Vector2(end.x-start.x,end.z-start.z)
+	for block: Rect2 in WALK_BLOCKS:
+		if segment_crosses_wall(origin,direction,block):return false
+	return true
+
+func segment_crosses_wall(origin: Vector2, direction: Vector2, block: Rect2) -> bool:
+	# Continuous collision prevents short corner cuts that fixed samples can miss.
+	var enter:=0.0
+	var leave:=1.0
+	for axis in 2:
+		var low: float=block.position[axis]
+		var high: float=block.end[axis]
+		if absf(direction[axis])<.000001:
+			if origin[axis]<=low or origin[axis]>=high:return false
+		else:
+			var first: float=(low-origin[axis])/direction[axis]
+			var last: float=(high-origin[axis])/direction[axis]
+			enter=maxf(enter,minf(first,last));leave=minf(leave,maxf(first,last))
+			if enter>=leave:return false
+	return leave>0 and enter<1
+
+func update_towers(delta: float) -> void:
+	var relay_bonus:=relay_count()
+	for pad in world.tower_pads:
+		if pad.level<=0:continue
+		pad.cooldown=maxf(0.0,float(pad.cooldown)-delta)
+		if pad.cooldown>0:continue
+		var selected: BattleUnit
+		var range_limit:=14.0+float(pad.level)*1.5+float(relay_bonus)*.55
+		var nearest:=range_limit
+		var breaker: BattleUnit
+		var breaker_distance:=nearest
+		for creature in enemies:
+			if not is_instance_valid(creature) or not creature.alive:continue
+			var distance: float=pad.position.distance_to(creature.position)
+			if distance<nearest:selected=creature;nearest=distance
+			if pad.mode=="breaker" and creature.get_meta("threat","")=="breaker" and distance<breaker_distance:
+				breaker=creature;breaker_distance=distance
+		if breaker!=null:selected=breaker
+		if is_instance_valid(focus_target) and focus_target.alive and focus_time>0 and pad.position.distance_to(focus_target.position)<range_limit:
+			selected=focus_target
+		if selected==null:continue
+		pad.cooldown=maxf(.38,1.05-float(pad.level)*.18)
+		var tower: Node3D=pad.turret
+		tower.look_at(Vector3(selected.position.x,tower.position.y,selected.position.z),Vector3.UP)
+		var impact:=selected.position
+		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
+		BattleVisuals.tower_shot(effects,pad.position+Vector3(0,2.1,0),impact+Vector3(0,1,0),pad.level)
+		selected.hurt(damage,hero)
+		if pad.level>=3:
+			BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f3b966"),7)
+			for other in enemies:
+				if other==selected or not is_instance_valid(other) or not other.alive:continue
+				if other.position.distance_to(impact)<2.7:other.hurt(damage*.36,hero)
+
+func update_focus(delta: float) -> void:
+	focus_cooldown=maxf(0.0,focus_cooldown-delta)
+	if focus_time<=0:return
+	focus_time=maxf(0.0,focus_time-delta)
+	if not is_instance_valid(focus_target) or not focus_target.alive or focus_time<=0:
+		clear_focus()
+	elif is_instance_valid(focus_ring):
+		focus_ring.scale=Vector3.ONE*(1.0+sin(float(Time.get_ticks_msec())*.01)*.08)
+
+func clear_focus() -> void:
+	if is_instance_valid(focus_ring):focus_ring.queue_free()
+	focus_ring=null
+	focus_target=null
+	focus_time=0.0
+
+func issue_focus_order() -> bool:
+	if phase!="day" and phase!="night":return false
+	if focus_cooldown>0:return false
+	var selected: BattleUnit
+	var best:=3.0
+	for creature in enemies:
+		if not is_instance_valid(creature) or not creature.alive:continue
+		if Vector2(creature.position.x,creature.position.z).distance_to(Vector2(hero.position.x,hero.position.z))>27:continue
+		var distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(aim.x,aim.z))
+		if distance<best:selected=creature;best=distance
+	if selected==null:
+		notify("将准星移到射程内的夜行体，再按 C 集火",2)
+		return false
+	var reachable:=false
+	for pad in world.tower_pads:
+		if pad.level<=0:continue
+		var range_limit:=14.0+float(pad.level)*1.5+float(relay_count())*.55
+		if pad.position.distance_to(selected.position)<range_limit:reachable=true;break
+	if not reachable:
+		notify("目标尚未进入防御塔射程",2)
+		return false
+	clear_focus()
+	focus_target=selected
+	focus_time=FOCUS_DURATION
+	focus_cooldown=FOCUS_COOLDOWN
+	focus_ring=BattleVisuals.ring(selected,Vector3(0,.16,0),.95,Color("f0c66f"),.1)
+	BattleVisuals.sparks(effects,selected.position+Vector3.UP,Color("f0c66f"),9)
+	notify("塔群集火：%s · 持续 8 秒" % selected.title,2)
+	return true
+
+func auto_attack() -> void:
+	if phase not in ["day","night"] or not hero.alive:return
+	if hero.attack_timer>0 or is_instance_valid(hero_attack_target):return
+	if hero.hero_action=="inferno":return
+	var closest: BattleUnit
+	var best:=hero.attack_range+float(run.stats.range)
+	for creature in enemies:
+		if not is_instance_valid(creature) or not creature.alive:continue
+		var distance:=creature.position.distance_to(hero.position)
+		if distance<best:closest=creature;best=distance
+	if closest==null:return
+	hero_attack_step=attack_chain if attack_chain_time>0 else 0
+	hero.hero_attack_variant=hero_attack_step
+	hero.attack_timer=hero.attack_interval
+	hero.attack_pose=1
+	hero.play_action("attack",closest.position-hero.position)
+	hero_attack_target=closest
+	hero.hero_action_duration=minf(.70,hero.attack_interval*.90)
+	hero_attack_delay=hero.hero_action_duration*.20
+	if combat:combat.swing(hero.position,closest.position-hero.position,hero_attack_step,hero_attack_delay)
+
+func update_combat_chains(delta: float) -> void:
+	attack_chain_time=maxf(0.0,attack_chain_time-delta)
+	if attack_chain_time<=0:attack_chain=0
+	kill_chain_time=maxf(0.0,kill_chain_time-delta)
+	if kill_chain_time<=0:kill_chain=0
+	combat_milestone_time=maxf(0.0,combat_milestone_time-delta)
+
+func cancel_hero_attack() -> void:
+	hero_attack_target=null
+	hero_attack_delay=0.0
+
+func update_hero_attack(delta: float) -> void:
+	if phase not in ["day","night"]:return
+	if not is_instance_valid(hero_attack_target):
+		cancel_hero_attack()
+		return
+	if not hero.alive or not hero_attack_target.alive:
+		cancel_hero_attack()
+		return
+	hero_attack_delay=maxf(0.0,hero_attack_delay-delta)
+	if hero_attack_delay>0:return
+	var closest:=hero_attack_target
+	cancel_hero_attack()
+	# Contact resolves against the original target; leaving reach is a miss,
+	# never an invisible hit on another creature during the draw-back.
+	if closest.position.distance_to(hero.position)>hero.attack_range+float(run.stats.range)+.35:return
+	attack_count+=1
+	if attack_chain_time<=0:hero_attack_step=0
+	var finisher:=hero_attack_step==2
+	attack_chain=0 if finisher else hero_attack_step+1
+	attack_chain_time=2.8
+	var critical:=rng.randf()<float(run.stats.crit)
+	var amount:=hero.damage
+	if finisher:amount*=1.30
+	if critical:amount*=1.75
+	var old_hp:=closest.hp
+	var impact_point:=closest.position
+	var hit_direction:=(closest.position-hero.position).normalized()
+	player_attack_resolving=true
+	closest.hurt(amount,hero)
+	player_attack_resolving=false
+	var dealt:=maxf(0.0,old_hp-closest.hp)
+	if combat:combat.impact(impact_point,hit_direction,dealt,critical,finisher)
+	if not combat or not combat.reduced_effects:
+		hero.visual_hit_stop=.055 if finisher or critical else .028
+		if closest.alive:closest.visual_hit_stop=.055 if finisher or critical else .028
+	if closest.alive:
+		var push:=.30 if finisher else .12
+		if closest.get_meta("threat","")=="breaker":push*=.30
+		var pushed:=closest.position+Vector3(hit_direction.x,0,hit_direction.z)*push
+		if can_traverse(closest.position,pushed):
+			pushed.y=outpost_height(pushed);closest.position=pushed
+	if run.count("chain")>0 and attack_count%3==0:
+		var chained:=0
+		for other in enemies:
+			if other==closest or not is_instance_valid(other) or not other.alive:continue
+			if other.position.distance_to(closest.position)<5.0:
+				player_attack_resolving=true
+				other.hurt(amount*.55,hero)
+				player_attack_resolving=false
+				BattleVisuals.beam(effects,closest.position+Vector3.UP,other.position+Vector3.UP,Color("95d6e1"),.12)
+				chained+=1
+				if chained>=2:break
+	if float(run.stats.lifesteal)>0:
+		hero.hp=minf(hero.max_hp,hero.hp+maxf(0,old_hp-closest.hp)*float(run.stats.lifesteal))
+
+func beacon_pulse() -> void:
+	var hits:=0
+	for creature in enemies:
+		if not is_instance_valid(creature) or not creature.alive:continue
+		if Vector2(creature.position.x,creature.position.z).length()<10.5:
+			creature.hurt(34+day_number*9,hero)
+			hits+=1
+			if hits>=5:break
+	if hits>0:BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),10.5,Color("ffaa58"),.28)
+
+func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
+	kills+=1
+	var combat_phase: String=return_phase if phase=="draft" else phase
+	var scrap_gain:=8 if combat_phase=="night" else 5
+	scrap+=scrap_gain
+	essence+=12
+	if player_attack_resolving and _source==hero:
+		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
+		kill_chain_time=6.0
+		if combat:combat.kill(creature.position,scrap_gain,12)
+		var thresholds: Array[int]=[3,6,10]
+		var milestone_index:=thresholds.find(kill_chain)
+		if milestone_index>=0:
+			var extra_scrap: int=[5,8,12][milestone_index]
+			var extra_memory: int=[4,6,10][milestone_index]
+			scrap+=extra_scrap;essence+=extra_memory
+			combat_milestone_title="%d 连斩 · %s" % [kill_chain,["余烬初燃","灯火燎原","长夜破晓"][milestone_index]]
+			combat_milestone_detail="额外 +%d 零件  ·  +%d 记忆" % [extra_scrap,extra_memory]
+			combat_milestone_time=2.2
+			if combat:combat.milestone(kill_chain,extra_scrap,extra_memory)
+	BattleVisuals.burst(effects,creature.position,.9,Color("b37661"),.38)
+	creature.visible=false
+	creature.queue_free()
+	while essence>=100:
+		essence-=100
+		run.grant("战斗记忆 · 选择一张命运卡")
+	if run.pending>0:open_draft()
+
+func _on_hero_defeated(_unit: BattleUnit, _source: BattleUnit) -> void:
+	end_defeat("守望者倒下 · 灯塔无人防守")
+
+func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
+	if run.count("thorns")>0 and is_instance_valid(source) and source.alive:
+		source.hurt(18+hero.armor*.25,hero)
+
+func end_defeat(message: String) -> void:
+	phase="ended";victory=false;ending_key="defeat";notify(message,8)
+
+func open_draft() -> void:
+	if phase=="ended":return
+	if phase=="day" or phase=="night":
+		return_phase=phase
+		# A second gathering tap must not spend a reroll on the newly opened card UI.
+		draft_reroll_ready_at=float(Time.get_ticks_msec())*.001+.6
+	if run.draft():phase="draft"
+
+func choose_card(index: int) -> bool:
+	if phase!="draft":return false
+	var card:=run.choose(index)
+	if card.is_empty():return false
+	var old_max:=hero.max_hp
+	hero.max_hp=850+float(run.stats.health)
+	hero.hp=minf(hero.max_hp,hero.hp+maxf(0,hero.max_hp-old_max))
+	hero.damage=58+float(run.stats.attack)
+	hero.armor=10+float(run.stats.armor)
+	hero.speed=HERO_MOVE_SPEED+float(run.stats.speed)
+	hero.attack_interval=.8/(1.0+float(run.stats.attack_speed))
+	max_mana=300+float(run.stats.mana)
+	mana=minf(max_mana,mana+maxf(0,float(run.stats.mana)))
+	notify("铭刻："+str(card.name),3)
+	if run.pending>0:
+		open_draft()
+	elif opening_night_pending:
+		opening_night_pending=false
+		start_night()
+		notify("第 1 夜 · 两座守门塔已就位，B 布障 / R 灯焰；守住南门",6)
+	elif phase_time==DAY_LENGTH and return_phase=="day":begin_day()
+	else:phase=return_phase
+	return true
+
+func nearest_salvage() -> int:
+	var selected:=-1
+	var best:=2.4
+	for i in world.salvage.size():
+		var item:=world.salvage[i]
+		if item.collected:continue
+		var distance:=hero.position.distance_to(item.position)
+		if distance<best:selected=i;best=distance
+	return selected
+
+func nearest_tower_pad() -> int:
+	var selected:=-1
+	var best:=2.6
+	for i in world.tower_pads.size():
+		var distance: float=hero.position.distance_to(world.tower_pads[i].position)
+		if distance<best:selected=i;best=distance
+	return selected
+
+func toggle_tower_mode() -> bool:
+	if phase!="day" and phase!="night":return false
+	var index:=nearest_tower_pad()
+	if index<0 or world.tower_pads[index].level<=0:return false
+	var pad: Dictionary=world.tower_pads[index]
+	pad.mode="breaker" if pad.mode=="nearest" else "nearest"
+	notify("防御塔目标：破城优先" if pad.mode=="breaker" else "防御塔目标：最近目标",2)
+	return true
+
+func repair_tower() -> bool:
+	if phase!="day" and phase!="night":return false
+	var index:=nearest_tower_pad()
+	if index<0:return false
+	var pad: Dictionary=world.tower_pads[index]
+	if pad.level<=0 or pad.hp>=pad.max_hp:return false
+	if scrap<20:
+		notify("修复防御塔需要 20 零件",2)
+		return false
+	scrap-=20
+	pad.hp=minf(pad.max_hp,float(pad.hp)+100.0)
+	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=pad.hp<pad.max_hp*.6
+	BattleVisuals.burst(effects,pad.position+Vector3(0,1.0,0),1.8,Color("82d4b9"),.35)
+	notify("防御塔已修复 · 耐久 %d/%d" % [ceili(pad.hp),ceili(pad.max_hp)],2)
+	return true
+
+func near_gate_controls() -> bool:
+	return Vector2(hero.position.x,hero.position.z).distance_to(Vector2(0,7.0))<3.4
+
+func create_gate_barricade() -> void:
+	var point:=Vector3(0,0,12.5)
+	point.y=world.terrain_height(point)
+	gate_barricade=world.place("res://assets/models/barricade.glb",point,1.55,0)
+	gate_barricade.visible=false
+	gate_barricade_ring=BattleVisuals.ring(world,point+Vector3(0,.12,0),2.3,Color("e2a665"),.07)
+	gate_barricade_ring.visible=false
+
+func build_gate_barricade() -> bool:
+	if phase!="day" and phase!="night":return false
+	if not near_gate_controls():return false
+	if gate_barricade_hp>0:
+		notify("南门路障仍可抵挡夜行体",2)
+		return false
+	if scrap<BARRICADE_COST:
+		notify("部署路障需要 %d 零件" % BARRICADE_COST,2)
+		return false
+	scrap-=BARRICADE_COST
+	gate_barricade_hp=BARRICADE_MAX
+	gate_barricade.visible=true
+	gate_barricade_ring.visible=true
+	gate_barricade_ring.material_override.albedo_color=Color("e2a665")
+	BattleVisuals.burst(effects,gate_barricade.position,2.7,Color("e2a665"),.45)
+	notify("南门路障已部署 · 耐久 %d" % int(BARRICADE_MAX),2)
+	return true
+
+func damage_gate_barricade(amount: float) -> void:
+	if gate_barricade_hp<=0:return
+	gate_barricade_hp=maxf(0.0,gate_barricade_hp-amount)
+	BattleVisuals.sparks(effects,gate_barricade.position+Vector3(0,1.0,0),Color("e5ad73"),5)
+	gate_barricade_ring.material_override.albedo_color=Color("d35f54") if gate_barricade_hp<BARRICADE_MAX*.4 else Color("e2a665")
+	if gate_barricade_hp>0:return
+	clear_gate_barricade()
+	BattleVisuals.burst(effects,gate_barricade.position,3.5,Color("d97855"),.5)
+	notify("南门路障被击碎 · 入口暴露",3)
+
+func clear_gate_barricade() -> void:
+	gate_barricade_hp=0.0
+	gate_barricade.visible=false
+	gate_barricade_ring.visible=false
+
+func create_gate_trap_visuals() -> void:
+	for i in GATE_TRAP_MAX:
+		var point:=Vector3(0,0,8.7+float(i)*.8)
+		point.y=world.terrain_height(point)+.12
+		var mark:=BattleVisuals.ring(effects,point,.46,Color("e99552"),.07)
+		mark.visible=false
+		gate_trap_marks.append(mark)
+	gate_trap_light=OmniLight3D.new()
+	gate_trap_light.position=Vector3(0,world.terrain_height(Vector3(0,0,9.5))+.5,9.5)
+	gate_trap_light.light_color=Color("ff9b50")
+	gate_trap_light.omni_range=6.0
+	gate_trap_light.light_energy=0
+	gate_trap_light.shadow_enabled=false
+	effects.add_child(gate_trap_light)
+
+func show_gate_trap_charges() -> void:
+	for i in gate_trap_marks.size():gate_trap_marks[i].visible=i<gate_trap_charges
+	gate_trap_light.light_energy=.65 if gate_trap_charges>0 else 0.0
+
+func arm_gate_trap() -> bool:
+	if phase!="day" and phase!="night":return false
+	if not near_gate_controls():return false
+	if gate_trap_charges>=GATE_TRAP_MAX:
+		notify("南门火焰机关已装满",2)
+		return false
+	if scrap<GATE_TRAP_COST:
+		notify("零件不足 · 装填机关需要 %d" % GATE_TRAP_COST,2)
+		return false
+	scrap-=GATE_TRAP_COST
+	gate_trap_charges+=1
+	show_gate_trap_charges()
+	BattleVisuals.sparks(effects,Vector3(0,world.terrain_height(Vector3(0,0,9.5))+1,9.5),Color("f4ae63"),9)
+	notify("南门火焰机关已装填 · %d/%d" % [gate_trap_charges,GATE_TRAP_MAX],2)
+	return true
+
+func update_gate_trap(delta: float) -> void:
+	gate_trap_cooldown=maxf(0.0,gate_trap_cooldown-delta)
+	if phase!="night" or gate_trap_charges<=0 or gate_trap_cooldown>0:return
+	for creature in enemies:
+		if not is_instance_valid(creature) or not creature.alive:continue
+		if absf(creature.position.x)>2.2 or creature.position.z<8.5 or creature.position.z>10.8:continue
+		gate_trap_charges-=1
+		gate_trap_cooldown=.8
+		show_gate_trap_charges()
+		var point:=Vector3(0,world.terrain_height(Vector3(0,0,9.5)),9.5)
+		BattleVisuals.burst(effects,point,4.6,Color("ff9d51"),.55)
+		for target in enemies:
+			if is_instance_valid(target) and target.alive and Vector2(target.position.x,target.position.z).distance_to(Vector2(0,9.5))<4.6:
+				target.hurt(190.0,hero)
+		notify("南门机关引爆 · 剩余 %d 发" % gate_trap_charges,2)
+		return
+
+func nearest_relay() -> int:
+	var selected:=-1
+	var best:=3.2
+	for i in world.relays.size():
+		if world.relays[i].activated:continue
+		var distance: float=hero.position.distance_to(world.relays[i].position)
+		if distance<best:selected=i;best=distance
+	return selected
+
+func tower_count() -> int:
+	var count:=0
+	for pad in world.tower_pads:
+		if pad.level>0:count+=1
+	return count
+
+func relay_count() -> int:
+	var count:=0
+	for relay in world.relays:
+		if relay.activated:count+=1
+	return count
+
+func remaining_nests() -> int:
+	var count:=0
+	for nest in world.nests:
+		if not nest.cleansed:count+=1
+	return count
+
+func cleansed_nests() -> int:
+	return world.nests.size()-remaining_nests()
+
+func nearest_nest() -> int:
+	if phase!="day":return -1
+	var selected:=-1
+	var best:=3.6
+	for i in world.nests.size():
+		if world.nests[i].cleansed:continue
+		var distance: float=hero.position.distance_to(world.nests[i].position)
+		if distance<best:selected=i;best=distance
+	return selected
+
+func nest_guarded(point: Vector3) -> bool:
+	for creature in enemies:
+		if is_instance_valid(creature) and creature.alive and creature.position.distance_to(point)<6.5:return true
+	return false
+
+func gate_pressure() -> int:
+	var count:=0
+	for creature in enemies:
+		if is_instance_valid(creature) and creature.alive and creature.position.z<22.0 and creature.position.z>0:count+=1
+	return count
+
+func interaction_prompt() -> String:
+	if phase!="day" and phase!="night":return ""
+	var expedition_prompt:=expeditions.interaction_prompt()
+	if expedition_prompt!="":return expedition_prompt
+	var discovery_prompt: String=discoveries.interaction_prompt()
+	if discovery_prompt!="":return discovery_prompt
+	var wildlife_prompt: String=wildlife.interaction_prompt()
+	if wildlife_prompt!="":return wildlife_prompt
+	var cache:=nearest_salvage()
+	if cache>=0:return "F  搜集废墟零件 · +%d 物资" % world.salvage[cache].amount
+	var nest_index:=nearest_nest()
+	if nest_index>=0:
+		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 零件，减轻夜袭"
+	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 零件"
+	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
+		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
+	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
+	var pad_index:=nearest_tower_pad()
+	if pad_index>=0:
+		var level: int=world.tower_pads[pad_index].level
+		if level==0:return "F  建造自动防御塔 · 消耗 %d 零件" % TOWER_COSTS[0]
+		var mode_label: String="破城优先" if world.tower_pads[pad_index].mode=="breaker" else "最近目标"
+		var durability: String="%d/%d" % [ceili(world.tower_pads[pad_index].hp),ceili(world.tower_pads[pad_index].max_hp)]
+		var repair_hint: String=" · H 修复20" if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
+		if level>=3:return "塔耐久 %s%s · G %s · 满级" % [durability,repair_hint,mode_label]
+		return "塔耐久 %s · F 升级%d%s · G %s" % [durability,TOWER_COSTS[level],repair_hint,mode_label]
+	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
+	return ""
+
+func interact() -> bool:
+	if phase!="day" and phase!="night":return false
+	if expeditions.interaction_prompt()!="":return expeditions.interact()
+	if discoveries.interaction_prompt()!="":return discoveries.interact()
+	if wildlife.interaction_prompt()!="":return wildlife.interact()
+	var index:=nearest_salvage()
+	if index>=0:
+		world.salvage[index].collected=true
+		world.salvage[index].respawn=SALVAGE_REFRESH
+		(world.salvage[index].node as Node3D).visible=false
+		var amount: int=world.salvage[index].amount
+		grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3)
+		return true
+	var nest_index:=nearest_nest()
+	if nest_index>=0:
+		var nest: Dictionary=world.nests[nest_index]
+		if nest_guarded(nest.position):
+			notify("先清除夜巢周围的守卫",2)
+			return false
+		nest.cleansed=true
+		var active_nest: Node3D=nest.node
+		var seal: Node3D=nest.sealed_node
+		seal.visible=true
+		var collapse:=create_tween()
+		collapse.tween_property(active_nest,"scale",Vector3.ONE*.02,.42).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		collapse.tween_callback(active_nest.hide)
+		var reveal:=create_tween()
+		reveal.tween_property(seal,"scale",Vector3.ONE,.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		create_tween().tween_property(nest.light,"light_energy",0.0,.4)
+		create_tween().tween_property(nest.sealed_light,"light_energy",.8,.6)
+		scrap+=90
+		BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
+		notify("夜巢已封闭 · +90 零件，今夜来袭减弱",4)
+		return true
+	var relay_index:=nearest_relay()
+	if relay_index>=0:
+		world.relays[relay_index].activated=true
+		scrap+=85
+		BattleVisuals.burst(effects,world.relays[relay_index].position,3.0,Color("78cbd0"),.55)
+		notify("通信塔重新亮起 · +85 零件，防御塔射程与火力提升",4)
+		return true
+	var pad_index:=nearest_tower_pad()
+	if pad_index>=0:
+		var pad: Dictionary=world.tower_pads[pad_index]
+		var level: int=pad.level
+		if level<3 and scrap>=TOWER_COSTS[level]:
+			scrap-=TOWER_COSTS[level]
+			if level==0:
+				pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
+				if not is_instance_valid(pad.damage_ring):pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
+				pad.damage_ring.visible=false
+			pad.level=level+1
+			pad.max_hp=280.0+float(level)*110.0
+			pad.hp=pad.max_hp
+			if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
+			(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
+			BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
+			notify("自动防御塔 %s · 等级 %d" % ["建成" if level==0 else "升级",pad.level])
+			return true
+		if level<3:notify("零件不足 · 需要 %d" % TOWER_COSTS[level],2)
+		return false
+	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
+		scrap-=beacon_repair_cost()
+		beacon_hp=minf(BEACON_MAX,beacon_hp+150)
+		BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),3.5,Color("ffb861"),.45)
+		notify("灯塔外壳已修复 · +150 耐久")
+		return true
+	return false
+
+func skill_status(slot: int) -> String:
+	if cooldowns[slot]>0:return "%.1f s" % cooldowns[slot]
+	if mana<COSTS[slot]:return "法力不足"
+	return "就绪"
+
+func skill_rejection(slot: int, reason: String) -> void:
+	var key: String="%d:%s" % [slot,reason]
+	var now:=float(Time.get_ticks_msec())*.001
+	if key==skill_notice_key and now<skill_notice_until:return
+	skill_notice_key=key;skill_notice_until=now+1.2
+	var names: Array[String]=["Q 斩光","W 屏障","E 突进","R 灯焰","X 治疗"]
+	if reason=="cooldown":notify("%s · 冷却还剩 %.1f 秒" % [names[slot],cooldowns[slot]],1.8)
+	else:notify("%s · 法力不足（%d / 需要 %d）" % [names[slot],floori(mana),int(COSTS[slot])],2.0)
+
+func cast(slot: int, feedback: bool = false) -> bool:
+	if slot<0 or slot>=COSTS.size():return false
+	if phase!="day" and phase!="night":return false
+	if cooldowns[slot]>0:
+		if feedback:skill_rejection(slot,"cooldown")
+		return false
+	if mana<COSTS[slot]:
+		if feedback:skill_rejection(slot,"mana")
+		return false
+	# Sword and ultimate actions override their own pending basic wind-up;
+	# movement, the shield and healing remain usable during a normal strike.
+	if slot in [0,2,3]:cancel_hero_attack()
+	cooldowns[slot]=COOLDOWNS[slot]*run.cooldown_factor()
+	mana-=COSTS[slot]
+	var direction:=(aim-hero.position).normalized()
+	if direction.length()<.01:direction=Vector3.RIGHT
+	match slot:
+		0:
+			hero.hero_attack_variant=0
+			hero.play_action("attack",direction)
+			BattleVisuals.slash_arc(effects,hero.position,direction)
+			for creature in enemies:
+				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<11:
+					if direction.dot((creature.position-hero.position).normalized())>.78:
+						var burst_damage: float=110+float(run.stats.spell)*.85
+						creature.hurt(burst_damage*(2.1 if run.count("split")>0 else 1.0),hero)
+		1:
+			hero.shield=(150+float(run.stats.spell)*.5)*float(run.stats.shield)
+			hero.shield_time=4
+			var shield_radius: float=4.2*float(run.stats.area)
+			BattleVisuals.burst(effects,hero.position,shield_radius,Color("70cbd5"),.45)
+			for creature in enemies:
+				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<shield_radius:
+					creature.hurt(78+float(run.stats.spell)*.65,hero)
+		2:
+			var origin:=hero.position
+			var target:=hero.position+direction*6.0
+			if can_traverse(origin,target):
+				target.y=outpost_height(target)
+				hero.position=target;move_goal=target;hero_path.clear()
+				BattleVisuals.beam(effects,origin+Vector3.UP,target+Vector3.UP,Color("79dce0"),.25)
+		3:
+			var fire_radius: float=8.0*float(run.stats.area)
+			var fire_damage: float=260+float(run.stats.spell)*1.2
+			hero.play_action("inferno",direction)
+			BattleVisuals.lantern_inferno(effects,hero.position,fire_radius)
+			hit_area(hero.position,fire_radius,fire_damage)
+			if run.count("echo")>0:
+				delayed_blasts.append({"position":hero.position,"radius":fire_radius,"damage":fire_damage*.5,"delay":.55})
+		4:
+			hero.hp=minf(hero.max_hp,hero.hp+hero.max_hp*.32)
+			BattleVisuals.burst(effects,hero.position,2.0,Color("7acfae"),.6)
+	return true
+
+func hit_area(point: Vector3,radius: float,amount: float) -> void:
+	for creature in enemies:
+		if is_instance_valid(creature) and creature.alive and creature.position.distance_to(point)<radius:
+			creature.hurt(amount,hero)
+
+func ground_point(screen: Vector2) -> Vector3:
+	var origin:=camera.project_ray_origin(screen)
+	var direction:=camera.project_ray_normal(screen)
+	var result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
+	for i in 3:
+		if not result is Vector3:break
+		var point: Vector3=result
+		result=Plane(Vector3.UP,outpost_height(point)).intersects_ray(origin,direction)
+	return result if result is Vector3 else hero.position
+
+func _unhandled_input(event: InputEvent) -> void:
+	if music_credits_open and not event is InputEventKey:return
+	if event is InputEventMouseMotion:
+		aim=ground_point(event.position)
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index==MOUSE_BUTTON_RIGHT and (phase=="day" or phase=="night"):
+			plan_hero_path(ground_point(event.position))
+		if event.button_index==MOUSE_BUTTON_WHEEL_UP:camera.size=maxf(21,camera.size-1.5)
+		if event.button_index==MOUSE_BUTTON_WHEEL_DOWN:camera.size=minf(42,camera.size+1.5)
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode==KEY_M and music:
+			music.toggle_mute()
+			notify("配乐已静音" if music.muted else "配乐已开启",2)
+			return
+		if event.keycode in [KEY_BRACKETLEFT,KEY_BRACKETRIGHT] and music:
+			music.set_volume(music.get_volume()+(-.1 if event.keycode==KEY_BRACKETLEFT else .1))
+			notify("配乐音量 %d%%" % roundi(music.get_volume()*100),2)
+			return
+		if event.keycode==KEY_F1:
+			if phase=="day" or phase=="night":paused_from=phase;phase="paused"
+			music_credits_open=not music_credits_open
+			return
+		if event.keycode==KEY_ESCAPE and music_credits_open:
+			music_credits_open=false
+			return
+		if music_credits_open:return
+		if event.keycode==KEY_F2 and combat:
+			combat.reduced_effects=not combat.reduced_effects
+			if combat.reduced_effects:
+				hero.visual_hit_stop=0.0
+				for creature in enemies:
+					if is_instance_valid(creature):creature.visual_hit_stop=0.0
+			notify("已减弱震动与闪光" if combat.reduced_effects else "完整打击反馈已开启",2)
+			return
+		if phase=="ended" and event.keycode==KEY_ENTER:
+			get_tree().reload_current_scene()
+			return
+		if phase=="draft":
+			if event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
+			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
+			return
+		match event.keycode:
+			KEY_F:interact()
+			KEY_G:toggle_tower_mode()
+			KEY_H:repair_tower()
+			KEY_T:arm_gate_trap()
+			KEY_B:build_gate_barricade()
+			KEY_C:issue_focus_order()
+			KEY_Q:cast(0,true)
+			KEY_W:cast(1,true)
+			KEY_E:cast(2,true)
+			KEY_R:cast(3,true)
+			KEY_X:cast(4,true)
+			KEY_SPACE:camera.size=31
+			KEY_ESCAPE:
+				if phase=="paused":phase=paused_from
+				elif phase=="day" or phase=="night":paused_from=phase;phase="paused"
+
+func notify(message: String, duration: float=3.0) -> void:
+	notice=message;notice_time=duration
+
+func update_salvage_refresh(delta: float) -> void:
+	if phase!="day" and phase!="night":return
+	for item in world.salvage:
+		if not item.collected:continue
+		item.respawn=maxf(0.0,float(item.respawn)-delta)
+		if item.respawn>0:continue
+		item.collected=false;item.node.visible=true
+
+func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, memory_gain: int, hp_gain: float=0.0, mana_gain: float=0.0) -> void:
+	if phase!="day" and phase!="night":return
+	exploration_count+=1
+	var milestone:=exploration_count%5==0
+	if milestone:
+		exploration_milestones+=1
+		scrap_gain+=35;memory_gain+=20
+	scrap+=maxi(0,scrap_gain)
+	var actual_hp:=minf(maxf(0.0,hp_gain),hero.max_hp-hero.hp)
+	var actual_mana:=minf(maxf(0.0,mana_gain),max_mana-mana)
+	hero.hp+=actual_hp
+	mana+=actual_mana
+	var gains: Array[String]=[]
+	if scrap_gain>0:gains.append("零件 +%d" % scrap_gain)
+	if memory_gain>0:gains.append("记忆 +%d" % memory_gain)
+	if actual_hp>0:gains.append("生命 +%d" % int(actual_hp))
+	if actual_mana>0:gains.append("法力 +%d" % int(actual_mana))
+	var detail: String="探索进度 +1" if gains.is_empty() else "  ·  ".join(gains)
+	var color:=Color("f4ca7c") if milestone else Color("86d8c6")
+	reward_toasts.append({"title":"探索里程碑 · " + title if milestone else title,"detail":detail,"time":3.2,"color":color})
+	if reward_toasts.size()>3:reward_toasts.pop_front()
+	var floating:=Label3D.new()
+	effects.add_child(floating);floating.position=point+Vector3.UP*2.4
+	floating.text=detail;floating.font_size=30;floating.pixel_size=.009
+	floating.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+	floating.modulate=color;floating.outline_size=5
+	var tw:=floating.create_tween().set_parallel(true)
+	tw.tween_property(floating,"position",floating.position+Vector3.UP*1.3,1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(floating,"modulate:a",0.0,.7).set_delay(.7)
+	tw.chain().tween_callback(floating.queue_free)
+	BattleVisuals.burst(effects,point,2.6 if milestone else 1.15,color,.4)
+	if pickup_sound:
+		if music:music.duck(.65)
+		var sound:=AudioStreamPlayer.new()
+		effects.add_child(sound);sound.stream=pickup_sound;sound.volume_db=-15
+		sound.pitch_scale=1.15 if milestone else 1.0
+		sound.finished.connect(sound.queue_free);sound.play()
+	if milestone:notify("探索 %d 次 · 额外 +35 零件、+20 记忆" % exploration_count,3)
+	essence+=maxi(0,memory_gain)
+	while essence>=100:
+		essence-=100;run.grant("探索记忆 · 选择一张命运卡")
+	if run.pending>0:open_draft()
+
+func make_pickup_sound() -> AudioStreamWAV:
+	var stream:=AudioStreamWAV.new()
+	stream.format=AudioStreamWAV.FORMAT_16_BITS;stream.mix_rate=16000
+	var samples:=PackedByteArray();samples.resize(4800*2)
+	for i in 4800:
+		var t:=float(i)/16000.0
+		var envelope:=minf(1.0,t/.012)*exp(-t*14.0)
+		var note:=660.0 if t<.1 else 880.0
+		var value:=int((sin(TAU*note*t)+.25*sin(TAU*note*2*t))*envelope*9000.0)
+		samples.encode_s16(i*2,value)
+	stream.data=samples
+	return stream
+
+func _exit_tree() -> void:
+	if is_instance_valid(effects):
+		for child in effects.get_children():
+			if child is AudioStreamPlayer:child.stop()
+
+func _notification(what: int) -> void:
+	if what!=NOTIFICATION_WM_CLOSE_REQUEST or quitting:return
+	quitting=true
+	set_process(false)
+	if combat:combat.clear_transients()
+	if music:
+		for player in music.players:
+			player.stop();player.stream=null
+	if is_instance_valid(effects):
+		for child in effects.get_children():
+			if child is AudioStreamPlayer:child.stop();child.stream=null
+	# Allow the audio mix thread to retire its playback handles before the
+	# application shuts down. This also keeps Windows close requests idempotent.
+	await get_tree().create_timer(.15,true,false,true).timeout
+	get_tree().quit()

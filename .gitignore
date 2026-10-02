@@ -1,0 +1,33 @@
+# Godot cache and local executables
+.godot/
+.tools/
+build/
+release/
+
+# Generated captures, downloads and temporary output
+tmp/
+output/
+devlog/
+__pycache__/
+*.pyc
+*.log
+*.pid
+*.tmp
+
+# Blender backup copies (keep the editable .blend sources)
+*.blend1
+*.blend2
+
+# Private local settings and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+local.settings.json
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
