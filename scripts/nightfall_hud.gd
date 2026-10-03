@@ -52,7 +52,7 @@ func _draw() -> void:
 		label(game.expeditions.objective_text(),Vector2(46,170),13,Color("8dcfc3"))
 	progress(Rect2(235,126,173,8),game.phase_time/(game.NIGHT_LENGTH if display_night else game.DAY_LENGTH),red if display_night else amber)
 	draw_exploration_rewards()
-	box(Rect2(1050,22,365,157),panel,Color("665343"))
+	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)
 	label("%d / %d" % [int(game.beacon_hp),int(game.BEACON_MAX)],Vector2(1261,55),16,amber)
 	progress(Rect2(1071,70,322,10),game.beacon_hp/game.BEACON_MAX,amber)
@@ -61,9 +61,10 @@ func _draw() -> void:
 	label("战斗记忆 %d / 100" % game.essence,Vector2(1071,146),14,muted)
 	label("南门机关 %d / %d" % [game.gate_trap_charges,game.GATE_TRAP_MAX],Vector2(1244,146),14,amber)
 	label("C 塔群集火  %s" % ("进行中 %.0fs" % game.focus_time if game.focus_time>0 else ("就绪" if game.focus_cooldown<=0 else "冷却 %.0fs" % game.focus_cooldown)),Vector2(1071,168),12,amber if game.focus_time>0 else muted)
+	label("灯下同伴 %d/2 · 协作修灯 %d 零件" % [game.survivors_rescued,game.beacon_repair_cost()],Vector2(1071,188),12,Color("a3c7b7"))
 	if game.beacon_alarm_time>0:
 		var flash:=.72+.22*sin(float(Time.get_ticks_msec())*.018)
-		draw_rect(Rect2(1051,23,363,155),Color("ef6b56",flash),false,2.4)
+		draw_rect(Rect2(1051,23,363,171),Color("ef6b56",flash),false,2.4)
 		box(Rect2(500,25,440,54),Color(.14,.025,.024,.93),Color("c46c58"))
 		var alarm_text: String="灯塔遭攻击  -%d  ·  立即回防" % int(game.beacon_alarm_damage)
 		var alarm_width:=font.get_string_size(alarm_text,HORIZONTAL_ALIGNMENT_LEFT,-1,20).x
@@ -118,7 +119,7 @@ func draw_combat_floats() -> void:
 	var canvas_size: Vector2=get_viewport_rect().size
 	if canvas_size.x<=0.0 or canvas_size.y<=0.0:return
 	var occupied: Array[Rect2]=[
-		Rect2(24,22,405,160),Rect2(1050,22,365,157),
+		Rect2(24,22,405,160),Rect2(1050,22,365,173),
 		Rect2(24,197,340,108+game.reward_toasts.size()*70),
 		Rect2(1161,195,254,373),Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
@@ -247,7 +248,7 @@ func draw_minimap() -> void:
 			var p: Vector3=site.position
 			draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(3,3),Vector2(6,6)),Color("72dbb9") if site.state=="active" else (Color("536d64") if site.state=="complete" else Color("9bd3c4")))
 		for camp in game.expeditions.camps:
-			var p: Vector3=camp.npc.position if camp.state=="escort" else camp.position
+			var p: Vector3=camp.npc.position if camp.state in ["escort","delivered"] else camp.position
 			var marker:=center+Vector2(p.x,p.z)*scale
 			draw_polyline(PackedVector2Array([marker+Vector2(0,-4.5),marker+Vector2(4.5,0),marker+Vector2(0,4.5),marker+Vector2(-4.5,0),marker+Vector2(0,-4.5)]),Color("59705e") if camp.state=="delivered" else amber,1.5)
 			draw_line(marker-Vector2(2,0),marker+Vector2(2,0),amber,1.4)
@@ -298,6 +299,8 @@ func draw_draft() -> void:
 	box(Rect2(157,133,1126,631),Color(.025,.039,.048,.96),Color("b08a57"))
 	label("灰烬中的记忆",Vector2(205,203),30,ink)
 	label("%s · 选择一项守夜能力" % game.run.reason,Vector2(205,244),16,amber)
+	if game.opening_night_pending:
+		label("许弦：先守住这一夜。天亮后，去接回门外的人。",Vector2(205,275),15,muted)
 	for i in range(game.run.offer.size()):
 		var card: Dictionary=game.run.offer[i]
 		var rect:=Rect2(198+i*349,292,315,372)
@@ -316,8 +319,8 @@ func draw_result() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.005,.012,.020,.71))
 	var signal_ending: bool=game.victory and game.ending_key=="signal"
 	var border:=Color("76bcb8") if signal_ending else (Color("b08a57") if game.victory else Color("b7655e"))
-	box(Rect2(340,215,760,468),panel,border)
-	var title: String="第四次日出" if signal_ending else ("灯火未灭" if game.victory else "哨站失守")
+	box(Rect2(340,215,760,515),panel,border)
+	var title: String="第四次日出" if signal_ending else ("灯火未灭" if game.victory else ("哨站失守" if game.beacon_hp<=0 else "守望者倒下"))
 	var title_width:=font.get_string_size(title,HORIZONTAL_ALIGNMENT_LEFT,-1,36).x
 	label(title,Vector2(720-title_width*.5,300),36,Color("a5dfda") if signal_ending else (amber if game.victory else red))
 	label("守住 %d 夜  ·  清除 %d 只夜行体  ·  封闭夜巢 %d/3" % [game.day_number if game.victory else game.day_number-1,game.kills,game.cleansed_nests()],Vector2(425,362),18,ink)
@@ -328,9 +331,12 @@ func draw_result() -> void:
 		label("灯塔撑过了第三夜，但荒原仍有 %d 处夜巢在呼吸。" % game.remaining_nests(),Vector2(425,425),17,ink)
 		label("许弦将零件留给下一次远征：先清理黑夜的源头。",Vector2(425,464),16,muted)
 	else:
-		label("灯塔熄灭后，南门的哨灯也一盏盏暗了下去。",Vector2(425,425),17,ink)
+		label("灯塔的耐久归零，守夜的防线失守了。" if game.beacon_hp<=0 else "守望者没能回到灯下。哨站还在等待下一次出发。",Vector2(425,425),17,ink)
 		label("下一次出城，需要更早回防或修复据点。",Vector2(425,464),16,muted)
-	label("按 Enter 重新开始一局",Vector2(611,606),18,muted)
+	var home: Dictionary=game.homecoming_summary()
+	label(home.record,Vector2(425,515),16,Color("a3c7b7"))
+	label(home.response,Vector2(425,553),15,ink)
+	label("按 Enter 重新开始一局",Vector2(611,654),18,muted)
 
 func _gui_input(event: InputEvent) -> void:
 	if game.music_credits_open:

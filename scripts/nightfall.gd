@@ -85,6 +85,7 @@ var music: Node
 var music_credits_open := false
 var combat: Node
 var deaths: Node3D
+var skill_lights: Node3D
 var hero_attack_target: BattleUnit
 var hero_attack_delay := 0.0
 var hero_attack_step := 0
@@ -143,6 +144,8 @@ func _ready() -> void:
 	combat.name="CombatFeedback";add_child(combat);combat.setup(self)
 	deaths=load("res://scripts/death_effects.gd").new()
 	deaths.name="DeathEffects";add_child(deaths);deaths.setup(self)
+	skill_lights=load("res://scripts/skill_lighting.gd").new()
+	skill_lights.name="SkillLighting";add_child(skill_lights);skill_lights.setup(self)
 
 func prepare_opening_defenses() -> void:
 	for index in [1,2]:
@@ -170,6 +173,7 @@ func _process(delta: float) -> void:
 	if hud:hud.queue_redraw()
 	if music:music.update_game(self,delta)
 	if deaths:deaths.tick(delta,phase)
+	if skill_lights:skill_lights.tick(delta,phase)
 
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
@@ -191,6 +195,7 @@ func simulate(delta: float) -> void:
 			var blast: Dictionary=delayed_blasts[i]
 			hit_area(blast.position,blast.radius,blast.damage)
 			BattleVisuals.burst(effects,blast.position,blast.radius,Color("efb179"),.42)
+			if skill_lights:skill_lights.emit_skill(3,blast.position,Vector3.RIGHT,Vector3.INF,blast.radius)
 			delayed_blasts.remove_at(i)
 	move_hero(delta)
 	hero.tick(delta)
@@ -1268,6 +1273,7 @@ func cast(slot: int, feedback: bool = false) -> bool:
 			hero.hero_attack_variant=0
 			hero.play_action("attack",direction)
 			BattleVisuals.slash_arc(effects,hero.position,direction)
+			skill_lights.emit_skill(0,hero.position,direction)
 			for creature in enemies:
 				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<11:
 					if direction.dot((creature.position-hero.position).normalized())>.78:
@@ -1278,6 +1284,7 @@ func cast(slot: int, feedback: bool = false) -> bool:
 			hero.shield_time=4
 			var shield_radius: float=4.2*float(run.stats.area)
 			BattleVisuals.burst(effects,hero.position,shield_radius,Color("70cbd5"),.45)
+			skill_lights.emit_skill(1,hero.position,direction,Vector3.INF,shield_radius)
 			for creature in enemies:
 				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<shield_radius:
 					creature.hurt(78+float(run.stats.spell)*.65,hero)
@@ -1288,18 +1295,33 @@ func cast(slot: int, feedback: bool = false) -> bool:
 				target.y=outpost_height(target)
 				hero.position=target;move_goal=target;hero_path.clear()
 				BattleVisuals.beam(effects,origin+Vector3.UP,target+Vector3.UP,Color("79dce0"),.25)
+				skill_lights.emit_skill(2,origin,direction,target)
 		3:
 			var fire_radius: float=8.0*float(run.stats.area)
 			var fire_damage: float=260+float(run.stats.spell)*1.2
 			hero.play_action("inferno",direction)
-			BattleVisuals.lantern_inferno(effects,hero.position,fire_radius)
+			BattleVisuals.lantern_inferno(effects,hero.position,fire_radius,false)
+			skill_lights.emit_skill(3,hero.position,direction,Vector3.INF,fire_radius)
 			hit_area(hero.position,fire_radius,fire_damage)
 			if run.count("echo")>0:
 				delayed_blasts.append({"position":hero.position,"radius":fire_radius,"damage":fire_damage*.5,"delay":.55})
 		4:
 			hero.hp=minf(hero.max_hp,hero.hp+hero.max_hp*.32)
 			BattleVisuals.burst(effects,hero.position,2.0,Color("7acfae"),.6)
+			skill_lights.emit_skill(4,hero.position,direction)
 	return true
+
+func homecoming_summary() -> Dictionary:
+	var people := clampi(survivors_rescued,0,2)
+	var response: String
+	if phase=="ended" and not victory:
+		response="返家的 %d 人曾与你并肩；这一夜没守住，还可以重新出发。" % people if people>0 else "荒原的求救声还在。下一次守望，也为他们留一条回家的路。"
+	else:
+		response=["荒原里还有人在等待。第四次日出，也是再次出发的机会。",
+			"庭院多了一盏灯。下一次修灯，有人为你递来零件。",
+			"两个人都回到灯下。守住这个家，已经不再是你一个人的事。"][people]
+	return {"people":people,"record":"返家记录 %d / 2 · 协作修灯 %d 零件" % [people,beacon_repair_cost()],
+		"response":response,"repair_cost":beacon_repair_cost()}
 
 func hit_area(point: Vector3,radius: float,amount: float) -> void:
 	for creature in enemies:
@@ -1450,6 +1472,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()
 	if music:
 		for player in music.players:

@@ -5,6 +5,10 @@ const HOLD_SECONDS := 12.0
 const HOLD_RADIUS := 5.0
 const GENERATOR_REWARD := 100
 const RESCUE_REWARD := 80
+const HOME_LANTERN_SCENE: PackedScene = preload("res://assets/models/waylight.glb")
+const HOME_LIGHT_RANGE := 3.6
+const SCOUT_NAMES := ["沈禾", "周砚"]
+const SCOUT_RECRUIT_LINES := ["沈禾：带我走南门，回去一起修灯。", "周砚：别让我落下，回到灯下我也能帮忙。"]
 
 var game: Node3D
 var generators: Array[Dictionary] = []
@@ -24,15 +28,17 @@ func setup(owner_game: Node3D) -> void:
 		var title:=make_label(point+Vector3.UP*2.4,"废墟发电机 · F 启动",Color("8fd8cf"))
 		generators.append({"position":point,"node":model,"ring":ring,"lamp":lamp,"label":title,"state":"ready","progress":0.0,"guards":[],"inside_material":BattleVisuals.material(Color("8bd9ca"),.8),"outside_material":BattleVisuals.material(Color("c18864"),.8)})
 	for point in [Vector3(-29,0,21),Vector3(28,0,32)]:
+		var scout_index: int=camps.size()
+		var scout_name: String=SCOUT_NAMES[scout_index]
 		point.y=game.outpost_height(point)
 		clear_expedition_space(point,4.0)
 		var model: Node3D=game.world.place("res://assets/models/survivor_camp.glb",point,1.0,0)
 		var scout:=BattleUnit.new()
 		add_child(scout);scout.setup("hero",0)
-		scout.title="失联哨兵";scout.visual.scale*=.87;scout.selection.visible=false
+		scout.title="失联哨兵 · "+scout_name;scout.visual.scale*=.87;scout.selection.visible=false
 		scout.position=point+Vector3(-1.1,0,2.3);scout.position.y=game.outpost_height(scout.position)
-		var label:=make_label(point+Vector3.UP*2.5,"失联哨兵 · F 护送",Color("e4b977"))
-		camps.append({"position":point,"node":model,"npc":scout,"label":label,"state":"waiting","trail":[],"guards":[]})
+		var label:=make_label(point+Vector3.UP*2.5,scout_name+" · F 护送回家",Color("e4b977"))
+		camps.append({"position":point,"node":model,"npc":scout,"scout_name":scout_name,"recruit_line":SCOUT_RECRUIT_LINES[scout_index],"label":label,"state":"waiting","trail":[],"guards":[],"home_lantern":null,"home_light":null})
 
 func clear_expedition_space(point: Vector3, radius: float) -> void:
 	# Reserve readable activity space without deleting any objectives or resources.
@@ -79,7 +85,8 @@ func nearest_camp() -> int:
 
 func interaction_prompt() -> String:
 	if nearest_generator()>=0:return "F 启动发电机 · 守住灯区，获得能源芯"
-	if nearest_camp()>=0:return "F 救援哨兵 · 日落前护送回灯塔"
+	var camp_index:=nearest_camp()
+	if camp_index>=0:return "F 接回%s · 日落前经南门返家" % camps[camp_index].scout_name
 	return ""
 
 func interact() -> bool:
@@ -96,8 +103,8 @@ func interact() -> bool:
 		var camp: Dictionary=camps[index]
 		camp.state="escort";camp.trail=[game.hero.position]
 		camp.guards=spawn_ambush(camp.position,2)
-		camp.label.text="哨兵跟随中 · 返回灯塔"
-		game.notify("哨兵加入队伍 · 日落前护送进堡垒，获得守夜援助",5)
+		camp.label.text=camp.scout_name+"跟随中 · 返回灯塔"
+		game.notify(camp.recruit_line,5)
 		return true
 	return false
 
@@ -193,18 +200,43 @@ func build_scout_route(npc: BattleUnit, destination: Vector3) -> void:
 	if not npc.path.is_empty() and game.can_traverse(npc.path[-1],destination):npc.path.append(destination)
 
 func deliver_scout(camp: Dictionary, index: int) -> void:
+	# A return is committed only once, after the escort actually reaches the fort.
+	if camp.state!="escort" or game.phase!="day":return
+	var arriving_scout: BattleUnit=camp.npc
+	if arriving_scout.position.y<=4.8 or Vector2(arriving_scout.position.x,arriving_scout.position.z).length()>=6.2:return
 	camp.state="delivered";camp.trail.clear()
 	var npc: BattleUnit=camp.npc
 	npc.position=Vector3(-2-float(index)*1.6,NightfallWorld.FORT_HEIGHT,1.2)
 	npc.path.clear()
 	npc.moving=false;npc.set_locomotion_velocity(Vector3.ZERO)
-	camp.label.text="哨兵已回到据点"
-	camp.label.modulate=Color("85998d")
+	camp.label.position=npc.position+Vector3.UP*2.5
+	camp.label.text=camp.scout_name+" · 已归队"
+	camp.label.font_size=26;camp.label.pixel_size=.006
+	camp.label.modulate=Color("e4b977")
+	light_home_lantern(camp,index)
 	game.scrap+=RESCUE_REWARD;game.survivors_rescued+=1
 	game.beacon_hp=minf(game.BEACON_MAX,game.beacon_hp+120)
 	game.hero.hp=minf(game.hero.max_hp,game.hero.hp+100)
 	BattleVisuals.burst(game.effects,npc.position,3,Color("e2bc79"),.6)
-	game.notify("哨兵平安归队 · +80 零件，修复灯塔，今后修灯更省材料",5)
+	game.notify("%s回家了 · +80零件，灯塔+120，协作修灯%d零件" % [camp.scout_name,game.beacon_repair_cost()],6)
+
+func light_home_lantern(camp: Dictionary, index: int) -> void:
+	if camp.state!="delivered":return
+	if is_instance_valid(camp.home_lantern):return
+	var npc: BattleUnit=camp.npc
+	var lantern:=Node3D.new()
+	lantern.name="HomecomingLantern%d" % index
+	add_child(lantern)
+	lantern.position=npc.position+Vector3(-.65,0,.65)
+	var model: Node3D=HOME_LANTERN_SCENE.instantiate() as Node3D
+	lantern.add_child(model);model.scale=Vector3.ONE*.55
+	var light:=OmniLight3D.new()
+	light.name="HomeLight"
+	lantern.add_child(light);light.position=Vector3.UP*.80
+	light.light_color=Color("ffc27b")
+	light.omni_range=HOME_LIGHT_RANGE;light.omni_attenuation=1.6
+	light.light_energy=1.05;light.light_size=.12;light.shadow_enabled=false
+	camp.home_lantern=lantern;camp.home_light=light
 
 func on_night() -> bool:
 	var interrupted:=false
@@ -215,14 +247,15 @@ func on_night() -> bool:
 		site.ring.visible=false;site.lamp.light_energy=0
 		site.label.text="充能中断 · 次日可重试";interrupted=true
 	for camp in camps:
-		camp.label.visible=false
+		camp.label.visible=camp.state=="delivered"
 		if camp.state!="escort":continue
 		camp.state="waiting";camp.trail.clear();camp.guards=[]
 		var npc: BattleUnit=camp.npc
 		npc.position=camp.position+Vector3(-1.1,0,2.3);npc.position.y=game.outpost_height(npc.position)
 		npc.path.clear()
 		npc.moving=false;npc.set_locomotion_velocity(Vector3.ZERO)
-		camp.label.text="哨兵撤回营地 · 次日救援";interrupted=true
+		camp.label.position=camp.position+Vector3.UP*2.5
+		camp.label.text=camp.scout_name+"撤回营地 · 次日救援";interrupted=true
 	return interrupted
 
 func on_day() -> void:
@@ -231,13 +264,13 @@ func on_day() -> void:
 		if site.state=="ready":site.label.text="废墟发电机 · F 启动"
 	for camp in camps:
 		camp.label.visible=true
-		if camp.state=="waiting":camp.label.text="失联哨兵 · F 护送"
+		if camp.state=="waiting":camp.label.text=camp.scout_name+" · F 护送回家"
 
 func objective_text() -> String:
 	for site in generators:
 		if site.state=="active" and game.hero.position.distance_to(site.position)<=HOLD_RADIUS:return "发电机 %d%% · %s" % [roundi(float(site.progress)/HOLD_SECONDS*100),"清除来袭" if guards_alive(site) else "守住灯圈"]
 	for camp in camps:
-		if camp.state=="escort":return "哨兵跟随中 · 日落前返回灯塔"
+		if camp.state=="escort":return "%s跟随中 · 日落前带回家" % camp.scout_name
 	for site in generators:
 		if site.state=="active":return "发电机 %d%% · 返回灯圈继续充能" % roundi(float(site.progress)/HOLD_SECONDS*100)
 	return "远征 · 能源芯 %d/3 · 救援 %d/2" % [game.generator_cells,game.survivors_rescued]

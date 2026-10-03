@@ -64,7 +64,7 @@ static func burst(parent: Node3D, pos: Vector3, radius: float, color: Color, dur
 
 ## The lamp's overload is a single, readable blast. Its final rim matches the
 ## damage radius, while the brief point light gives it a presence in darkness.
-static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void:
+static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_light: bool = true) -> void:
 	var blast := Node3D.new()
 	blast.name = "LanternInferno"
 	parent.add_child(blast)
@@ -72,6 +72,8 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 
 	var ground_mat := ShaderMaterial.new()
 	ground_mat.shader = load("res://assets/shaders/lantern_inferno.gdshader")
+	var opacity_scale := 1.0 if scene_light else .14
+	ground_mat.set_shader_parameter("opacity",opacity_scale)
 	var ground_mesh := PlaneMesh.new()
 	ground_mesh.size = Vector2.ONE * radius * 2.0
 	var ground := MeshInstance3D.new()
@@ -91,7 +93,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 	rim.material_override = rim_mat
 	rim.scale = Vector3(0.06, 1.0, 0.06)
 
-	var inner_color := Color(1.0, 0.40, 0.10, 0.63)
+	var inner_color := Color(1.0, 0.40, 0.10, 0.63 if scene_light else .25)
 	var inner_mat := material(inner_color, 1.8)
 	inner_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	inner_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -100,7 +102,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 	inner.material_override = inner_mat
 	inner.scale = Vector3(0.08, 1.0, 0.08)
 
-	var tongue_color := Color(1.0, 0.54, 0.15, 0.72)
+	var tongue_color := Color(1.0, 0.54, 0.15, 0.72 if scene_light else .30)
 	var tongue_mat := material(tongue_color, 1.9)
 	tongue_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	tongue_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -115,7 +117,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 		tongue.rotation.y = float(i) * TAU / 12.0 + float(i % 3) * 0.08
 		tongue.position.y = 0.055 + float(i % 2) * 0.008
 
-	var flare_color := Color(1.0, 0.84, 0.49, 0.78)
+	var flare_color := Color(1.0, 0.84, 0.49, 0.78 if scene_light else .40)
 	var flare_mat := material(flare_color, 3.4)
 	flare_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	flare_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -138,8 +140,14 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 	light.light_energy = 5.0
 	light.omni_range = maxf(9.0, radius * 1.5)
 	light.shadow_enabled = false
-	blast.add_child(light)
-	light.position.y = 2.2
+	if scene_light:
+		blast.add_child(light)
+		light.position.y = 2.2
+	else:
+		light.free()
+		# Luminous particles are not solid occluders for the actual skill lamp.
+		for mesh in blast.find_children("*", "MeshInstance3D", true, false):
+			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 	sparks(parent, pos + Vector3.UP * 0.5, Color("ffd084"), 42)
 	sparks(parent, pos + Vector3.UP * 0.4, Color("ed672d"), 24)
@@ -150,8 +158,9 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float) -> void
 	tween.tween_property(tongues, "scale", Vector3.ONE, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(tongues, "rotation:y", 0.16, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(flare, "scale", Vector3(1.1, 2.4, 1.1), 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(light, "light_energy", 0.0, 0.70).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.chain().tween_method(func(value: float) -> void: ground_mat.set_shader_parameter("opacity", value), 1.0, 0.0, 0.31)
+	if scene_light:
+		tween.tween_property(light, "light_energy", 0.0, 0.70).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.chain().tween_method(func(value: float) -> void: ground_mat.set_shader_parameter("opacity", value * opacity_scale), 1.0, 0.0, 0.31)
 	tween.tween_property(rim_mat, "albedo_color", Color(rim_color.r, rim_color.g, rim_color.b, 0.0), 0.31)
 	tween.tween_property(inner_mat, "albedo_color", Color(inner_color.r, inner_color.g, inner_color.b, 0.0), 0.31)
 	tween.tween_property(tongue_mat, "albedo_color", Color(tongue_color.r, tongue_color.g, tongue_color.b, 0.0), 0.31)
