@@ -4,7 +4,7 @@ Godot 4.6.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景�
 
 ## 开始游戏
 
-协作开发先阅读 [AGENTS.md](AGENTS.md)、[AGNET.MD](AGNET.MD) 和唯一派工文件 [agent.md](agent.md)。每台电脑一个主对话，文件更新后必须提交并推送GitHub。本仓库包含代码、运行素材、Blender源文件、生成脚本和测试，二进制资源使用Git LFS。
+协作开发只需阅读唯一协作文件 [AGENTS.md](AGENTS.md)，其中包含项目规则、派工与交接。每台电脑一个主对话，文件更新后必须提交并推送GitHub。本仓库包含代码、运行素材、Blender源文件、生成脚本和测试，二进制资源使用Git LFS。
 
 克隆前安装Git LFS，克隆后运行 `git lfs pull`。安装Godot4.6.2，打开 `project.godot`，等待资源导入后按F5。运行现有模型不需要Blender；修改美术源时使用Blender4.5。新克隆没有本地 `build/`，请从Godot运行或安装同版本导出模板后自行导出Windows版本。
 

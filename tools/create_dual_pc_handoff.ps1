@@ -19,7 +19,7 @@ foreach ($folderName in @('art_source','assets','scenes','scripts','tests','tool
         if (-not $excluded) { $selectedFiles.Add($_) }
     }
 }
-foreach ($filename in @('.gitignore','AGENTS.md','AGNET.MD','ASSETS.md','DESIGN.md','README.md','STORY.md','project.godot','export_presets.cfg','optimization-progress.json','启动游戏.cmd',
+foreach ($filename in @('.gitignore','AGENTS.md','ASSETS.md','DESIGN.md','README.md','STORY.md','project.godot','export_presets.cfg','optimization-progress.json','启动游戏.cmd',
     'build/watch-beacon-v2-staged.glb','build/dead-tree-v2-staged.glb','build/masonry-game-timing.json','build/masonry-game-timing-profile.json','build/masonry-game-metrics.json')) {
     $filePath = Join-Path $workspacePath $filename
     if (Test-Path -LiteralPath $filePath -PathType Leaf) { $selectedFiles.Add((Get-Item -LiteralPath $filePath)) }
