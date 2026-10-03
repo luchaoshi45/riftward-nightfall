@@ -37,6 +37,10 @@ func run() -> void:
 			game.hero_attack_target=primary;game.hero_attack_step=0
 			game.update_hero_attack(0)
 			assert(nearby.hp==previous,"First strike must not chain")
+			game.run.owned.chain=1;game.run.recalculate();game.attack_count=3
+			game.hero_attack_target=primary;game.hero_attack_step=2
+			game.update_hero_attack(0)
+			assert(nearby.hp==previous,"Legendary replaces core timing rather than adding extra triggers")
 		elif core_index==1:
 			assert(game.cast(0));assert(game.cores.marks.size()==2)
 			game.phase="paused";game.simulate(9)
@@ -58,12 +62,14 @@ func run() -> void:
 			assert(primary.hp==previous,"Only one shock per W cast")
 			game.cooldowns[1]=0;game.cast(1);game.hero.shield=0
 			game.cores.advance(.01);assert(not game.cores.guard_ready)
+			game.cooldowns[1]=0;game.cast(1);game.hero.shield_time=9
+			game.cores.advance(4.1);assert(not game.cores.guard_ready,"Other shields cannot extend W response window")
 		if DisplayServer.get_name()!="headless":
 			game.notice_time=0;game.hud.queue_redraw()
 			await create_timer(.12).timeout
 			await RenderingServer.frame_post_draw
 			root.get_texture().get_image().save_png("res://build/core-%d.png" % core_index)
-		game.cores.clear()
+		game.end_defeat("fixture");assert(game.cores.marks.is_empty() and not game.cores.guard_ready)
 		await game.prepare_shutdown();game.queue_free()
 		for i in 4:await process_frame
 	print("NIGHTFALL_COMBAT_CORES_OK")

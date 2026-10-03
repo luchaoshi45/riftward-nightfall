@@ -859,7 +859,7 @@ func update_hero_attack(delta: float) -> void:
 		var pushed:=closest.position+Vector3(hit_direction.x,0,hit_direction.z)*push
 		if can_traverse(closest.position,pushed):
 			pushed.y=outpost_height(pushed);closest.position=pushed
-	if (run.count("chain")>0 and attack_count%3==0) or (run.count("core_storm")>0 and finisher):
+	if (attack_count%3==0 if run.count("chain")>0 else run.count("core_storm")>0 and finisher):
 		var chained:=0
 		for other in enemies:
 			if other==closest or not is_instance_valid(other) or not other.alive:continue
@@ -922,6 +922,7 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 		source.hurt(18+hero.armor*.25,hero)
 
 func end_defeat(message: String) -> void:
+	cores.clear()
 	phase="ended";victory=false;ending_key="defeat";notify(message,8)
 
 func open_draft() -> void:

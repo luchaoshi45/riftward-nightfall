@@ -3,18 +3,20 @@ extends RefCounted
 var game: Node3D
 var marks: Array[Dictionary] = []
 var guard_ready: bool = false
+var guard_time: float = 0.0
 
 func setup(owner_game: Node3D) -> void:
 	game=owner_game
 
 func advance(delta: float) -> void:
+	guard_time=maxf(0,guard_time-delta)
 	for i in range(marks.size()-1,-1,-1):
 		var enemy: BattleUnit=marks[i].enemy.get_ref()
 		marks[i].time-=delta
 		if not is_instance_valid(enemy) or not enemy.alive or marks[i].time<=0:
 			if is_instance_valid(marks[i].ring):marks[i].ring.queue_free()
 			marks.remove_at(i)
-	if game.hero.shield<=0 or game.hero.shield_time<=0:guard_ready=false
+	if guard_time<=0 or game.hero.shield<=0 or game.hero.shield_time<=0:guard_ready=false
 
 func mark(enemy: BattleUnit) -> void:
 	if game.run.count("core_flame")==0 or not enemy.alive:return
@@ -34,6 +36,7 @@ func consume(enemy: BattleUnit) -> float:
 
 func arm_guard() -> void:
 	guard_ready=game.run.count("core_guard")>0
+	guard_time=4.0 if guard_ready else 0.0
 
 func absorbed(amount: float) -> void:
 	if not guard_ready or amount<=0 or game.phase not in ["day","night"]:return
@@ -45,4 +48,4 @@ func absorbed(amount: float) -> void:
 func clear() -> void:
 	for item in marks:
 		if is_instance_valid(item.ring):item.ring.queue_free()
-	marks.clear();guard_ready=false
+	marks.clear();guard_ready=false;guard_time=0.0
