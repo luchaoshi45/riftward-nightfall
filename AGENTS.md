@@ -108,7 +108,7 @@ Windows 导出使用 `export_presets.cfg` 的 `Windows Desktop`，并安装同�
 
 ## 共享仓库与同步状态
 
-共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`，SSH地址为 `git@github.com:luchaoshi45/riftward-nightfall.git`。主机SSH已验证为 `luchaoshi45`，新增源码、派工及文件合并已推送到 `codex/gameplay-main`；远端提交 `0d93a78c838b64a493ce42ea17ed65de110e3e37` 与本地一致。两个新增Blender源已从GitHub LFS重新下载并核对大小及SHA256，文件完整。SSH私钥与本机网络配置均不进入仓库。
+共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`，SSH地址为 `git@github.com:luchaoshi45/riftward-nightfall.git`。主机SSH已验证为 `luchaoshi45`，新增源码、派工及文件合并已推送到 `codex/gameplay-main`；首次同步提交 `0d93a78c838b64a493ce42ea17ed65de110e3e37` 已核对一致，后续最新提交以实际Git记录和远端核验为准。两个新增Blender源已从GitHub LFS重新下载并核对大小及SHA256，文件完整。SSH私钥与本机网络配置均不进入仓库。
 
 **当前共享开发基线在 `origin/codex/gameplay-main`，尚未合并到 `main`。** 从机首次接手应读取该分支的最新 [AGENTS.md](https://github.com/luchaoshi45/riftward-nightfall/blob/codex/gameplay-main/AGENTS.md)，从该分支最新提交创建 `codex/visual-vis-001`，并在回执记录实际SHA。不要从仍为0.8.17的 `main` 或旧tag开始，避免遗漏任务输入。后续按主机已交付的新基线同步。
 
@@ -236,4 +236,4 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 - 本轮共享源码检查：敌人死亡、日间委托fixture、防御塔分支fixture、石材材质与归家路线四项无脚本错误通过；`git lfs fsck --objects HEAD` 通过。不是新增优化次数或0.8.19发布。
 - GitHub同步：已推送源码/派工 `cb71102`、授权状态记录 `f708761`、协作文件合并 `0d93a78` 至 `codex/gameplay-main`，远端SHA已核对；本回执更新也须提交推送。尚未合并主干，不代表0.8.19发布，完成计数保持28。
 - 远端美术源验证：独立LFS存储重新下载 `dead_tree_v2.blend`（2217782字节，SHA256 `57360e6ffd1a302697d4dabc0d10f87dc7032c4ea61ed0f21f2250a781729a13`）与 `watch_beacon_v2.blend`（5528181字节，SHA256 `210986790f0ca0313ef99ee95dc8e7f2ab543573fefafcd937c6d7e4ac6a801c`），大小和哈希均与提交指针一致。
-- Git追踪核查：原505个已追踪文件无本地缺失，源码目录无意外忽略；补入两份待验GLB、三份美术检查工具、新检查工具及新脚本UID后共512个文件。240处资源引用检查通过，GLB无漏追踪的外部纹理；故意漏加一个临时新文件时检查正确失败，还发现编辑器稍后生成的 `.gd.uid` 并补入Git。英雄关节检查、共享枯树GLB导入/材质检查、Blender结构检查通过；待验GLB与原build样稿的SHA256一致。未改变游戏或优化计数。
+- Git追踪核查：原505个已追踪文件无本地缺失，源码目录无意外忽略；补入两份待验GLB、三份美术检查工具、新检查工具及新脚本UID后共512个文件。240处资源引用检查通过，GLB无漏追踪的外部纹理；故意漏加一个临时新文件时检查正确失败，还发现编辑器稍后生成的 `.gd.uid` 并补入Git。英雄关节检查、共享枯树GLB导入/材质检查、Blender结构检查通过；待验GLB与原build样稿的SHA256一致，已从GitHub LFS独立下载共享GLB并核对哈希。未改变游戏或优化计数。
