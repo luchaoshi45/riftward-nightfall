@@ -8,15 +8,15 @@ Godot 4.7.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景�
 
 克隆前安装Git LFS，克隆后运行 `git lfs pull`。安装[Godot4.7.2稳定版](https://godotengine.org/download/windows/)，双击 `打开编辑器.cmd`，等待资源导入后按F5。入口会核对版本；默认查找Program Files/Godot、用户LocalAppData/Godot、项目.tools/godot和PATH，也可把 `GODOT_EXECUTABLE` 环境变量设为新版console.exe的完整路径。运行现有模型不需要Blender；修改美术源时使用Blender4.5。新克隆没有本地 `build/`，请从Godot运行或安装4.7.2导出模板后自行导出Windows版本。
 
-最新已验证Windows版本为0.8.21，完成31/100，以 [optimization-progress.json](optimization-progress.json) 为准。渐进记忆升级与主动铭刻：战斗不中断，V或点击再选卡，核心相容候选。
+最新已验证Windows版本为0.8.22，完成32/100，以 [optimization-progress.json](optimization-progress.json) 为准。五波实际编组与威胁预告：分阶段引入快敌、拆塔和破城，封巢削减随从。
 
 后续策划目标为多轮短局合计约一小时、每局重新构筑，并逐步增加防御兵种、怪物与局内主城扩建；详细方案见 [DESIGN.md](DESIGN.md)。当前仍是三夜原型，标准四夜局、小队、城区和局间解锁尚未实现。
 
-开发及本版成品使用4.7.2，已通过核心玩法、实际Vulkan画面及Windows导出启动/关闭检查。`打开编辑器.cmd` 使用新版；已有4.6.2编辑器窗口需由用户方便时关闭再重开。`启动游戏.cmd` 已指向0.8.21；旧 `build/Riftward_Nightfall_engine4.7.2_check.exe` 只保留作之前的引擎兼容验证包。
+开发及本版成品使用4.7.2，已通过核心玩法、实际Vulkan画面及Windows导出启动/关闭检查。`打开编辑器.cmd` 使用新版；已有4.6.2编辑器窗口需由用户方便时关闭再重开。`启动游戏.cmd` 已指向0.8.22；旧 `build/Riftward_Nightfall_engine4.7.2_check.exe` 只保留作之前的引擎兼容验证包。
 
 编辑器入口会核对当前项目的已开窗口：版本不符时要求先保存并关闭旧编辑器，同为4.7.2时复用已开窗口。`.glb.import` 是需要共享的模型导入配置；若旧编辑器删除了新版的三项默认值，可先运行 `python tools/repair_godot_import_rewrites.py` 只读检查，关闭本项目所有编辑器后加 `--apply` 备份并恢复。工具只处理与已提交版本精确匹配的旧版回写，保留其他手动或暂存的修改；不可用忽略配置文件的方法掩盖问题。
 
-本机有成品时双击 `启动游戏.cmd` 或 `build/Riftward_Nightfall_v0.8.21.exe`。游戏从黑夜中的余烬哨站开始：选择一张命运卡后立即守卫南门，开局提供两座守门塔、90 零件和一发火焰机关。每夜持续105秒；次日白昼只有90秒，趁亮外出搜集、回收能源芯和救援哨兵，再回防中央灯塔。熬过三夜即完成当前原型的一局。守望者倒下或灯塔被毁则失败。
+本机有成品时双击 `启动游戏.cmd` 或 `build/Riftward_Nightfall_v0.8.22.exe`。游戏从黑夜中的余烬哨站开始：选择一张命运卡后立即守卫南门，开局提供两座守门塔、90 零件和一发火焰机关。每夜持续105秒；次日白昼只有90秒，趁亮外出搜集、回收能源芯和救援哨兵，再回防中央灯塔。熬过三夜即完成当前原型的一局。守望者倒下或灯塔被毁则失败。
 
 素材来源见 [ASSETS.md](ASSETS.md)，许可说明见 [LICENSES.md](LICENSES.md)。两台按AGENTS分配的文件范围工作，提交和推送前同步最新 `main`，保留其他协作者的改动；远端已前进时先正常合并，禁止强推覆盖。
 
@@ -69,7 +69,7 @@ Godot 4.7.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景�
 
 ```powershell
 godot --path . --script tests/nightfall_loop.gd
-godot --headless --path . --export-release 'Windows Desktop' build/Riftward_Nightfall_v0.8.21.exe
+godot --headless --path . --export-release 'Windows Desktop' build/Riftward_Nightfall_v0.8.22.exe
 ```
 
 这是“守夜”玩法切片，尚无永久存档、NPC 对话、完整章节、物理破坏或大型开放世界。建模与灯光为原创风格化游戏资产，不使用参考作品的人物、名称和场景资源。

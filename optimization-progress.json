@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 31,
-  "latest_version": "0.8.21",
-  "latest_improvement": "渐进记忆升级与主动铭刻：战斗不中断，V或点击再选卡，核心相容候选",
-  "verification": "200至2000递进费用、4200记忆五升级、余量、真实V输入、攻击不中断、暂停选卡和黎明独立等级通过；隐藏画面及Windows成品记忆/普攻/整局通过，后台静音关闭退出0"
+  "completed": 32,
+  "latest_version": "0.8.22",
+  "latest_improvement": "五波实际编组与威胁预告：分阶段引入快敌、拆塔和破城，封巢削减随从",
+  "verification": "每波实际角色人数与预告一致、时间顺序、暂停和封巢减少6随从通过；隐藏Forward+预告可读；Windows成品波次/三夜/真实护送通过，静音启动关闭退出0"
 }
