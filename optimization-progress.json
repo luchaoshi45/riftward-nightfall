@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 32,
-  "latest_version": "0.8.22",
-  "latest_improvement": "五波实际编组与威胁预告：分阶段引入快敌、拆塔和破城，封巢削减随从",
-  "verification": "每波实际角色人数与预告一致、时间顺序、暂停和封巢减少6随从通过；隐藏Forward+预告可读；Windows成品波次/三夜/真实护送通过，静音启动关闭退出0"
+  "completed": 33,
+  "latest_version": "0.8.23",
+  "latest_improvement": "二级塔互斥专精：重敌破甲或范围牵制，真实伤害、群体减速和重建",
+  "verification": "实际J/K选择、费用、破甲取舍、牵制五目标/冷却、真实位移与到期、暂停、死亡跨帧、毁塔重建52项通过；默认31隐藏画面54项通过；Windows塔分支/整局与静音关闭通过"
 }
