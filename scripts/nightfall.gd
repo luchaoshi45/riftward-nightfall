@@ -37,6 +37,8 @@ var day_start_pending: bool=false
 var run_mode: String="teaching"
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
+var contracts=preload("res://scripts/day_contracts.gd").new()
+var contract_marker: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var mana := 300.0
@@ -138,6 +140,7 @@ func _ready() -> void:
 	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
+	add_child(contracts);contracts.setup(self,run.seed_value)
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
 	pickup_sound=make_pickup_sound()
@@ -234,6 +237,7 @@ func simulate(delta: float) -> void:
 	update_gate_trap(delta)
 	auto_attack()
 	expeditions.tick(delta)
+	update_day_contracts(delta)
 	discoveries.tick(delta)
 	wildlife.tick(delta)
 	update_salvage_refresh(delta)
@@ -260,6 +264,9 @@ func start_night() -> void:
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
+	contracts.on_night()
+	if is_instance_valid(contract_marker):contract_marker.queue_free()
+	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
 	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	spawn_timer=night_spawn_interval();pulse_timer=2.0
@@ -343,11 +350,46 @@ func begin_day() -> void:
 	phase="day";phase_time=DAY_LENGTH
 	world.set_night(false)
 	expeditions.on_day()
+	contracts.on_day()
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
 		"林舟：启动发电机会惊醒潜伏体，先准备好再接通。",
 		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
 	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
+
+func contract_goal() -> Vector3:
+	if contracts.status!="active":return Vector3.INF
+	if contracts.done.size()==contracts.targets.size():return Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
+	for target: Dictionary in contracts.targets:
+		if contracts.done.has(int(target.index)):continue
+		if contracts.kind=="escort" and target.source.state=="escort":return Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
+		return target.position
+	return Vector3.INF
+
+func follow_contract() -> bool:
+	if phase!="day":return false
+	var target:=contract_goal()
+	if target==Vector3.INF:return false
+	plan_hero_path(target)
+	return not hero_path.is_empty()
+
+func update_day_contracts(delta: float) -> void:
+	if phase!="day":return
+	contracts.tick(delta)
+	var reward: Dictionary=contracts.take_reward_request()
+	if not reward.is_empty():
+		scrap+=int(reward.scrap);essence+=int(reward.memory)
+		collect_memory_upgrades()
+		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":"+%d零件 · +%d记忆%s" % [reward.scrap,reward.memory," · 提前返家奖励" if reward.early_return else ""],"time":3.5,"color":Color("e8bc76")})
+		while reward_toasts.size()>4:reward_toasts.remove_at(0)
+		notify("委托已交回 · +%d零件 +%d记忆" % [reward.scrap,reward.memory],3)
+	var goal:=contract_goal() if phase=="day" else Vector3.INF
+	if goal==Vector3.INF:
+		if is_instance_valid(contract_marker):contract_marker.queue_free()
+		contract_marker=null
+	else:
+		if not is_instance_valid(contract_marker):contract_marker=BattleVisuals.ring(effects,goal,1.4,Color("a2d5bb"),.075)
+		contract_marker.position=goal+Vector3(0,.14,0)
 
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
@@ -1431,6 +1473,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
 		match event.keycode:
+			KEY_P:follow_contract()
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")
 			KEY_K:choose_tower_specialization("control")
@@ -1462,6 +1505,7 @@ func update_salvage_refresh(delta: float) -> void:
 		item.collected=false;item.node.visible=true
 
 func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, memory_gain: int, hp_gain: float=0.0, mana_gain: float=0.0) -> void:
+	contracts.on_action()
 	if phase!="day" and phase!="night":return
 	exploration_count+=1
 	var milestone:=exploration_count%5==0

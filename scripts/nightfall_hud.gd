@@ -60,6 +60,17 @@ func _draw() -> void:
 			label(preview.advice,Vector2(477,85),14,muted)
 			label("先安排防线，再处理主要威胁",Vector2(477,114),13,Color("8dcfc3"))
 		else:label("最后一波已抵达 · 守住南门",Vector2(477,66),19,amber)
+	elif game.phase=="day" and game.contracts.status!="idle":
+		var contract: Node=game.contracts
+		box(Rect2(457,24,570,110),panel,Color("587c68"))
+		var title: String=contract.TITLES.get(contract.kind,"自由探索")
+		label("可选委托 · %s · %d/%d" % [title,contract.done.size(),contract.targets.size()],Vector2(477,54),19,Color("a3d7bd"))
+		var goal: Vector3=game.contract_goal()
+		var detail: String="已交回 · 奖励到账" if contract.status=="completed" else "今日无可用目标，可以自由探索"
+		if goal!=Vector3.INF:
+			detail="P 前往目标 · %.0f米 · 日落前回灯塔交付" % game.hero.position.distance_to(goal)
+		label(detail,Vector2(477,84),15,ink)
+		label("交付 +30零件/+8记忆 · 提前15秒返家再+10零件",Vector2(477,114),13,amber)
 	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)
 	label("%d / %d" % [int(game.beacon_hp),int(game.BEACON_MAX)],Vector2(1261,55),16,amber)
