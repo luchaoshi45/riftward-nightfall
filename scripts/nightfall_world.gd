@@ -3,7 +3,9 @@ extends Node3D
 ## Ash outpost and explorable ruin perimeter; no lanes or opposing bases.
 const FORT_HEIGHT := 5.0
 const LIGHT_TRANSITION_SECONDS := 6.0
+const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
 
+var terrain: Node3D
 var salvage: Array[Dictionary] = []
 var tower_pads: Array[Dictionary] = []
 var relays: Array[Dictionary] = []
@@ -31,14 +33,28 @@ func _process(delta: float) -> void:
 	apply_lighting()
 
 func build() -> void:
-	var terrain := (load("res://assets/models/outpost_ground.glb") as PackedScene).instantiate() as Node3D
+	terrain = (load("res://assets/models/outpost_ground.glb") as PackedScene).instantiate() as Node3D
 	add_child(terrain)
+	var masonry_shader:=load("res://assets/shaders/outpost_masonry.gdshader") as Shader
+	var masonry_materials: Dictionary = {}
 	for part in terrain.find_children("*","MeshInstance3D",true,false):
 		var surface := part as MeshInstance3D
 		if "Sculpted" in surface.name:
 			var ash := ShaderMaterial.new()
 			ash.shader=load("res://assets/shaders/wasteland.gdshader")
 			surface.material_override=ash
+			continue
+		if surface.mesh==null:continue
+		for index in surface.mesh.get_surface_count():
+			var original:=surface.mesh.surface_get_material(index) as StandardMaterial3D
+			if original==null or original.resource_name not in MASONRY_MATERIAL_NAMES:continue
+			if not masonry_materials.has(original):
+				var stone:=ShaderMaterial.new()
+				stone.resource_name="Ash-worn %s" % original.resource_name
+				stone.shader=masonry_shader
+				stone.set_shader_parameter("base_color",original.albedo_color)
+				masonry_materials[original]=stone
+			surface.set_surface_override_material(index,masonry_materials[original])
 	beacon=place("res://assets/models/watch_beacon.glb",Vector3(0,FORT_HEIGHT,0),1.0,0)
 	var fence_scene := load("res://assets/models/barricade.glb") as PackedScene
 	for offset in [-5.05,-1.85,1.85,5.05]:

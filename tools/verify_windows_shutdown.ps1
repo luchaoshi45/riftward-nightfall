@@ -2,8 +2,9 @@ param([string]$Version = '0.8.17')
 $ErrorActionPreference = 'Stop'
 $workspacePath = Split-Path $PSScriptRoot -Parent
 $executablePath = Join-Path $workspacePath "build/Riftward_Nightfall_v$Version.exe"
-$outputPath = Join-Path $workspacePath 'build/startup-v0817.out.log'
-$errorPath = Join-Path $workspacePath 'build/startup-v0817.err.log'
+$versionDigits = $Version.Replace('.','')
+$outputPath = Join-Path $workspacePath "build/startup-v$versionDigits.out.log"
+$errorPath = Join-Path $workspacePath "build/startup-v$versionDigits.err.log"
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;

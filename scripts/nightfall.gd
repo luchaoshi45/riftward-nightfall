@@ -84,6 +84,7 @@ var draft_reroll_ready_at := 0.0
 var music: Node
 var music_credits_open := false
 var combat: Node
+var deaths: Node3D
 var hero_attack_target: BattleUnit
 var hero_attack_delay := 0.0
 var hero_attack_step := 0
@@ -140,6 +141,8 @@ func _ready() -> void:
 	music.update_game(self,0.0)
 	combat=load("res://scripts/combat_feedback.gd").new()
 	combat.name="CombatFeedback";add_child(combat);combat.setup(self)
+	deaths=load("res://scripts/death_effects.gd").new()
+	deaths.name="DeathEffects";add_child(deaths);deaths.setup(self)
 
 func prepare_opening_defenses() -> void:
 	for index in [1,2]:
@@ -166,6 +169,7 @@ func _process(delta: float) -> void:
 		camera.position=camera_follow+(combat.camera_offset() if combat else Vector3.ZERO)
 	if hud:hud.queue_redraw()
 	if music:music.update_game(self,delta)
+	if deaths:deaths.tick(delta,phase)
 
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
@@ -888,7 +892,10 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 			combat_milestone_detail="额外 +%d 零件  ·  +%d 记忆" % [extra_scrap,extra_memory]
 			combat_milestone_time=2.2
 			if combat:combat.milestone(kill_chain,extra_scrap,extra_memory)
-	BattleVisuals.burst(effects,creature.position,.9,Color("b37661"),.38)
+	if deaths:
+		var source_position:=_source.global_position if is_instance_valid(_source) else creature.global_position-Vector3.FORWARD
+		deaths.spawn(creature,source_position)
+	else:BattleVisuals.burst(effects,creature.position,.9,Color("b37661"),.38)
 	creature.visible=false
 	creature.queue_free()
 	while essence>=100:

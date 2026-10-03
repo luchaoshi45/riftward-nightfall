@@ -3,6 +3,7 @@
 .tools/
 build/
 release/
+handoff/
 
 # Generated captures, downloads and temporary output
 tmp/

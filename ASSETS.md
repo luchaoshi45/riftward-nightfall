@@ -49,6 +49,10 @@ Godot 4.6.2（https://godotengine.org/license/），Blender 4.5.0（https://down
 
 普通攻击的弧形剑气、命中碎光和奖励光环由 `scripts/combat_feedback.gd` 生成；挥剑、碰撞、暴击、重击、击杀与连斩音效由同一模块合成原创 PCM 音频，不引用第三方游戏录音。原有 Blender 主角模型仍用独立关节节点驱动动作，新增左右挥砍与第三段重击姿势。
 
+敌人死亡效果由 `scripts/death_effects.gd` 驱动已有 Blender 导出的怪物模型，保留其原材质和节点关节，未替换成另一个展示模型。落地支撑点由实际网格凸包缓存；飘散灰烬是本地生成的几何实例，不使用外部粒子贴图，也不是物理布娃娃或蒙皮动画。
+
+据点石材细节由原创 `assets/shaders/outpost_masonry.gdshader` 在 Godot 中生成，接到 `outpost_ground.glb` 的两种石材表面，保留原基色与荒原/铁锈材质。三向世界坐标投影生成烟灰、细裂、颗粒凹凸、墙脚积灰和竖向雨痕；不使用第三方纹理或自发光，也不声称新增了雕刻几何。
+
 ## 0.3.2 模型替换
 
 蓝红英雄与防御塔由 art_source/refined_models.py 制作，create_assets.py 调用。英雄采用连续截面胸甲、头盔、分段护具、菱形剑刃与连续褶皱披风；防御塔采用砌石、尖拱和悬浮晶体。Blender 源文件与 GLB 已同步更新。静态网格按材质合并，保留四肢节点与披风动画接口；当前仍采用节点驱动动作，尚非蒙皮骨骼动画。其余模型保留。
