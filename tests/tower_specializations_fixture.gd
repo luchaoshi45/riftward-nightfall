@@ -117,6 +117,7 @@ func run() -> void:
 	friendly.queue_free()
 	rules.reset_effects()
 	print("TOWER_SPECIALIZATIONS_FIXTURE_OK: actual scene enemies, damage, cap, lifecycle, rebuild")
+	await game.prepare_shutdown()
 	game.queue_free()
 	for i in 12: await process_frame
 	quit(0)

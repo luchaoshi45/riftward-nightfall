@@ -39,6 +39,7 @@ func run() -> void:
 	game.world.apply_lighting()
 	assert(game.world.gate_light_drain[0]==0.0 and is_equal_approx(lamp.light_energy,baseline),"Killing the moth must restore the lamp")
 	print("NIGHTFALL_LIGHT_EATER_INTEGRATION_OK")
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
 	await create_timer(.15).timeout

@@ -242,6 +242,7 @@ func run() -> void:
 	AudioServer.remove_bus_effect(0,capture_slot);capture_slot=-1
 	var file:=FileAccess.open("res://build/attack-feedback-mix.json",FileAccess.WRITE)
 	if file:file.store_string(JSON.stringify(mix_metrics,"\t"));file.close()
+	await game.prepare_shutdown()
 	game.queue_free();await process_frame;await process_frame
 	if failures.is_empty():print("NIGHTFALL_ATTACK_VISUAL_OK contact=140ms sequence critical kills3 fixed_camera F2 movement silent_mix "+JSON.stringify(mix_metrics))
 	quit(0 if failures.is_empty() else 1)

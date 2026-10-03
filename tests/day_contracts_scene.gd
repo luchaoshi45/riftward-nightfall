@@ -152,6 +152,7 @@ func run() -> void:
 	assert(module.status == "unavailable" and module.targets.is_empty())
 	assert(module.take_reward_request().is_empty())
 	print("DAY_CONTRACTS_SCENE_OK: four real actions, replay, freeze, one-shot, sunset, three nights")
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
 	await create_timer(0.2).timeout

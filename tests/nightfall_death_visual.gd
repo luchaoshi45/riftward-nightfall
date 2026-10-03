@@ -155,6 +155,7 @@ func run() -> void:
 	check(game.camera.basis.is_equal_approx(original_camera_basis), "Keyboard movement does not rotate the camera")
 	game.deaths.tick(10.0, "night"); await process_frame
 	check(game.deaths.corpses.is_empty(), "Rendered death meshes and ash expire after their finite lifetime")
+	await game.prepare_shutdown()
 	game.queue_free(); await process_frame; await process_frame
 	await create_timer(.15).timeout
 	if failures.is_empty(): print("NIGHTFALL_DEATH_VISUAL_OK graphical_four_variants gameplay_scale PBR_collapse ash_stage settled_rigid_active_GPU_ash paused_GPU_ash fixed_camera actual_ESC responsive_keyboard scene_exit")

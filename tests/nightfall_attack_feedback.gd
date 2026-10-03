@@ -194,6 +194,7 @@ func run() -> void:
 	game.day_number=1;game.finish_night()
 	check(game.phase=="draft" and game.attack_chain==0 and game.kill_chain==0 and game.hero_attack_target==null,"Surviving the night must start its dawn draft without stale attack chains or pending contact")
 	print("NIGHTFALL_ATTACK_FEEDBACK_", "OK" if failures.is_empty() else "FAILED", " contact=140ms single_commit three_strikes miss attribution milestones draft pause ultimate_priority lifesteal movement feedback_budget")
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
 	await create_timer(.15).timeout

@@ -270,6 +270,7 @@ func run() -> void:
 	await process_frame
 	for node in retained: check(not is_instance_valid(node), "End cleanup frees every original transferred model")
 	clean_case(); await process_frame
+	await game.prepare_shutdown()
 	enemy = target("breaker", Vector3(0, 5, 3))
 	if enemy:
 		visual = enemy.visual

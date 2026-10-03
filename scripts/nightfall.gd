@@ -1446,9 +1446,9 @@ func _exit_tree() -> void:
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
 
-func _notification(what: int) -> void:
-	if what!=NOTIFICATION_WM_CLOSE_REQUEST or quitting:return
-	quitting=true
+func prepare_shutdown() -> void:
+	# Retire audio while its players and music bus still belong to the tree.
+	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	if combat:combat.clear_transients()
 	if music:
@@ -1460,4 +1460,9 @@ func _notification(what: int) -> void:
 	# Allow the audio mix thread to retire its playback handles before the
 	# application shuts down. This also keeps Windows close requests idempotent.
 	await get_tree().create_timer(.15,true,false,true).timeout
+
+func _notification(what: int) -> void:
+	if what!=NOTIFICATION_WM_CLOSE_REQUEST or quitting:return
+	quitting=true
+	await prepare_shutdown()
 	get_tree().quit()

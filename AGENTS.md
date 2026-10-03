@@ -13,7 +13,7 @@
 
 ## 项目与当前状态
 
-- 原创单机末日据点防守游戏，Godot 4.6.2、Blender 4.5、GDScript。
+- 原创单机末日据点防守游戏，Godot 4.7.2稳定版、Blender 4.5、GDScript。两台后续开发及导出统一使用4.7.2。
 - 实际入口为 `scenes/nightfall.tscn`，配置见 `project.godot`。旧三路 MOBA 场景仅作为历史代码保留，不是当前游戏。
 - 远端初始导入为0.8.17，本机最新已验证可玩版为0.8.18；源码含待验的0.8.19工作。后续版本、已验证进度以 `optimization-progress.json` 为准，当前派工见下方任务表。
 - 当前完成的是三夜守城玩法切片。完整剧情、NPC 对话、永久存档及大型开放世界尚未实现，不要把设计稿写成已完成功能。
@@ -52,7 +52,7 @@
 ## 开发与素材流程
 
 1. 克隆仓库前安装 Git LFS；克隆后运行 `git lfs pull`，确认 `.blend`、`.glb`、`.ogg` 等是完整文件而不是 LFS 指针。
-2. 安装 Godot 4.6.2，打开 `project.godot`，等待导入后按 F5。首次克隆没有本地 `build/`，请直接从 Godot 运行或自行导出。
+2. 安装 [Godot 4.7.2稳定版](https://godotengine.org/download/archive/4.7.2-stable/)，双击根目录 `打开编辑器.cmd`，等待导入后按 F5。入口调用 `tools/resolve_godot.ps1` 核对版本；程序放在Program Files/Godot、用户LocalAppData/Godot、项目.tools/godot或PATH，也可设置 `GODOT_EXECUTABLE` 指向新版console.exe。首次克隆没有本地 `build/`，请直接从 Godot 运行或自行导出。原4.6.2成品仍保留，不在后台关闭用户已打开的旧编辑器。
 3. 运行现有 GLB 不需要安装 Blender；编辑/重新制作三维资产时安装 Blender 4.5，并保留对应 `.blend` 与 GLB。
 4. 生成脚本位于 `art_source/`。例如使用 Blender 后台模式执行 `art_source/create_ashwarden.py`；先查看脚本的输入源、输出范围及入口参数，避免一次重生成所有资产覆盖别人正在编辑的模型。
 5. 动作依赖模型的关节名称与父子关系。主角肩、肘、髋、膝、脚踝和衣摆节点，怪物头部和四肢枢轴不能随意删除、改名或全部合并。
@@ -90,7 +90,7 @@ Start-Process -FilePath '你的Godot可执行文件路径' -WindowStyle Hidden -
 
 检查退出码、脚本错误及实际画面/混音；测试结束释放进程。音频用例卸载场景后需让音频线程完成清理。不能只看打印的 `OK` 而忽略 `SCRIPT ERROR` 或其他错误。
 
-Windows 导出使用 `export_presets.cfg` 的 `Windows Desktop`，并安装同版本导出模板。生成物放 `build/`；可玩版本通过后再更新 `启动游戏.cmd`。源码仓库不提交本地缓存与历次导出包，分发成品使用仓库 Release。
+Windows 导出使用 `export_presets.cfg` 的 `Windows Desktop`，并安装4.7.2对应的Windows x86_64导出模板。`tools/export_verified_build.ps1` 也会核对引擎版本，支持指定独立测试项目与输出文件。生成物放 `build/`；可玩版本通过后再更新 `启动游戏.cmd`。源码仓库不提交本地缓存与历次导出包，分发成品使用仓库 Release。
 
 优化目标为 100 次。仅实质可玩改进完成实现、相关验证及可启动版本交付后才增加 `optimization-progress.json.completed`；文档整理和本次上传不计数，不恢复定时自动续跑。
 
@@ -237,3 +237,6 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 - GitHub同步：已推送源码/派工 `cb71102`、授权状态记录 `f708761`、协作文件合并 `0d93a78` 至 `codex/gameplay-main`，远端SHA已核对；本回执更新也须提交推送。尚未合并主干，不代表0.8.19发布，完成计数保持28。
 - 远端美术源验证：独立LFS存储重新下载 `dead_tree_v2.blend`（2217782字节，SHA256 `57360e6ffd1a302697d4dabc0d10f87dc7032c4ea61ed0f21f2250a781729a13`）与 `watch_beacon_v2.blend`（5528181字节，SHA256 `210986790f0ca0313ef99ee95dc8e7f2ab543573fefafcd937c6d7e4ac6a801c`），大小和哈希均与提交指针一致。
 - Git追踪核查：原505个已追踪文件无本地缺失，源码目录无意外忽略；补入两份待验GLB、三份美术检查工具、新检查工具及新脚本UID后共512个文件。240处资源引用检查通过，GLB无漏追踪的外部纹理；故意漏加一个临时新文件时检查正确失败，还发现编辑器稍后生成的 `.gd.uid` 并补入Git。英雄关节检查、共享枯树GLB导入/材质检查、Blender结构检查通过；待验GLB与原build样稿的SHA256一致，已从GitHub LFS独立下载共享GLB并核对哈希。未改变游戏或优化计数。
+- 引擎升级验收：2026-10-03按用户要求迁移至官方4.7.2稳定版（`4.7.2.stable.official.ed1daf0bf`）。安装程序签名有效，安装的GUI/console二进制与官方ZIP逐文件哈希一致；官方ZIP SHA256为 `731980f9608d61333e5baf54a2ef17210acc7a538446c0cb9969f002aca1e953`，模板完整归档SHA256为 `f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011`，安装了同版本Windows debug/release x86_64模板。新入口和导出工具拒绝误用4.6.2。
+- 升级兼容性：独立副本完整导入无错误；移动、归家、Q/W/R控制、普攻、死亡、噬灯、三夜整局、石材及英雄关节通过；两个待接入玩法fixture通过。测试停止音频后立即卸载场景并移除音乐总线，可能在混音线程尚未释放时留下Ogg/WAV播放句柄；详细输出已确认残留类型。测试现在先调用与Windows关闭共享的 `prepare_shutdown()`，混音释放后再卸载场景。最终七项成品内核心测试、真实Vulkan昼夜/普攻混音/四类死亡与灰烬、后台Windows启动及关闭均无脚本错误、资源残留错误或ObjectDB泄漏告警。
+- 升级边界：本地 `build/Riftward_Nightfall_engine4.7.2_check.exe` 是当前源码的引擎兼容验证包，其预设元数据仍为待发布0.8.19，不算正式0.8.19发布。`启动游戏.cmd` 继续使用原已验0.8.18；新引擎运行源码使用 `打开编辑器.cmd` 后F5。石材首次517ms卡顿的旧结果仍须VIS-001在4.7.2重测，没有因引擎升级自动判定解决。完成计数保持28/100。本轮文件须提交推送并核对远端，另一台先拉取最新共享分支再按4.7.2执行原派工。

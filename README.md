@@ -1,14 +1,16 @@
 # 余烬守望 · Riftward Nightfall
 
-Godot 4.6.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景已从三路 MOBA 切换为据点防守与外围搜集。旧版工程文件留作历史素材，不在当前游戏入口运行。
+Godot 4.7.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景已从三路 MOBA 切换为据点防守与外围搜集。旧版工程文件留作历史素材，不在当前游戏入口运行。
 
 ## 开始游戏
 
 协作开发只需阅读唯一协作文件 [AGENTS.md](AGENTS.md)，其中包含项目规则、派工与交接。每台电脑一个主对话，文件更新后必须提交并推送GitHub。本仓库包含代码、运行素材、Blender源文件、生成脚本和测试，二进制资源使用Git LFS。
 
-克隆前安装Git LFS，克隆后运行 `git lfs pull`。安装Godot4.6.2，打开 `project.godot`，等待资源导入后按F5。运行现有模型不需要Blender；修改美术源时使用Blender4.5。新克隆没有本地 `build/`，请从Godot运行或安装同版本导出模板后自行导出Windows版本。
+克隆前安装Git LFS，克隆后运行 `git lfs pull`。安装[Godot4.7.2稳定版](https://godotengine.org/download/windows/)，双击 `打开编辑器.cmd`，等待资源导入后按F5。入口会核对版本；默认查找Program Files/Godot、用户LocalAppData/Godot、项目.tools/godot和PATH，也可把 `GODOT_EXECUTABLE` 环境变量设为新版console.exe的完整路径。运行现有模型不需要Blender；修改美术源时使用Blender4.5。新克隆没有本地 `build/`，请从Godot运行或安装4.7.2导出模板后自行导出Windows版本。
 
 最新已验证Windows版本为0.8.18，完成28/100，以 [optimization-progress.json](optimization-progress.json) 为准。源码中的石材及0.8.19导出配置仍待性能验收，尚未发布；独立日间委托、塔防分支模块也未接入正式玩法。不要把源码快照当成新增已完成次数。
+
+开发引擎已迁移到4.7.2，并通过独立导入、核心玩法、实际Vulkan画面及Windows导出启动/关闭检查。`打开编辑器.cmd` 使用新版；已有4.6.2编辑器窗口需由用户方便时关闭再重开。`启动游戏.cmd` 保留原0.8.18成品；本地 `build/Riftward_Nightfall_engine4.7.2_check.exe` 仅为引擎兼容验证包，不能当成正式0.8.19发布，升级不增加优化计数。
 
 本机有成品时双击 `启动游戏.cmd` 或 `build/Riftward_Nightfall_v0.8.18.exe`。游戏从黑夜中的余烬哨站开始：选择一张命运卡后立即守卫南门，开局提供两座守门塔、90 零件和一发火焰机关。每夜持续105秒；次日白昼只有90秒，趁亮外出搜集、回收能源芯和救援哨兵，再回防中央灯塔。熬过三夜即完成当前原型的一局。守望者倒下或灯塔被毁则失败。
 

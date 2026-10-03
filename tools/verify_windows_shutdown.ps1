@@ -1,10 +1,10 @@
-param([string]$Version = '0.8.17')
+param([string]$Version = '0.8.18', [string]$ExecutablePath)
 $ErrorActionPreference = 'Stop'
 $workspacePath = Split-Path $PSScriptRoot -Parent
-$executablePath = Join-Path $workspacePath "build/Riftward_Nightfall_v$Version.exe"
-$versionDigits = $Version.Replace('.','')
-$outputPath = Join-Path $workspacePath "build/startup-v$versionDigits.out.log"
-$errorPath = Join-Path $workspacePath "build/startup-v$versionDigits.err.log"
+if (-not $ExecutablePath) { $ExecutablePath = Join-Path $workspacePath "build/Riftward_Nightfall_v$Version.exe" }
+$buildLabel = [System.IO.Path]::GetFileNameWithoutExtension($ExecutablePath)
+$outputPath = Join-Path $workspacePath "build/startup-$buildLabel.out.log"
+$errorPath = Join-Path $workspacePath "build/startup-$buildLabel.err.log"
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;

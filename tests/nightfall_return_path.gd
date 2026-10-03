@@ -38,4 +38,8 @@ func run() -> void:
 	if not follow(game,Vector3(0,0,29),home,false):quit(1);return
 	if not follow(game,home,Vector3(8,0,27),true):quit(1);return
 	print("NIGHTFALL_RETURN_PATH_OK")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.15).timeout
 	quit()

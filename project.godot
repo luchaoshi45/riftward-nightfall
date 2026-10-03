@@ -13,7 +13,7 @@ config_version=5
 config/name="余烬守望 · Riftward"
 config/description="An original offline day-night outpost survival game made with Godot and Blender."
 run/main_scene="res://scenes/nightfall.tscn"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]
 

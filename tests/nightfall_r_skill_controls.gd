@@ -97,4 +97,8 @@ func run() -> void:
 	assert(game.hero.hero_action=="attack","Automatic attacks must trigger the authored attack animation")
 	assert(is_equal_approx(game.hero.visual.rotation.y,travel_yaw),"Automatic attacks must preserve travel facing while running")
 	print("NIGHTFALL_R_SKILL_CONTROLS_OK")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.15).timeout
 	quit()

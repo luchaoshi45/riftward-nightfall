@@ -197,6 +197,10 @@ func run() -> void:
 	print("MOVEMENT_CAST_SPEED_AND_HEADING_OK")
 
 	for code in MOVEMENT_KEYS: await key(code, false)
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.15).timeout
 	if failures.is_empty():
 		print("NIGHTFALL_MOVEMENT_RESPONSE_OK")
 		quit(0)

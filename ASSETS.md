@@ -37,7 +37,7 @@ Blender 脚本 `art_source/create_assets.py` 生成 13 个模型：蓝红英雄�
 
 ## 工具与字体
 
-Godot 4.6.2（https://godotengine.org/license/），Blender 4.5.0（https://download.blender.org/release/Blender4.5/）。便携 Blender 位于 `.tools/`，不随游戏分发。
+Godot 4.7.2（https://godotengine.org/license/），Blender 4.5.0（https://download.blender.org/release/Blender4.5/）。便携 Blender 位于 `.tools/`，不随游戏分发。
 
 界面使用 Windows 系统字体 Microsoft YaHei / Microsoft YaHei UI 和 Bahnschrift / Segoe UI。没有复制或分发字体文件。
 

@@ -124,6 +124,7 @@ func run() -> void:
 	print("NIGHTFALL_LOOP_OK")
 	# Unload the real scene before quitting so the audio mix thread can release
 	# its last loop playback; immediate SceneTree.quit skips this fixture step.
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
 	await create_timer(.15).timeout
