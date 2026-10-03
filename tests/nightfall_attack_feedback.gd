@@ -18,6 +18,7 @@ func reset_case() -> void:
 	game.phase="day";game.phase_time=90.0
 	game.run=RunBuild.new(402);game.run.stats.crit=0.0
 	game.scrap=0;game.essence=0;game.kills=0;game.attack_count=0
+	game.run.memory_level=0
 	game.attack_chain=0;game.attack_chain_time=0.0
 	game.kill_chain=0;game.kill_chain_time=0.0
 	game.hero.position=Vector3(35,0,35)
@@ -128,13 +129,14 @@ func run() -> void:
 		var before_scrap: int=game.scrap
 		var before_memory: int=game.essence
 		var before_pending: int=game.run.pending
+		var memory_cost: int=game.run.memory_cost()
 		target(Vector3.RIGHT*2,1.0);strike()
 		var extra_scrap:=5 if i==3 else (8 if i==6 else (12 if i==10 else 0))
 		var extra_memory:=4 if i==3 else (6 if i==6 else (10 if i==10 else 0))
 		bonus_scrap+=extra_scrap;bonus_memory+=extra_memory
 		check(game.kill_chain==i and is_equal_approx(game.kill_chain_time,6.0),"Only a lethal personal contact may advance the six second kill chain")
 		check(game.scrap-before_scrap==5+extra_scrap,"Milestone %d must grant its exact scrap reward once" % i)
-		var memory_received: int=game.essence-before_memory+(game.run.pending-before_pending)*100
+		var memory_received: int=game.essence-before_memory+(game.run.pending-before_pending)*memory_cost
 		check(memory_received==12+extra_memory,"Milestone %d must grant its exact memory reward once, including a triggered draft" % i)
 		if game.phase=="draft":
 			var kills_before: int=game.kills
@@ -156,10 +158,10 @@ func run() -> void:
 	reset_case();game.run.owned["chain"]=1;game.run.stats.crit=0.0
 	game.attack_count=2;game.attack_chain=2;game.attack_chain_time=1.0
 	target(Vector3.RIGHT*2,1.0);target(Vector3(3,0,.3),1.0);target(Vector3(3,0,-.3),1.0)
-	game.essence=84
+	game.essence=184
 	strike()
-	check(game.kills==3 and game.kill_chain==3,"Third-strike chain-card lethal attachments remain personal attack kills even if the first kill opens a draft")
-	check(game.scrap==20 and game.essence==24 and game.run.pending==1,"A draft during chained contact must preserve all three ordinary rewards and the three-kill milestone")
+	check(game.kills==3 and game.kill_chain==3,"Third-strike chain attachments retain their personal kill rewards")
+	check(game.scrap==20 and game.essence==24 and game.run.pending==1 and game.phase=="day","Queued memory upgrade must preserve all ordinary and milestone rewards without forcing a draft")
 
 	reset_case();enemy=target(Vector3.RIGHT*2,25.0)
 	game.hero.hp=400;game.run.stats.lifesteal=.5

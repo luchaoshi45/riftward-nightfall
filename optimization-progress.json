@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 30,
-  "latest_version": "0.8.20",
-  "latest_improvement": "开局三行为核心：雷斩第三击连锁、Q标记R引爆、W吸收后限时反震",
-  "verification": "三核心真实伤害、暂停、过期、传奇替换、失败清理通过；隐藏Forward+开局与战斗画面检查通过；Windows成品内核心/普攻/三夜整局通过并静音启动关闭退出0"
+  "completed": 31,
+  "latest_version": "0.8.21",
+  "latest_improvement": "渐进记忆升级与主动铭刻：战斗不中断，V或点击再选卡，核心相容候选",
+  "verification": "200至2000递进费用、4200记忆五升级、余量、真实V输入、攻击不中断、暂停选卡和黎明独立等级通过；隐藏画面及Windows成品记忆/普攻/整局通过，后台静音关闭退出0"
 }

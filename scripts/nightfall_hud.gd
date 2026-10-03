@@ -58,7 +58,7 @@ func _draw() -> void:
 	progress(Rect2(1071,70,322,10),game.beacon_hp/game.BEACON_MAX,amber)
 	label("零件  %d" % game.scrap,Vector2(1071,109),18,ink)
 	label("清除夜行体  %d" % game.kills,Vector2(1247,109),14,muted)
-	label("战斗记忆 %d / 100" % game.essence,Vector2(1071,146),14,muted)
+	label("记忆 %d / %d" % [game.essence,game.run.memory_cost()],Vector2(1071,146),14,muted)
 	label("南门机关 %d / %d" % [game.gate_trap_charges,game.GATE_TRAP_MAX],Vector2(1244,146),14,amber)
 	label("C 塔群集火  %s" % ("进行中 %.0fs" % game.focus_time if game.focus_time>0 else ("就绪" if game.focus_cooldown<=0 else "冷却 %.0fs" % game.focus_cooldown)),Vector2(1071,168),12,amber if game.focus_time>0 else muted)
 	label("灯下同伴 %d/2 · 协作修灯 %d 零件" % [game.survivors_rescued,game.beacon_repair_cost()],Vector2(1071,188),12,Color("a3c7b7"))
@@ -70,6 +70,9 @@ func _draw() -> void:
 		var alarm_width:=font.get_string_size(alarm_text,HORIZONTAL_ALIGNMENT_LEFT,-1,20).x
 		label(alarm_text,Vector2(720-alarm_width*.5,60),20,Color("ff9d80"))
 	draw_minimap()
+	if game.run.pending>0 and game.phase in ["day","night"]:
+		box(Rect2(1050,480,365,46),Color(.07,.11,.10,.95),amber)
+		label("V / 点击铭刻 · 待选 %d 张" % game.run.pending,Vector2(1071,510),18,amber)
 	if game.notice_time>0:
 		box(Rect2(368,192,704,48),Color(.035,.046,.050,.86),Color("9a7051"))
 		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
@@ -317,7 +320,7 @@ func draw_draft() -> void:
 		var lines:=String(card.desc).split("\n")
 		for j in range(lines.size()):label(lines[j],rect.position+Vector2(23,168+j*29),15,muted)
 		label("按 %d / 点击 铭刻" % (i+1),rect.position+Vector2(22,330),16,amber)
-	label("开局与每夜幸存后选卡 · F 重抽 %d 次 · 本局无装备" % game.run.rerolls,Vector2(205,722),14,muted)
+	label("世界已暂停 · 开局/黎明选卡，战斗记忆按 V 铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
 
 func draw_result() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.005,.012,.020,.71))
@@ -343,6 +346,10 @@ func draw_result() -> void:
 	label("按 Enter 重新开始一局",Vector2(611,654),18,muted)
 
 func _gui_input(event: InputEvent) -> void:
+	if game.phase in ["day","night"] and game.run.pending>0 and event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
+		if Rect2(1050,480,365,46).has_point(point):
+			game.request_upgrade();accept_event();return
 	if game.music_credits_open:
 		if event is InputEventMouseButton and event.pressed:
 			if event.button_index==MOUSE_BUTTON_LEFT:

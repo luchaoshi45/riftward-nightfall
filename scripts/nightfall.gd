@@ -33,6 +33,7 @@ var scrap := 90
 var kills := 0
 var attack_count := 0
 var essence := 0
+var day_start_pending: bool=false
 var cores=preload("res://scripts/combat_cores.gd").new()
 var mana := 300.0
 var max_mana := 300.0
@@ -322,9 +323,11 @@ func finish_night() -> void:
 	for i in range(5+day_number):spawn_creature(false)
 	spawn_nest_guards()
 	run.grant("熬过第 %d 夜 · 选择新的守望能力" % (day_number-1))
+	day_start_pending=true
 	open_draft()
 
 func begin_day() -> void:
+	day_start_pending=false
 	phase="day";phase_time=DAY_LENGTH
 	world.set_night(false)
 	expeditions.on_day()
@@ -909,10 +912,17 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	else:BattleVisuals.burst(effects,creature.position,.9,Color("b37661"),.38)
 	creature.visible=false
 	creature.queue_free()
-	while essence>=100:
-		essence-=100
-		run.grant("战斗记忆 · 选择一张命运卡")
-	if run.pending>0:open_draft()
+	collect_memory_upgrades()
+
+func collect_memory_upgrades() -> void:
+	while essence>=run.memory_cost():
+		essence-=run.register_memory_upgrade()
+		run.grant("战斗记忆 · 第%d次铭刻" % run.memory_level)
+
+func request_upgrade() -> bool:
+	if phase not in ["day","night"] or run.pending<=0:return false
+	open_draft()
+	return phase=="draft"
 
 func _on_hero_defeated(_unit: BattleUnit, _source: BattleUnit) -> void:
 	end_defeat("守望者倒下 · 灯塔无人防守")
@@ -953,7 +963,7 @@ func choose_card(index: int) -> bool:
 		opening_night_pending=false
 		start_night()
 		notify("第 1 夜 · 两座守门塔已就位，B 布障 / R 灯焰；守住南门",6)
-	elif phase_time==DAY_LENGTH and return_phase=="day":begin_day()
+	elif day_start_pending:begin_day()
 	else:phase=return_phase
 	return true
 
@@ -1396,6 +1406,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
 		match event.keycode:
+			KEY_V:request_upgrade()
 			KEY_F:interact()
 			KEY_G:toggle_tower_mode()
 			KEY_H:repair_tower()
@@ -1462,9 +1473,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 		sound.finished.connect(sound.queue_free);sound.play()
 	if milestone:notify("探索 %d 次 · 额外 +35 零件、+20 记忆" % exploration_count,3)
 	essence+=maxi(0,memory_gain)
-	while essence>=100:
-		essence-=100;run.grant("探索记忆 · 选择一张命运卡")
-	if run.pending>0:open_draft()
+	collect_memory_upgrades()
 
 func make_pickup_sound() -> AudioStreamWAV:
 	var stream:=AudioStreamWAV.new()
