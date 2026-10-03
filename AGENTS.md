@@ -106,7 +106,9 @@ Windows 导出使用 `export_presets.cfg` 的 `Windows Desktop`，并安装同�
 
 ## 共享仓库与同步状态
 
-**推送受阻必须明确报告“未推送”及实际原因，保留工作并在解决后补推；禁止强推、硬重置或假称已上传。** 共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`。本地已基于远端历史提交 `cb71102`，尚未推送：HTTPS缺少登录凭据，SSH验证返回 `Permission denied (publickey)`，等待所有者在GitHub添加本机公钥。主机推送地址已设为 `git@github.com:luchaoshi45/riftward-nightfall.git`；SSH私钥与本机网络配置均不进入仓库。
+共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`，SSH地址为 `git@github.com:luchaoshi45/riftward-nightfall.git`。主机SSH已验证为 `luchaoshi45`，新增源码、派工及文件合并已推送到 `codex/gameplay-main`；远端提交 `0d93a78c838b64a493ce42ea17ed65de110e3e37` 与本地一致。两个新增Blender源已从GitHub LFS重新下载并核对大小及SHA256，文件完整。SSH私钥与本机网络配置均不进入仓库。
+
+**当前共享开发基线在 `origin/codex/gameplay-main`，尚未合并到 `main`。** 从机首次接手应读取该分支的最新 [AGENTS.md](https://github.com/luchaoshi45/riftward-nightfall/blob/codex/gameplay-main/AGENTS.md)，从该分支最新提交创建 `codex/visual-vis-001`，并在回执记录实际SHA。不要从仍为0.8.17的 `main` 或旧tag开始，避免遗漏任务输入。后续按主机已交付的新基线同步。
 
 ## 角色与权限
 
@@ -140,7 +142,7 @@ Windows 导出使用 `export_presets.cfg` 的 `Windows Desktop`，并安装同�
 - 最新已验证可玩版：0.8.18，完成28/100。该数值是本次派工时的快照，后续以 `optimization-progress.json` 为准。
 - 当前源码/README/导出预设含待发布的0.8.19石材工作，不能据此声称0.8.19已经发布。
 - 主机已保留两个独立玩法模块：`scripts/day_contracts.gd` 与 `scripts/tower_specializations.gd`，已做场景fixture自检，尚未完成生产控制器/HUD接入及发布，未计数。
-- 初始共同提交SHA：`8f2a8a88dbbd7fbda2514bdc00dffeb7254f5ea4`（远端0.8.17导入）。后续从GitHub最新已合并提交领取任务，不从旧tag反复开始。
+- 初始共同提交SHA：`8f2a8a88dbbd7fbda2514bdc00dffeb7254f5ea4`（远端0.8.17导入）。当前接手分支为 `origin/codex/gameplay-main`，基准SHA从该分支最新提交读取，不从旧tag反复开始。
 - 不修改小说/短剧的现成人物、台词、模型或音频；不恢复MOBA、多人或装备系统；不做开发日志、PDF或录屏。
 - 测试保持后台、隐藏窗口、屏幕外位置与Dummy音频，不抢焦点、不外放声音，不关闭用户自己的编辑器。
 
@@ -222,4 +224,5 @@ VIS-001—003均验收后，主机再根据最新反馈安排防御塔、怪物�
 - 完成计数：28/100，以 `optimization-progress.json` 为准。
 - 退回修复事项：暂无新验收；已知待处理问题在对应任务中。
 - 本轮共享源码检查：敌人死亡、日间委托fixture、防御塔分支fixture、石材材质与归家路线四项无脚本错误通过；`git lfs fsck --objects HEAD` 通过。不是新增优化次数或0.8.19发布。
-- GitHub同步：本地基于 `8f2a8a88dbbd7fbda2514bdc00dffeb7254f5ea4` 保留历史，新增源码/派工提交 `cb71102`；当前未推送，待SSH公钥授权后补推并核验远端。
+- GitHub同步：已推送源码/派工 `cb71102`、授权状态记录 `f708761`、协作文件合并 `0d93a78` 至 `codex/gameplay-main`，远端SHA已核对；本回执更新也须提交推送。尚未合并主干，不代表0.8.19发布，完成计数保持28。
+- 远端美术源验证：独立LFS存储重新下载 `dead_tree_v2.blend`（2217782字节，SHA256 `57360e6ffd1a302697d4dabc0d10f87dc7032c4ea61ed0f21f2250a781729a13`）与 `watch_beacon_v2.blend`（5528181字节，SHA256 `210986790f0ca0313ef99ee95dc8e7f2ab543573fefafcd937c6d7e4ac6a801c`），大小和哈希均与提交指针一致。
