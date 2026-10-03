@@ -4,7 +4,7 @@ Godot 4.7.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景�
 
 ## 开始游戏
 
-协作开发只需阅读唯一协作文件 [AGENTS.md](AGENTS.md)，其中包含项目规则、派工与交接。每台电脑一个主对话，文件更新后必须提交并推送GitHub。本仓库包含代码、运行素材、Blender源文件、生成脚本和测试，二进制资源使用Git LFS。
+协作开发只需阅读唯一协作文件 [AGENTS.md](AGENTS.md)，其中包含项目规则、派工与交接。每台电脑一个主对话，仓库只保留 `main` 一个分支，两台都拉取、提交并推送 `main`；文件更新后必须同步GitHub，不再创建功能分支或PR。本仓库包含代码、运行素材、Blender源文件、生成脚本和测试，二进制资源使用Git LFS。
 
 克隆前安装Git LFS，克隆后运行 `git lfs pull`。安装[Godot4.7.2稳定版](https://godotengine.org/download/windows/)，双击 `打开编辑器.cmd`，等待资源导入后按F5。入口会核对版本；默认查找Program Files/Godot、用户LocalAppData/Godot、项目.tools/godot和PATH，也可把 `GODOT_EXECUTABLE` 环境变量设为新版console.exe的完整路径。运行现有模型不需要Blender；修改美术源时使用Blender4.5。新克隆没有本地 `build/`，请从Godot运行或安装4.7.2导出模板后自行导出Windows版本。
 
@@ -16,7 +16,7 @@ Godot 4.7.2 与 Blender 4.5 制作的原创单机末日守夜原型。主场景�
 
 本机有成品时双击 `启动游戏.cmd` 或 `build/Riftward_Nightfall_v0.8.19.exe`。游戏从黑夜中的余烬哨站开始：选择一张命运卡后立即守卫南门，开局提供两座守门塔、90 零件和一发火焰机关。每夜持续105秒；次日白昼只有90秒，趁亮外出搜集、回收能源芯和救援哨兵，再回防中央灯塔。熬过三夜即完成当前原型的一局。守望者倒下或灯塔被毁则失败。
 
-素材来源见 [ASSETS.md](ASSETS.md)，许可说明见 [LICENSES.md](LICENSES.md)。请使用独立分支并通过PR交付，保留其他协作者的改动。
+素材来源见 [ASSETS.md](ASSETS.md)，许可说明见 [LICENSES.md](LICENSES.md)。两台按AGENTS分配的文件范围工作，提交和推送前同步最新 `main`，保留其他协作者的改动；远端已前进时先正常合并，禁止强推覆盖。
 
 ## 当前可玩内容
 
