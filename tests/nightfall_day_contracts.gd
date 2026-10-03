@@ -1,0 +1,239 @@
+extends SceneTree
+## Production scene, real seeds/actions/routes, production-only reward payout.
+## Optional actual render: -- --render-test (hidden window + Dummy audio).
+const HOME := Vector3(0, 5, 3.1)
+const STEP := .05
+var game: Node3D
+var failures: Array[String] = []
+var render_test := false
+var route_seconds: Dictionary = {}
+
+func _initialize() -> void:
+	render_test = DisplayServer.get_name()!="headless" or "--render-test" in OS.get_cmdline_user_args()
+	call_deferred("run")
+
+func check(condition: bool, message: String) -> void:
+	if condition: return
+	failures.append(message); push_error(message)
+
+func clear_enemies() -> void:
+	for unit in game.enemies:
+		if is_instance_valid(unit): unit.queue_free()
+	game.enemies.clear()
+
+func route_length(from: Vector3, to: Vector3) -> float:
+	if game.can_traverse(from, to): return Vector2(from.x - to.x, from.z - to.z).length()
+	var start: Vector2i = game.nearest_navigation_cell(from, true)
+	var finish: Vector2i = game.nearest_navigation_cell(to, false)
+	if start.x == 999 or finish.x == 999: return INF
+	var route: PackedVector2Array = game.hero_navigation.get_point_path(start, finish)
+	if route.is_empty(): return INF
+	var previous := Vector2(from.x, from.z)
+	var distance := 0.0
+	for point in route:
+		distance += previous.distance_to(point)
+		previous = point
+	return distance + previous.distance_to(Vector2(to.x, to.z))
+
+func option_budget(option: Dictionary, spare_seconds: float = 15.0) -> float:
+	var previous := HOME
+	var seconds := 0.0
+	for target: Dictionary in option.targets:
+		seconds += route_length(previous, target.position) / game.hero.speed
+		previous = target.position
+	var return_speed: float = 5.4 if option.kind == "escort" else game.hero.speed
+	seconds += route_length(previous, HOME) / return_speed
+	seconds += float({"salvage": 2.0, "generator": 16.0, "escort": 8.0, "nest": 10.0}.get(option.kind, 0.0))
+	return seconds + spare_seconds
+
+func seed_for(wanted: String, respawn_wait: bool) -> int:
+	var options: Array = game.contracts.candidates()
+	var categories: Array[String] = []
+	for option: Dictionary in options:
+		if not categories.has(option.kind): categories.append(option.kind)
+		check(option_budget(option) <= game.DAY_LENGTH,
+			"Available candidate %s must have a real gate route and action/return budget below ninety seconds" % option.kind)
+	if not categories.has(wanted): return -1
+	for seed in 2000:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = seed + 2 * 7919
+		var chosen_kind: String = categories[rng.randi_range(0, categories.size() - 1)]
+		if chosen_kind != wanted: continue
+		var matching: Array[Dictionary] = []
+		for option: Dictionary in options:
+			if option.kind == wanted: matching.append(option)
+		var chosen := matching[rng.randi_range(0, matching.size() - 1)]
+		if respawn_wait and option_budget(chosen, 55.2 + 15.0) >= game.DAY_LENGTH: continue
+		return seed
+	return -1
+
+func start_day(wanted: String, respawn_wait: bool = false) -> bool:
+	game = load("res://scenes/nightfall.tscn").instantiate()
+	root.add_child(game); current_scene = game
+	await process_frame
+	game.set_process(false)
+	if not game.has_method("update_day_contracts") or not is_instance_valid(game.get("contracts")):
+		check(false, "Production scene must install contracts and update_day_contracts before this test runs")
+		return false
+	check(game.choose_card(0) and game.phase == "night", "Actual opening card must start the first night")
+	clear_enemies()
+	var seed := seed_for(wanted, respawn_wait)
+	check(seed >= 0, "A real seed must select the requested reachable %s candidate" % wanted)
+	if seed < 0: return false
+	game.run.seed_value = seed
+	game.contracts.setup(game, seed)
+	game.finish_night()
+	check(game.phase == "draft" and game.day_number == 2, "First night completion must reach the real second-day draft")
+	check(game.choose_card(0) and game.phase == "day", "Dawn choice must call production begin_day")
+	clear_enemies()
+	check(game.contracts.status == "active" and game.contracts.kind == wanted,
+		"Production day generation must select the requested real %s candidate" % wanted)
+	check(game.contracts.day_id == 2 and game.phase_time == game.DAY_LENGTH, "Production contract must belong to the new ninety-second day")
+	return game.contracts.status == "active" and game.contracts.kind == wanted
+
+func close_game() -> void:
+	if not is_instance_valid(game): return
+	await game.prepare_shutdown()
+	game.queue_free(); await process_frame; await create_timer(.15).timeout
+
+func travel(destination: Vector3) -> bool:
+	check(game.contract_goal().is_equal_approx(destination), "Production guidance must point to the actual remaining action or return goal")
+	if not game.follow_contract():
+		check(false, "Production P guidance must create a real player navigation route")
+		return false
+	var elapsed := 0.0
+	var idle_steps := 0
+	while Vector2(game.hero.position.x - destination.x, game.hero.position.z - destination.z).length() > .18:
+		if game.phase != "day" or elapsed >= 90.0:
+			check(false, "Actual movement must arrive before dusk: %s -> %s" % [game.hero.position, destination])
+			return false
+		var before: Vector3 = game.hero.position
+		game.simulate(STEP) # Uses production move_hero, expeditions, refresh and contracts.
+		elapsed += STEP
+		check(game.can_traverse(before, game.hero.position), "Actual navigation must not cross a fortress wall")
+		check(is_equal_approx(game.hero.position.y, game.outpost_height(game.hero.position)), "Actual navigation must follow the raised ramp")
+		idle_steps = idle_steps + 1 if before.distance_squared_to(game.hero.position) < .000001 else 0
+		if idle_steps > 30:
+			check(false, "Actual contract route must not stall at a wall: %s" % game.hero.position)
+			return false
+	game.move_goal = game.hero.position; game.hero_path.clear()
+	route_seconds[game.contracts.kind] = float(route_seconds.get(game.contracts.kind, 0.0)) + elapsed
+	return true
+
+func wait_day(seconds: float) -> void:
+	var elapsed := 0.0
+	while elapsed < seconds and game.phase == "day":
+		var delta := minf(STEP, seconds - elapsed)
+		game.simulate(delta); elapsed += delta
+
+func collect_target(target: Dictionary) -> bool:
+	if not travel(target.position): return false
+	check(game.nearest_salvage() == int(target.index), "The real marked cache must be the actionable nearby cache")
+	var acted: bool = game.interact()
+	check(acted and target.source.collected, "F at the actual candidate must collect its authoritative cache")
+	game.update_day_contracts(0.0)
+	return acted and target.source.collected
+
+func check_freeze() -> void:
+	for phase: String in ["paused", "draft"]:
+		var done: Dictionary = game.contracts.done.duplicate()
+		var scrap: int = game.scrap
+		var memory: int = game.essence
+		var clock: float = game.phase_time
+		game.phase = phase
+		game.simulate(20.0); game.update_day_contracts(20.0)
+		check(not game.follow_contract(), "Inactive phases must not accept the production contract navigation command")
+		check(game.contracts.done == done and game.scrap == scrap and game.essence == memory and game.phase_time == clock,
+			"%s must freeze authoritative contract progress, rewards and day clock" % phase)
+	game.phase = "day"
+
+func capture(path: String) -> void:
+	if not render_test: return
+	if DisplayServer.get_name() == "headless":
+		check(false, "--render-test requires real graphics; headless is not a render check")
+		return
+	game.world.night_mix = 0.0; game.world.apply_lighting()
+	game.camera.size = 31.0
+	game.camera.position = game.hero.position + Vector3(0, 25, 29)
+	game.camera.look_at(game.hero.position)
+	game.hud.queue_redraw()
+	await process_frame; await RenderingServer.frame_post_draw
+	var result := root.get_texture().get_image().save_png(path)
+	check(result == OK, "Actual contract HUD/world/reward frame must save successfully")
+
+func check_early_salvage() -> void:
+	if not await start_day("salvage", true): await close_game(); return
+	var selected: Array = game.contracts.targets.duplicate()
+	if not collect_target(selected[0]): await close_game(); return
+	check(game.contracts.done.size() == 1 and game.contracts.status == "active", "One genuine cache must give partial progress without a return reward")
+	check_freeze()
+	await capture("res://build/day-contract-active.png")
+	var before_scrap: int = game.scrap
+	var before_memory: int = game.essence
+	wait_day(55.1)
+	check(game.phase == "day" and not selected[0].source.collected and game.contracts.done.has(int(selected[0].index)),
+		"Actual fifty-five-second cache respawn must preserve already completed contract progress")
+	check(game.scrap == before_scrap and game.essence == before_memory, "Cache respawn and waiting cannot grant a contract payout")
+	if not collect_target(selected[1]): await close_game(); return
+	check(game.contracts.done.size() == 2 and game.contracts.status == "active", "Completed field actions still require actual return through the gate")
+	before_scrap = game.scrap; before_memory = game.essence
+	if not travel(HOME): await close_game(); return
+	check(game.phase_time >= 15.0, "Selected real route plus respawn must retain the fifteen-second early-return margin")
+	check(game.contracts.status == "completed" and game.contracts.pending_reward.is_empty(), "Production update must consume the actual completed contract request")
+	check(game.scrap == before_scrap + 40 and game.essence == before_memory + 8, "Actual early return must pay forty supplies and eight memory exactly once")
+	await capture("res://build/day-contract-return.png")
+	before_scrap = game.scrap; before_memory = game.essence
+	for step in 20: game.update_day_contracts(.1)
+	check(game.scrap == before_scrap and game.essence == before_memory, "Repeated production payout updates must never pay the contract twice")
+	await close_game()
+
+func check_generator() -> void:
+	if not await start_day("generator"): await close_game(); return
+	var site: Dictionary = game.contracts.targets[0].source
+	if not travel(site.position): await close_game(); return
+	check(game.interact() and site.state == "active", "Real generator candidate must start through F")
+	check(game.cast(3), "A real R cast must clear the three reachable generator ambushers")
+	check(not game.expeditions.guards_alive(site), "Actual R damage must defeat all three real generator ambushers")
+	wait_day(6.0)
+	check(site.state == "active" and game.contracts.done.is_empty(), "Half a real charge must not complete the contract")
+	check_freeze()
+	wait_day(6.1)
+	check(site.state == "complete" and game.generator_cells == 1 and game.contracts.done.size() == 1,
+		"Actual twelve-second charge and defeated guards must complete the field action")
+	check(game.contracts.status == "active", "Field energy reward must not pretend the contract has already returned")
+	var before_scrap: int = game.scrap
+	var before_memory: int = game.essence
+	if not travel(HOME): await close_game(); return
+	check(game.phase_time >= 15.0 and game.contracts.status == "completed", "Real generator round trip plus combat and hold must fit an early ninety-second return")
+	check(game.scrap == before_scrap + 40 and game.essence == before_memory + 8, "Generator contract must use the same real production payout, separately from its energy reward")
+	await close_game()
+
+func check_late_or_dusk(dusk: bool) -> void:
+	if not await start_day("salvage"): await close_game(); return
+	for target: Dictionary in game.contracts.targets:
+		if not collect_target(target): await close_game(); return
+	check(game.contracts.done.size() == 2 and game.contracts.status == "active", "Both caches away from home must leave a return requirement")
+	var before_scrap: int = game.scrap
+	var before_memory: int = game.essence
+	if dusk:
+		wait_day(game.phase_time + .1)
+		check(game.phase == "night" and game.contracts.status == "expired", "Actual day deadline must close the unreturned contract")
+		game.update_day_contracts(20.0)
+		check(game.scrap == before_scrap and game.essence == before_memory and game.contracts.pending_reward.is_empty(),
+			"Dusk and later production updates must not award field-only completed work")
+	else:
+		var return_seconds: float = route_length(game.hero.position, HOME) / game.hero.speed
+		wait_day(maxf(0.0, game.phase_time - return_seconds - 6.0))
+		if not travel(HOME): await close_game(); return
+		check(game.phase == "day" and game.phase_time < 15.0 and game.contracts.status == "completed", "Actual late arrival must remain valid without an early bonus")
+		check(game.scrap == before_scrap + 30 and game.essence == before_memory + 8, "Late arrival must pay thirty supplies, eight memory, and no ten-supply early bonus")
+	await close_game()
+
+func run() -> void:
+	await check_early_salvage()
+	await check_generator()
+	await check_late_or_dusk(false)
+	await check_late_or_dusk(true)
+	print("NIGHTFALL_DAY_CONTRACTS_", "OK" if failures.is_empty() else "FAILED", " actual_routes=", route_seconds,
+		" production_rewards respawn_progress pause_draft early_late dusk", " rendered" if render_test else "")
+	quit(0 if failures.is_empty() else 1)
