@@ -7,7 +7,7 @@
 
 每轮更新完成后，检查属于自己的文件差异，进行必要验证，提交到当前独立工作分支并推送；核对实际远端分支已收到该提交后再报告同步成功。按仓库LFS规则一并推送二进制资产，避免另一台只拉到指针却拿不到文件。不要把其他人的未提交改动混进本次提交。
 
-**推送受阻必须明确报告“未推送”及实际原因，保留工作并在解决后补推；禁止强推、硬重置或假称已上传。** 共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`。本轮正从远端已有的0.8.17历史接入本地工作；推送与合并结果按实际Git核验，不凭本地文件判断。
+**推送受阻必须明确报告“未推送”及实际原因，保留工作并在解决后补推；禁止强推、硬重置或假称已上传。** 共享仓库为 [luchaoshi45/riftward-nightfall](https://github.com/luchaoshi45/riftward-nightfall)，本机已配置为 `origin`。本地已基于远端历史提交 `cb71102`，尚未推送：HTTPS缺少登录凭据，SSH验证返回 `Permission denied (publickey)`，等待所有者在GitHub添加本机公钥。主机推送地址已设为 `git@github.com:luchaoshi45/riftward-nightfall.git`；SSH私钥与本机网络配置均不进入仓库。
 
 这是两台电脑之间唯一的动态任务看板。通过Git提交、推送和拉取共享，不依赖其他聊天、压缩包或本地绝对路径。项目所有者已明确：每台电脑只使用一个主对话。
 
@@ -124,3 +124,5 @@ VIS-001—003均验收后，主机再根据最新反馈安排防御塔、怪物�
 - 完整游戏验证/Windows版本：最新已验0.8.18。
 - 完成计数：28/100，以 `optimization-progress.json` 为准。
 - 退回修复事项：暂无新验收；已知待处理问题在对应任务中。
+- 本轮共享源码检查：敌人死亡、日间委托fixture、防御塔分支fixture、石材材质与归家路线四项无脚本错误通过；`git lfs fsck --objects HEAD` 通过。不是新增优化次数或0.8.19发布。
+- GitHub同步：本地基于 `8f2a8a88dbbd7fbda2514bdc00dffeb7254f5ea4` 保留历史，新增源码/派工提交 `cb71102`；当前未推送，待SSH公钥授权后补推并核验远端。
