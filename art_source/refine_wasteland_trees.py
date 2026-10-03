@@ -15,7 +15,7 @@ from mathutils.bvhtree import BVHTree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "art_source", "outpost", "dead_tree_v2.blend")
-STAGED = os.path.join(ROOT, "build", "dead-tree-v2-staged.glb")
+STAGED = os.path.join(ROOT, "art_source", "staging", "dead_tree_v2.glb")
 TAU = math.tau
 
 bpy.ops.object.select_all(action="SELECT")

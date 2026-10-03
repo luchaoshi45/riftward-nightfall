@@ -102,9 +102,7 @@ func run() -> void:
 	old_beacon.position.y = 5.0
 	var document := GLTFDocument.new()
 	var state := GLTFState.new()
-	var path := "res://assets/models/watch_beacon_v2.glb"
-	if FileAccess.file_exists("res://build/watch-beacon-v2-staged.glb"):
-		path = "res://build/watch-beacon-v2-staged.glb"
+	var path := "res://art_source/staging/watch_beacon_v2.glb"
 	assert(document.append_from_file(path, state) == OK)
 	beacon = document.generate_scene(state)
 	assert(beacon != null)

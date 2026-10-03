@@ -120,7 +120,7 @@ func run() -> void:
 	root.add_child(stage)
 	current_scene = stage
 	old_tree = load_glb("res://assets/models/dead_tree.glb")
-	new_tree = load_glb("res://build/dead-tree-v2-staged.glb")
+	new_tree = load_glb("res://art_source/staging/dead_tree_v2.glb")
 	stage.add_child(old_tree)
 	stage.add_child(new_tree)
 	var old_stats := geometry(old_tree)

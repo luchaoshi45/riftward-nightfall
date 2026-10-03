@@ -1,7 +1,7 @@
 """Original ash-outpost iron lamp: editable source + self-contained glTF PBR.
 
 Run with Blender 4.5 in background. This script only creates the v2 source and a
-staged GLB under build; the release owner promotes that file after coordination.
+staged GLB under art_source/staging; the release owner promotes it after review.
 The old watch_beacon asset and the playable scene are never modified here.
 """
 import math
@@ -15,7 +15,7 @@ from mathutils import Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "art_source", "outpost", "watch_beacon_v2.blend")
-STAGED_GLB = os.path.join(ROOT, "build", "watch-beacon-v2-staged.glb")
+STAGED_GLB = os.path.join(ROOT, "art_source", "staging", "watch_beacon_v2.glb")
 TAU = math.tau
 
 bpy.ops.object.select_all(action="SELECT")
