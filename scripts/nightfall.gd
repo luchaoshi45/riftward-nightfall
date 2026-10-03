@@ -34,6 +34,9 @@ var kills := 0
 var attack_count := 0
 var essence := 0
 var day_start_pending: bool=false
+var run_mode: String="teaching"
+var encounters=preload("res://scripts/nightfall_encounters.gd").new()
+var night_plan: Array[Dictionary]=[]
 var cores=preload("res://scripts/combat_cores.gd").new()
 var mana := 300.0
 var max_mana := 300.0
@@ -234,12 +237,13 @@ func simulate(delta: float) -> void:
 	update_salvage_refresh(delta)
 	if phase=="night":
 		if wave_index<WAVES_PER_NIGHT:
-			spawn_timer-=delta
+			spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time))
 			if spawn_timer<=4.0 and not wave_warning_issued:
 				wave_warning_issued=true
 				world.wave_warning=true
 				notify("南门警报 · 第 %d 波即将到达" % (wave_index+1),3)
-			if spawn_timer<=0:spawn_night_wave()
+			while wave_index<night_plan.size() and float(night_plan[wave_index].time)<=NIGHT_LENGTH-phase_time:
+				spawn_night_wave()
 		pulse_timer-=delta
 		if pulse_timer<=0:
 			beacon_pulse()
@@ -254,6 +258,7 @@ func start_night() -> void:
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
 	phase="night";phase_time=NIGHT_LENGTH
+	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	spawn_timer=night_spawn_interval();pulse_timer=2.0
 	wave_index=0;wave_warning_issued=false
 	world.set_night(true)
@@ -270,14 +275,17 @@ func start_night() -> void:
 
 func spawn_night_wave() -> void:
 	if phase!="night" or wave_index>=WAVES_PER_NIGHT:return
+	var entry: Dictionary=night_plan[wave_index]
 	wave_index+=1
-	var count:=initial_night_pack() if wave_index==1 else maxi(4,6+day_number*2+wave_index*2-cleansed_nests())
-	for i in range(count):spawn_creature(true)
-	spawn_timer=night_spawn_interval() if wave_index<WAVES_PER_NIGHT else 0.0
+	for role: String in entry.roles:spawn_creature(true,role)
+	spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time)) if wave_index<night_plan.size() else 0.0
 	wave_warning_issued=false
 	world.wave_warning=false
 	BattleVisuals.burst(effects,Vector3(0,0,19),3.2,Color("dc7957"),.5)
-	if wave_index>1:notify("第 %d/%d 波抵达南门 · %d 只夜行体" % [wave_index,WAVES_PER_NIGHT,count],3)
+	if wave_index>1:notify("第 %d/%d 波 · %s · %d 只" % [wave_index,WAVES_PER_NIGHT,entry.title,entry.count],3)
+
+func wave_preview() -> Dictionary:
+	return encounters.next_preview(night_plan,wave_index,NIGHT_LENGTH-phase_time)
 
 func initial_night_pack() -> int:
 	return maxi(5,8+day_number*3-cleansed_nests()*2)
@@ -337,7 +345,7 @@ func begin_day() -> void:
 		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
 	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
 
-func spawn_creature(night: bool) -> BattleUnit:
+func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=rng.randf_range(0,TAU)
@@ -345,6 +353,8 @@ func spawn_creature(night: bool) -> BattleUnit:
 	creature.position=Vector3(rng.randf_range(-10,10),0,rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
 	creature.set_meta("gate_lane",rng.randf_range(-1.15,1.15))
 	var roll:=rng.randf() if night else 1.0
+	if night and not role.is_empty():
+		roll={"basic":1.0,"breaker":0.0,"runner":.061+day_number*.025,"sapper":.231+day_number*.035,"light_eater":.341+day_number*.035}.get(role,1.0)
 	var is_light_eater: bool=night and roll>=.34+day_number*.035 and roll<.43+day_number*.035
 	creature.setup("monster",2)
 	creature.title="夜行体" if night else "潜伏体"

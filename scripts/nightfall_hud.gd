@@ -52,6 +52,14 @@ func _draw() -> void:
 		label(game.expeditions.objective_text(),Vector2(46,170),13,Color("8dcfc3"))
 	progress(Rect2(235,126,173,8),game.phase_time/(game.NIGHT_LENGTH if display_night else game.DAY_LENGTH),red if display_night else amber)
 	draw_exploration_rewards()
+	if game.phase=="night":
+		var preview: Dictionary=game.wave_preview()
+		box(Rect2(457,24,570,110),panel,Color("876f52"))
+		if not preview.is_empty():
+			label("下一波 · %s · %d只 · %.0f秒" % [preview.title,preview.count,preview.remaining],Vector2(477,54),19,amber)
+			label(preview.advice,Vector2(477,85),14,muted)
+			label("先安排防线，再处理主要威胁",Vector2(477,114),13,Color("8dcfc3"))
+		else:label("最后一波已抵达 · 守住南门",Vector2(477,66),19,amber)
 	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)
 	label("%d / %d" % [int(game.beacon_hp),int(game.BEACON_MAX)],Vector2(1261,55),16,amber)
