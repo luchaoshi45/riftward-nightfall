@@ -1,0 +1,115 @@
+extends RefCounted
+## 保存实际敌群计划；预告读取同一份计划，不另行随机生成文案。
+
+const WAVE_TIMES: Array[float] = [0.0, 20.0, 40.0, 65.0, 85.0]
+const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater"]
+const MAX_NEST_REDUCTION: int = 6
+const MIN_WAVE_COUNT: int = 4
+
+func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -> Array[Dictionary]:
+	var night: int = clampi(night_index, 1, 4)
+	var selected_mode: String = mode if mode in ["teaching", "standard", "siege", "echo"] else "teaching"
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = run_seed + night * 104729
+	var variant: int = random.randi_range(0, 2)
+	var theme: String = selected_mode
+	if selected_mode in ["teaching", "standard"]:
+		theme = ["breach", "siege", "echo"][variant]
+	var plan: Array[Dictionary] = []
+	for index in range(WAVE_TIMES.size()):
+		var composition: Dictionary = _first_night(index, random) if night == 1 else _later_night(index, night, theme, random)
+		var roles: Array[String] = []
+		var specialists: Array = composition.roles
+		for role in specialists:
+			roles.append(String(role))
+		var base_count: int = 8 + night * 3 if index == 0 else 8 + night * 2 + index * 2
+		# 巢穴只削减普通随从，不能暗中更换已经预告的主要威胁。
+		var reduction: int = mini(clampi(nest_count, 0, 3) * 2, MAX_NEST_REDUCTION)
+		var count: int = maxi(maxi(MIN_WAVE_COUNT, roles.size()), base_count - reduction)
+		while roles.size() < count:
+			roles.append("basic")
+		# 排列也属于保存的计划，出怪时不能再次抽取角色。
+		var order_random: RandomNumberGenerator = RandomNumberGenerator.new()
+		order_random.seed = run_seed + night * 104729 + (index + 1) * 9719
+		_shuffle_roles(roles, order_random)
+		var final_night: int = 3 if selected_mode == "teaching" else 4
+		plan.append({
+			"index": index,
+			"wave_number": index + 1,
+			"time": WAVE_TIMES[index],
+			"title": String(composition.title),
+			"threat": String(composition.threat),
+			"advice": String(composition.advice),
+			"roles": roles,
+			"count": roles.size(),
+			"night": night,
+			"mode": selected_mode,
+			"theme": theme,
+			"nest_reduction": base_count - roles.size(),
+			"boss_entry": night == final_night and index == WAVE_TIMES.size() - 1,
+		})
+	return plan
+
+## index 是已经生成的波数（0表示尚未生成）；返回值可供HUD自由修改。
+func next_preview(plan: Array[Dictionary], index: int, elapsed: float) -> Dictionary:
+	if index < 0 or index >= plan.size():
+		return {}
+	var preview: Dictionary = plan[index].duplicate(true)
+	preview["remaining"] = maxf(0.0, float(preview.time) - maxf(0.0, elapsed))
+	return preview
+
+func _first_night(index: int, random: RandomNumberGenerator) -> Dictionary:
+	match index:
+		0:
+			return _composition("暗潮初袭", "basic", "用普攻与Q试试核心，守住南门。", [])
+		1:
+			return _composition("疾行突破", "runner", "疾行体容易漏过防线，留E回位拦截。", _repeat("runner", 3 + random.randi_range(0, 1)))
+		2:
+			return _composition("暗潮追击", "runner", "先清聚集的夜行体，再拦截少量疾行。", _repeat("runner", 2))
+		3:
+			return _composition("蚀塔侧翼", "sapper", "蚀塔体优先拆塔，出门保护受压的防御塔。", _repeat("sapper", 2))
+		_:
+			return _composition("破城压门", "breaker", "用R与C集火破城体，塔继续处理随从。", _repeat("breaker", 2))
+
+func _later_night(index: int, night: int, theme: String, random: RandomNumberGenerator) -> Dictionary:
+	var pressure: int = night - 2
+	var variant: int = random.randi_range(0, 1)
+	match index:
+		0:
+			return _composition("噬灯先遣", "light_eater", "先击退噬灯蛾，保持南门灯光可见。", _repeat("light_eater", 2 + pressure))
+		1:
+			if theme == "siege":
+				return _composition("重甲推进", "breaker", "集中火力解决破城体，不要让它压住坡道。", _repeat("breaker", 2 + pressure))
+			return _composition("疾行夜潮", "runner", "守住通道纵深，留突进拦截漏怪。", _repeat("runner", 4 + pressure + variant))
+		2:
+			if theme == "echo":
+				return _composition("掩灯突围", "light_eater", "清除噬灯蛾后再拦截疾行体，别在黑暗中追远。", _repeat("light_eater", 2 + pressure) + _repeat("runner", 3 + variant))
+			return _composition("蚀塔包围", "sapper", "保护两侧塔，清群能力留给正门随从。", _repeat("sapper", 3 + pressure) + _repeat("runner", 2))
+		3:
+			if theme == "echo":
+				return _composition("暗翼蚀塔", "sapper", "拆塔者受噬灯掩护，优先清灯下的特殊敌人。", _repeat("sapper", 3 + pressure) + _repeat("light_eater", 2))
+			if theme == "siege":
+				return _composition("重甲侧翼", "sapper", "分配英雄与塔的目标，侧翼蚀塔者不能放任。", _repeat("sapper", 3 + pressure) + _repeat("breaker", 2))
+			return _composition("疾行拆塔", "sapper", "拦截快敌并保护受压塔，尽量在南门交战。", _repeat("sapper", 3 + pressure) + _repeat("runner", 4 + variant))
+		_:
+			if theme == "echo":
+				return _composition("回声压门", "breaker", "先恢复光照，再用R与集火击穿重敌。", _repeat("breaker", 2 + pressure) + _repeat("light_eater", 3 + pressure))
+			if theme == "siege":
+				return _composition("重甲围城", "breaker", "破城体数量较多，集中重敌火力并清理随从。", _repeat("breaker", 3 + pressure) + _repeat("sapper", 2))
+			return _composition("突破终潮", "breaker", "留住爆发击败重敌，同时阻止疾行体越过防线。", _repeat("breaker", 2 + pressure) + _repeat("runner", 4 + variant))
+
+func _composition(title: String, threat: String, advice: String, roles: Array) -> Dictionary:
+	return {"title": title, "threat": threat, "advice": advice, "roles": roles}
+
+func _repeat(role: String, count: int) -> Array[String]:
+	var roles: Array[String] = []
+	for index in range(count):
+		roles.append(role)
+	return roles
+
+func _shuffle_roles(roles: Array[String], random: RandomNumberGenerator) -> void:
+	for index in range(roles.size() - 1, 0, -1):
+		var replacement: int = random.randi_range(0, index)
+		var role: String = roles[index]
+		roles[index] = roles[replacement]
+		roles[replacement] = role

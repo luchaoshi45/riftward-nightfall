@@ -33,6 +33,7 @@ var scrap := 90
 var kills := 0
 var attack_count := 0
 var essence := 0
+var cores=preload("res://scripts/combat_cores.gd").new()
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -115,6 +116,8 @@ func _ready() -> void:
 	hero.title="余烬守望者"
 	hero.defeated.connect(_on_hero_defeated)
 	hero.damaged.connect(_on_hero_damaged)
+	cores.setup(self)
+	hero.shield_absorbed.connect(cores.absorbed)
 	move_goal=hero.position
 	camera=Camera3D.new();add_child(camera)
 	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
@@ -177,6 +180,7 @@ func _process(delta: float) -> void:
 
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
+	cores.advance(delta)
 	phase_time-=delta
 	update_combat_chains(delta)
 	update_focus(delta)
@@ -244,6 +248,7 @@ func simulate(delta: float) -> void:
 		else:finish_night()
 
 func start_night() -> void:
+	cores.clear()
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
@@ -286,6 +291,7 @@ func beacon_repair_cost() -> int:
 	return maxi(14,20-survivors_rescued*3)
 
 func finish_night() -> void:
+	cores.clear()
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	world.wave_warning=false
@@ -853,13 +859,13 @@ func update_hero_attack(delta: float) -> void:
 		var pushed:=closest.position+Vector3(hit_direction.x,0,hit_direction.z)*push
 		if can_traverse(closest.position,pushed):
 			pushed.y=outpost_height(pushed);closest.position=pushed
-	if run.count("chain")>0 and attack_count%3==0:
+	if (run.count("chain")>0 and attack_count%3==0) or (run.count("core_storm")>0 and finisher):
 		var chained:=0
 		for other in enemies:
 			if other==closest or not is_instance_valid(other) or not other.alive:continue
 			if other.position.distance_to(closest.position)<5.0:
 				player_attack_resolving=true
-				other.hurt(amount*.55,hero)
+				other.hurt(amount*(.55 if run.count("chain")>0 else .30),hero)
 				player_attack_resolving=false
 				BattleVisuals.beam(effects,closest.position+Vector3.UP,other.position+Vector3.UP,Color("95d6e1"),.12)
 				chained+=1
@@ -1279,9 +1285,11 @@ func cast(slot: int, feedback: bool = false) -> bool:
 					if direction.dot((creature.position-hero.position).normalized())>.78:
 						var burst_damage: float=110+float(run.stats.spell)*.85
 						creature.hurt(burst_damage*(2.1 if run.count("split")>0 else 1.0),hero)
+						cores.mark(creature)
 		1:
 			hero.shield=(150+float(run.stats.spell)*.5)*float(run.stats.shield)
 			hero.shield_time=4
+			cores.arm_guard()
 			var shield_radius: float=4.2*float(run.stats.area)
 			BattleVisuals.burst(effects,hero.position,shield_radius,Color("70cbd5"),.45)
 			skill_lights.emit_skill(1,hero.position,direction,Vector3.INF,shield_radius)
@@ -1302,7 +1310,9 @@ func cast(slot: int, feedback: bool = false) -> bool:
 			hero.play_action("inferno",direction)
 			BattleVisuals.lantern_inferno(effects,hero.position,fire_radius,false)
 			skill_lights.emit_skill(3,hero.position,direction,Vector3.INF,fire_radius)
-			hit_area(hero.position,fire_radius,fire_damage)
+			for creature in enemies:
+				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<fire_radius:
+					creature.hurt(fire_damage+cores.consume(creature),hero)
 			if run.count("echo")>0:
 				delayed_blasts.append({"position":hero.position,"radius":fire_radius,"damage":fire_damage*.5,"delay":.55})
 		4:
@@ -1477,6 +1487,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	cores.clear()
 	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()
 	if music:

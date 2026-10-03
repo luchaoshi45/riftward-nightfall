@@ -97,6 +97,10 @@ func _draw() -> void:
 		label(status,Vector2(x+11,824),13,status_color)
 	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
 	draw_combat_rewards()
+	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
+	for core_key in core_names:
+		if game.run.count(core_key)>0:
+			label(core_names[core_key],Vector2(548,737),15,Color("a3d4cb"))
 	if game.phase=="draft":draw_draft()
 	if game.phase=="paused":
 		draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.58))
