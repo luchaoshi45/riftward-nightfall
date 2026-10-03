@@ -38,8 +38,8 @@ func on_destroyed(pad: Dictionary) -> void:
 func heavy(enemy: BattleUnit) -> bool:
 	return str(enemy.get_meta("threat", "")) in ["breaker", "sapper"]
 
-func eligible(enemy: BattleUnit) -> bool:
-	return is_instance_valid(enemy) and enemy.alive and enemy.kind == "monster" and enemy.team == 2
+func eligible(enemy: Variant) -> bool:
+	return is_instance_valid(enemy) and enemy is BattleUnit and enemy.alive and enemy.kind == "monster" and enemy.team == 2
 
 func cooldown_multiplier(pad: Dictionary) -> float:
 	return 1.25 if branch(pad) == CONTROL else 1.0

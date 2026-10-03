@@ -38,6 +38,7 @@ var run_mode: String="teaching"
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
 var cores=preload("res://scripts/combat_cores.gd").new()
+var specializations=preload("res://scripts/tower_specializations.gd").new()
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -185,6 +186,7 @@ func _process(delta: float) -> void:
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
 	cores.advance(delta)
+	specializations.advance(delta)
 	phase_time-=delta
 	update_combat_chains(delta)
 	update_focus(delta)
@@ -254,6 +256,7 @@ func simulate(delta: float) -> void:
 
 func start_night() -> void:
 	cores.clear()
+	specializations.reset_effects()
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
@@ -301,6 +304,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	cores.clear()
+	specializations.reset_effects()
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	world.wave_warning=false
@@ -426,6 +430,7 @@ func spawn_nest_guards() -> void:
 			guard.title="夜巢守卫"
 
 func update_creature(creature: BattleUnit, delta: float) -> void:
+	var move_speed: float=creature.speed*specializations.movement_multiplier(creature)
 	var threat: String=creature.get_meta("threat","")
 	var day_hunter: bool=phase=="day" and creature.get_meta("day_hunter",false)
 	var pursuing_hero: bool=(creature.position.distance_to(hero.position)<4.0 or day_hunter) and hero.alive and threat!="breaker" and threat!="sapper"
@@ -463,7 +468,7 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			var direction:=waypoint-creature.position;direction.y=0
 			var previous:=creature.position
 			if direction.length()>.05:
-				var next:=previous+direction.normalized()*minf(direction.length(),creature.speed*delta)
+				var next:=previous+direction.normalized()*minf(direction.length(),move_speed*delta)
 				if can_traverse(previous,next):
 					next.y=outpost_height(next)
 					creature.position=next
@@ -473,7 +478,7 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			creature.moving=creature.position.distance_squared_to(previous)>.000001
 		else:
 			var direction:=(target-creature.position).normalized()
-			var next:=creature.position+direction*creature.speed*delta
+			var next:=creature.position+direction*move_speed*delta
 			if outpost_walkable(next):
 				next.y=outpost_height(next)
 				creature.position=next
@@ -568,6 +573,7 @@ func damage_tower(index: int, amount: float) -> void:
 	pad.max_hp=0.0
 	pad.cooldown=0.0
 	pad.mode="nearest"
+	specializations.on_destroyed(pad)
 	BattleVisuals.burst(effects,pad.position,2.5,Color("db8757"),.45)
 	notify("南门防御塔被蚀塔体摧毁 · 可重新建造",3)
 
@@ -741,18 +747,15 @@ func update_towers(delta: float) -> void:
 		if is_instance_valid(focus_target) and focus_target.alive and focus_time>0 and pad.position.distance_to(focus_target.position)<range_limit:
 			selected=focus_target
 		if selected==null:continue
-		pad.cooldown=maxf(.38,1.05-float(pad.level)*.18)
+		pad.cooldown=maxf(.38,1.05-float(pad.level)*.18)*specializations.cooldown_multiplier(pad)
 		var tower: Node3D=pad.turret
 		tower.look_at(Vector3(selected.position.x,tower.position.y,selected.position.z),Vector3.UP)
 		var impact:=selected.position
 		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
 		BattleVisuals.tower_shot(effects,pad.position+Vector3(0,2.1,0),impact+Vector3(0,1,0),pad.level)
-		selected.hurt(damage,hero)
-		if pad.level>=3:
-			BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f3b966"),7)
-			for other in enemies:
-				if other==selected or not is_instance_valid(other) or not other.alive:continue
-				if other.position.distance_to(impact)<2.7:other.hurt(damage*.36,hero)
+		specializations.resolve_shot(pad,selected,enemies,damage,hero)
+		if specializations.branch(pad)=="control":BattleVisuals.burst(effects,impact,3.2,Color("8bbfcf"),.25)
+		elif specializations.branch(pad)=="piercing":BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f5b271"),8)
 
 func update_focus(delta: float) -> void:
 	focus_cooldown=maxf(0.0,focus_cooldown-delta)
@@ -897,6 +900,7 @@ func beacon_pulse() -> void:
 	if hits>0:BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),10.5,Color("ffaa58"),.28)
 
 func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
+	specializations.forget_enemy(creature)
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase
 	var scrap_gain:=8 if combat_phase=="night" else 5
@@ -943,6 +947,7 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 
 func end_defeat(message: String) -> void:
 	cores.clear()
+	specializations.reset_effects()
 	phase="ended";victory=false;ending_key="defeat";notify(message,8)
 
 func open_draft() -> void:
@@ -1002,6 +1007,16 @@ func toggle_tower_mode() -> bool:
 	var pad: Dictionary=world.tower_pads[index]
 	pad.mode="breaker" if pad.mode=="nearest" else "nearest"
 	notify("防御塔目标：破城优先" if pad.mode=="breaker" else "防御塔目标：最近目标",2)
+	return true
+
+func choose_tower_specialization(kind: String) -> bool:
+	var index:=nearest_tower_pad()
+	if index<0:return false
+	var result: Dictionary=specializations.choose(world.tower_pads[index],kind,scrap,phase)
+	if not result.ok:notify(result.reason,2);return false
+	scrap=result.scrap
+	BattleVisuals.burst(effects,world.tower_pads[index].position,2.2,Color("80bfd3") if kind=="control" else Color("efae67"),.4)
+	notify("已改装：牵制群敌" if kind=="control" else "已改装：重敌破甲",2)
 	return true
 
 func repair_tower() -> bool:
@@ -1417,6 +1432,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		match event.keycode:
 			KEY_V:request_upgrade()
+			KEY_J:choose_tower_specialization("piercing")
+			KEY_K:choose_tower_specialization("control")
 			KEY_F:interact()
 			KEY_G:toggle_tower_mode()
 			KEY_H:repair_tower()

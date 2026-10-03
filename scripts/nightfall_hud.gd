@@ -86,6 +86,16 @@ func _draw() -> void:
 		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
 		label(game.notice,Vector2(720-width*.5,224),19,ink)
 	var prompt: String=game.interaction_prompt()
+	var pad_index: int=game.nearest_tower_pad()
+	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"]:
+		var pad: Dictionary=game.world.tower_pads[pad_index]
+		box(Rect2(435,553,570,86),panel,Color("647d78"))
+		if game.specializations.branch(pad)=="standard":
+			label("二级塔改装 · 每座只能选择一次 · 45零件",Vector2(457,582),16,amber)
+			label("J 破甲：重敌更强 / 放弃群伤    K 牵制：降伤减速群敌",Vector2(457,614),14,ink)
+		else:
+			label("塔专精 · "+("重敌破甲" if game.specializations.branch(pad)=="piercing" else "范围牵制"),Vector2(457,582),17,amber)
+			label("H 修复 · G 目标模式 · C 指定集火",Vector2(457,614),15,ink)
 	if prompt!="" and game.phase!="draft":
 		box(Rect2(492,670,456,48),Color(.032,.048,.050,.91),Color("b39761"))
 		var width:=font.get_string_size(prompt,HORIZONTAL_ALIGNMENT_LEFT,-1,17).x
