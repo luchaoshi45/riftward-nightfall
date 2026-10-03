@@ -137,8 +137,6 @@ func homecoming_views() -> void:
 	await photograph("two-returnees-result")
 	game.victory=false;game.hero.hp=0;game.beacon_hp=800
 	await photograph("hero-fallen-result")
-	game.phase="draft";game.opening_night_pending=true
-	await photograph("opening-story")
 
 func run() -> void:
 	if DisplayServer.get_name()=="headless":push_error("This test requires actual Forward+ rendering");quit(1);return
@@ -146,6 +144,7 @@ func run() -> void:
 	root.add_child(game);current_scene=game
 	await process_frame
 	game.set_process(false);game.world.set_process(false)
+	await photograph("opening-story")
 	check(game.choose_card(0),"Start the actual night via a card choice")
 	game.world.night_mix=1;game.world.night_active=true;game.world.apply_lighting()
 	game.world.ashfall.emitting=false

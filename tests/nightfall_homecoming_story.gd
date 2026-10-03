@@ -36,6 +36,11 @@ func check_summary(game: Node3D, people: int) -> void:
 		var summary: Dictionary=game.homecoming_summary()
 		check(summary.people==people and summary.repair_cost==game.beacon_repair_cost(),"The result must use the actual returned people and real repair fee")
 		check(String(summary.record).contains("%d / 2" % people),"The return record must report the actual escort outcome")
+		var real_names: Array[String]=[]
+		for camp in game.expeditions.camps:
+			if camp.state=="delivered":real_names.append(camp.scout_name)
+		check(summary.names==real_names,"The ending must remember the identities of actual returnees")
+		for name in real_names:check(String(summary.record).contains(name),"Actual returned names must appear in the result")
 		var response: String=summary.response
 		check(not response.is_empty(),"Each real return count must receive a concrete story response")
 		check(not response.contains("死亡") and not response.contains("牺牲"),"The result must not invent unimplemented deaths for rescued or waiting scouts")

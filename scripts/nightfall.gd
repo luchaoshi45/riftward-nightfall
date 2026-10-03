@@ -1313,6 +1313,11 @@ func cast(slot: int, feedback: bool = false) -> bool:
 
 func homecoming_summary() -> Dictionary:
 	var people := clampi(survivors_rescued,0,2)
+	var names: Array[String]=[]
+	if expeditions:
+		for camp in expeditions.camps:
+			if camp.state=="delivered":names.append(camp.scout_name)
+	var name_record: String=" · "+"、".join(names) if not names.is_empty() else ""
 	var response: String
 	if phase=="ended" and not victory:
 		response="返家的 %d 人曾与你并肩；这一夜没守住，还可以重新出发。" % people if people>0 else "荒原的求救声还在。下一次守望，也为他们留一条回家的路。"
@@ -1320,7 +1325,7 @@ func homecoming_summary() -> Dictionary:
 		response=["荒原里还有人在等待。第四次日出，也是再次出发的机会。",
 			"庭院多了一盏灯。下一次修灯，有人为你递来零件。",
 			"两个人都回到灯下。守住这个家，已经不再是你一个人的事。"][people]
-	return {"people":people,"record":"返家记录 %d / 2 · 协作修灯 %d 零件" % [people,beacon_repair_cost()],
+	return {"people":people,"names":names,"record":"返家记录 %d / 2%s · 协作修灯 %d 零件" % [people,name_record,beacon_repair_cost()],
 		"response":response,"repair_cost":beacon_repair_cost()}
 
 func hit_area(point: Vector3,radius: float,amount: float) -> void:
