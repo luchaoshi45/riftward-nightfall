@@ -168,15 +168,16 @@ func interact() -> bool:
 		"waylight":
 			item.state="active";item.remaining=WAYLIGHT_SECONDS;item.feedback_time=1.6
 			item.field.visible=true
-			game.grant_exploration_reward("引路灯碑点亮",item.position,0,0)
+			_refresh_motivation_lights()
+			game.grant_exploration_reward("引路灯碑点亮",item.position,0,0,0.0,0.0,"waylight")
 			apply_waylight(item)
 			update_lights()
 		"ember_bloom":
 			begin_cooling(item,rng.randf_range(45,65))
-			game.grant_exploration_reward("余烬花",item.position,12,0,70.0,0.0)
+			game.grant_exploration_reward("余烬花",item.position,12,0,70.0,0.0,"ember_bloom")
 		"memory_crystal":
 			begin_cooling(item,rng.randf_range(45,65))
-			game.grant_exploration_reward("记忆晶簇",item.position,0,12,0.0,45.0)
+			game.grant_exploration_reward("记忆晶簇",item.position,0,12,0.0,45.0,"memory_crystal")
 	return true
 
 func begin_cooling(item: Dictionary, seconds: float) -> void:
@@ -217,7 +218,7 @@ func tick(delta: float) -> void:
 					item.progress=minf(CHANNEL_SECONDS,float(item.progress)+delta)
 					if item.progress>=CHANNEL_SECONDS:
 						begin_cooling(item,rng.randf_range(45,65))
-						game.grant_exploration_reward("遗落补给箱",item.position,40,6)
+						game.grant_exploration_reward("遗落补给箱",item.position,40,6,0.0,0.0,"supply_cache")
 			"active":
 				item.remaining=maxf(0.0,float(item.remaining)-delta)
 				if item.remaining<=0:begin_cooling(item,50.0)
@@ -232,7 +233,29 @@ func tick(delta: float) -> void:
 		if item.state=="channel":item.label.text="补给箱 %d%%" % roundi(float(item.progress)/CHANNEL_SECONDS*100)
 		elif item.state=="active":item.label.text="护盾灯区 · %d秒" % ceili(item.remaining)
 		else:item.label.text=TITLES[item.kind]+" · F"
+	_refresh_motivation_lights()
 	update_lights()
+
+func _refresh_motivation_lights() -> void:
+	if not game or not game.get("exploration"):return
+	var active := 0
+	for item: Dictionary in items:
+		if item.kind=="waylight" and item.state=="active":active+=1
+	game.exploration.set_waylight_count(active)
+
+func motivation_target() -> Dictionary:
+	if not game or not game.get("exploration"):return {}
+	var kind: String=game.exploration.next_kind()
+	if kind.is_empty():return {}
+	var selected: Dictionary={}
+	var distance:=INF
+	for item: Dictionary in items:
+		if item.kind!=kind or item.state!="ready":continue
+		var candidate: float=game.hero.position.distance_to(item.position)
+		if candidate<distance:
+			distance=candidate;selected=item
+	if selected.is_empty():return {}
+	return {"kind":kind,"distance":distance,"position":selected.position}
 
 func update_lights() -> void:
 	var nearby: Array[Dictionary]=[]

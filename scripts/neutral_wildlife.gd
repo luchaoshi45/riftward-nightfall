@@ -120,11 +120,11 @@ func interact() -> bool:
 	if animal.kind=="stag":
 		game.hero.shield=maxf(game.hero.shield,90.0)
 		game.hero.shield_time=maxf(game.hero.shield_time,10.0)
-		game.grant_exploration_reward("荧角鹿的祝福 · 90 护盾",animal.position,0,6,60,0)
+		game.grant_exploration_reward("荧角鹿的祝福 · 90 护盾",animal.position,0,6,60,0,"wildlife_stag")
 		BattleVisuals.burst(game.effects,animal.position,2.8,Color("75d4eb"),.65)
 	else:
 		game.scrap-=BEETLE_COST
-		game.grant_exploration_reward("苔背甲虫交换",animal.position,0,8,40,80)
+		game.grant_exploration_reward("苔背甲虫交换",animal.position,0,8,40,80,"wildlife_beetle")
 		BattleVisuals.burst(game.effects,animal.position,2.3,Color("d2d083"),.65)
 	return true
 

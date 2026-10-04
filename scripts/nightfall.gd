@@ -3,6 +3,7 @@ extends Node3D
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
+const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
@@ -87,6 +88,7 @@ var generator_cells := 0
 var survivors_rescued := 0
 var discoveries: Node3D
 var wildlife: Node3D
+var exploration: Node
 var exploration_count := 0
 var exploration_milestones := 0
 var reward_toasts: Array[Dictionary] = []
@@ -144,6 +146,7 @@ func _ready() -> void:
 	squads=SquadScript.new();add_child(squads);squads.setup(self,true)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
+	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	districts.setup(self)
 	squads.set_health_multiplier(districts.squad_health_multiplier())
@@ -176,6 +179,7 @@ func prepare_opening_defenses() -> void:
 
 func _process(delta: float) -> void:
 	if phase=="day" or phase=="night":simulate(delta)
+	if exploration:exploration.tick(delta)
 	update_beacon_alarm(delta)
 	for i in range(reward_toasts.size()-1,-1,-1):
 		reward_toasts[i].time-=delta
@@ -216,6 +220,7 @@ func simulate(delta: float) -> void:
 			BattleVisuals.burst(effects,blast.position,blast.radius,Color("efb179"),.42)
 			if skill_lights:skill_lights.emit_skill(3,blast.position,Vector3.RIGHT,Vector3.INF,blast.radius)
 			delayed_blasts.remove_at(i)
+	hero.speed=HERO_MOVE_SPEED+float(run.stats.speed)+(exploration.speed_bonus_value() if exploration else 0.0)
 	move_hero(delta)
 	hero.tick(delta)
 	update_hero_attack(delta)
@@ -276,6 +281,7 @@ func start_night() -> void:
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
 	if squads:squads.on_night()
+	if exploration:exploration.begin_night()
 	contracts.on_night()
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
@@ -365,6 +371,7 @@ func begin_day() -> void:
 	world.set_night(false)
 	expeditions.on_day()
 	if squads:squads.on_day()
+	if exploration:exploration.begin_day()
 	contracts.on_day()
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
@@ -1376,7 +1383,7 @@ func interact() -> bool:
 		world.salvage[index].respawn=SALVAGE_REFRESH
 		(world.salvage[index].node as Node3D).visible=false
 		var amount: int=world.salvage[index].amount
-		grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3)
+		grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3,0.0,0.0,"salvage")
 		return true
 	var nest_index:=nearest_nest()
 	if nest_index>=0:
@@ -1624,9 +1631,13 @@ func update_salvage_refresh(delta: float) -> void:
 		if item.respawn>0:continue
 		item.collected=false;item.node.visible=true
 
-func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, memory_gain: int, hp_gain: float=0.0, mana_gain: float=0.0) -> void:
+func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, memory_gain: int, hp_gain: float=0.0, mana_gain: float=0.0, category: String="") -> void:
 	contracts.on_action()
 	if phase!="day" and phase!="night":return
+	var route: Dictionary={"scrap":0,"memory":0,"event":""}
+	if exploration:
+		route=exploration.record(category if not category.is_empty() else title,point,phase)
+		scrap_gain+=int(route.scrap);memory_gain+=int(route.memory)
 	exploration_count+=1
 	var milestone:=exploration_count%5==0
 	if milestone:
@@ -1646,6 +1657,9 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 	var color:=Color("f4ca7c") if milestone else Color("86d8c6")
 	reward_toasts.append({"title":"探索里程碑 · " + title if milestone else title,"detail":detail,"time":3.2,"color":color})
 	if reward_toasts.size()>3:reward_toasts.pop_front()
+	if not String(route.event).is_empty():
+		reward_toasts.append({"title":String(route.event),"detail":"路线奖励已加入本次搜寻","time":3.8,"color":Color("a6d9c6")})
+		while reward_toasts.size()>4:reward_toasts.pop_front()
 	var floating:=Label3D.new()
 	effects.add_child(floating);floating.position=point+Vector3.UP*2.4
 	floating.text=detail;floating.font_size=30;floating.pixel_size=.009

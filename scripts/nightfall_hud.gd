@@ -179,7 +179,7 @@ func draw_combat_floats() -> void:
 	if canvas_size.x<=0.0 or canvas_size.y<=0.0:return
 	var occupied: Array[Rect2]=[
 		Rect2(24,22,405,160),Rect2(1050,22,365,173),
-		Rect2(24,197,340,108+game.reward_toasts.size()*70),
+		Rect2(24,197,340,128+game.reward_toasts.size()*70),
 			Rect2(1161,195,254,373),Rect2(1050,480,365,125),Rect2(1050,620,365,46),Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
 	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
@@ -354,7 +354,7 @@ func draw_exploration_rewards() -> void:
 	var ready:=0
 	for item in game.discoveries.items:
 		if item.state=="ready" or item.state=="channel":ready+=1
-	box(Rect2(24,197,322,108),panel,Color("497467"))
+	box(Rect2(24,197,322,128),panel,Color("497467"))
 	label("荒原发现",Vector2(43,224),17,Color("a6decb"))
 	label("探索 %d 次 · 里程碑 %d" % [game.exploration_count,game.exploration_milestones],Vector2(43,247),13,ink)
 	var collected: int=game.exploration_count%5
@@ -362,10 +362,15 @@ func draw_exploration_rewards() -> void:
 		draw_circle(Vector2(49+i*20,272),4.5,Color("e8bc70") if i<collected else Color("3f5b55"))
 	label("%d/5 · +35零件 +20记忆" % collected,Vector2(151,277),12,amber)
 	label("荧光互动点 %d · 采集后会刷新" % ready,Vector2(43,298),11,muted)
+	if game.exploration:
+		label(game.exploration.route_text(),Vector2(43,317),11,amber if game.exploration.streak>1 else Color("a3c7b7"))
+		var target: Dictionary=game.discoveries.motivation_target()
+		if not target.is_empty():
+			label("目标距离 %.0f 米 · 22 秒内换类型可连段" % float(target.distance),Vector2(43,333),10,muted)
 	for i in game.reward_toasts.size():
 		var reward: Dictionary=game.reward_toasts[game.reward_toasts.size()-1-i]
 		var fade: float=minf(1.0,reward.time/.45)
-		var y:=320.0+float(i)*70.0
+		var y:=342.0+float(i)*70.0
 		box(Rect2(24,y,340,62),Color(.026,.067,.060,.92*fade),Color("527c6b",fade))
 		var tint: Color=reward.color;tint.a=fade
 		label(reward.title,Vector2(42,y+24),15,tint)
@@ -413,6 +418,8 @@ func draw_result() -> void:
 	var home: Dictionary=game.homecoming_summary()
 	label(home.record,Vector2(425,515),16,Color("a3c7b7"))
 	label(home.response,Vector2(425,553),15,ink)
+	if game.exploration:
+		label(game.exploration.run_summary(),Vector2(425,585),14,Color("a6d9c6"))
 	label("按 Enter 重新开始一局",Vector2(611,654),18,muted)
 
 func _gui_input(event: InputEvent) -> void:
