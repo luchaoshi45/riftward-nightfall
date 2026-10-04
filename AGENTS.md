@@ -191,7 +191,7 @@ GAME-003按用户最新反馈由主机在本聊天完成，不改变从机VIS-00
 | 顺序 | 任务 | 当前状态 | 建议发布 |
 | --- | --- | --- | --- |
 | GAME-007 | 盾卫小队：招募、守门承伤、撤回、付费休整 | 生产接入已推送`fc481b7`，待主机验收 | 0.8.26，36/100 |
-| GAME-008 | 弩手小队：远程输出、特殊敌优先、双盾/盾弩/双弩阵容 | 同一模块含实现；未开放或生产接入 | 0.8.27，37/100 |
+| GAME-008 | 弩手小队：远程输出、特殊敌优先、双盾/盾弩/双弩阵容 | 进行中，基线`843ec7a` | 0.8.27，37/100 |
 | GAME-009 | 三夜教学＋两种四夜标准场、波次经济与每局重建 | 波计划/预算模块通过；入口/流程/经济未接入 | 0.8.28，38/100 |
 | GAME-010 | 末夜首领、可打断蓄力、破绽、增援、真正清场后结算 | 首领独立fixture通过；未在游戏生成 | 0.8.29，39/100 |
 
@@ -287,17 +287,17 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 
 ## 从机B回执（由从机维护）
 
-- 当前任务ID：GAME-007。
-- 状态：待主机验收（已推送）。
-- 实际基准提交SHA：`336adff`（2026-10-04，从 `origin/main` 快进同步）。
-- 协作分支：`main`；已执行 `git lfs pull`，工作树干净后领取任务。
-- 提交SHA：`fc481b747eef38715651aef6e01c91c4ff3b5b9a`（已推送，包含实现提交`7e2b183`及本回执）。
-- 改动文件：`scripts/outpost_squads.gd`、`scripts/nightfall.gd`、`scripts/nightfall_hud.gd`、`tests/nightfall_squad_controls.gd`。
-- 完成内容：把盾卫小队接入真实守城入口；U 招募（70零件，最多两队、每队三人）、O 驻守/撤回、L 白昼付费补员；夜间敌人先经盾卫拦截并由真实士兵承伤；昼夜切换、暂停、结局和关闭清理；兵营生命倍率接入新兵并按比例更新已有士兵；HUD 显示人数、驻守、生命、补员费用及操作提示；macOS HUD 改为按操作系统选择已安装字体并启用安全回退，修复中文方框。
-- 验证命令与结果：Godot 4.7.2 无头通过 `tests/outpost_squads_fixture.gd`（`OUTPOST_SQUADS_FIXTURE_OK`）、`tests/nightfall_squads_scene.gd`（`NIGHTFALL_SQUADS_SCENE_OK`）、`tests/nightfall_squad_controls.gd`（`NIGHTFALL_SQUAD_CONTROLS_OK`）、`tests/nightfall_loop.gd`（`NIGHTFALL_LOOP_OK`）；隐藏窗口 Forward+ + Dummy 音频运行生产用例通过并生成 `build/nightfall-squad-controls.png`，日志无 `ERROR`/`SCRIPT ERROR`；`python3 tools/verify_git_tracking.py` 在提交后复核通过。
-- 性能/画面结论及剩余问题：实际渲染画面中的中文可读，盾卫HUD和夜景可见；未做Windows成品导出，需主机在可推送后执行完整成品验收并更新版本计数。
-- 需要主机接入的具体接口/差异：`Nightfall._ready/simulate/start_night/begin_day/finish_night/end_defeat/prepare_shutdown` 已挂载并调度 `SquadScript`；新增 `nightfall_squad_controls.gd` 作为生产控制测试；无需额外手工接入。
-- 阻碍（没有则写无）：无。SSH 公钥已加入 GitHub，`ssh -T git@github.com` 认证成功；`git fetch origin main` 后已普通推送并以 `git ls-remote origin refs/heads/main` 核对远端为`fc481b7`。
+- 当前任务ID：GAME-008。
+- 状态：进行中。
+- 实际基准提交SHA：`843ec7a`（2026-10-04，从 `origin/main` 快进同步，GAME-007已推送）。
+- 协作分支：`main`；已执行 `git fetch origin main`，工作树干净后领取任务。
+- 提交SHA：领取回执待推送。
+- 改动文件：领取阶段仅更新本回执；实现文件待填写。
+- 完成内容：准备把已有弩手模块开放到真实守城入口，接入 I 招募、远程输出、特殊敌优先和盾弩/双盾/双弩阵容选择。
+- 验证命令与结果：领取阶段未验证；实现后补生产控制、隐藏渲染和相关回归。
+- 性能/画面结论及剩余问题：未验证。
+- 需要主机接入的具体接口/差异：暂未交付。
+- 阻碍（没有则写无）：无。
 
 更新同一份当前回执，不累积开发日志；交付结论必须能由提交内容和真实测试复核。
 
