@@ -161,6 +161,69 @@ func run() -> void:
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
+	# Lateral movement beside the ramp wall must use the remaining clearance
+	# instead of projecting the whole frame back to the old centre.
+	reset_hero(Vector3(-2.5, 0, 7.6), Vector3.LEFT)
+	await key(KEY_A, true)
+	var lateral_ramp_start: Vector3=game.hero.position
+	for frame in 12: game.simulate(STEP)
+	check(game.hero.position.x<lateral_ramp_start.x-.08,
+		"Ramp-edge lateral movement must consume available clearance instead of stalling")
+	check(game.hero.position.x>=-game.hero_ramp_side_limit(game.hero.position.z)-.01,
+		"Ramp-edge lateral movement must stay inside the visual clearance corridor")
+	await key(KEY_A, false)
+	game.simulate(STEP)
+	reset_hero(Vector3(2.5, 0, 7.6), Vector3.RIGHT)
+	await key(KEY_D, true)
+	var right_lateral_ramp_start: Vector3=game.hero.position
+	for frame in 12: game.simulate(STEP)
+	check(game.hero.position.x>right_lateral_ramp_start.x+.08,
+		"Mirrored ramp-edge lateral movement must consume available clearance")
+	check(game.hero.position.x<=game.hero_ramp_side_limit(game.hero.position.z)+.01,
+		"Mirrored ramp-edge movement must stay inside the visual clearance corridor")
+	await key(KEY_D, false)
+	game.simulate(STEP)
+	# The terrain beside the ramp remains open ground. It must not be mistaken
+	# for the ramp corridor and pulled across the retaining wall by the visual
+	# clearance clamp.
+	reset_hero(Vector3(-4.3, 0, 10.0), Vector3.FORWARD)
+	await key(KEY_S, true)
+	var outer_left_start: Vector3=game.hero.position
+	for frame in 30: game.simulate(STEP)
+	check(absf(game.hero.position.x-outer_left_start.x)<.02 and game.hero.position.z>outer_left_start.z+1.5,
+		"Outer ground beside the west ramp wall must advance without a lateral snap")
+	check(is_equal_approx(game.hero.position.y,game.outpost_height(game.hero.position)),
+		"Outer west ramp ground movement must follow the terrain height")
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	reset_hero(Vector3(4.3, 0, 10.0), Vector3.FORWARD)
+	await key(KEY_S, true)
+	var outer_right_start: Vector3=game.hero.position
+	for frame in 30: game.simulate(STEP)
+	check(absf(game.hero.position.x-outer_right_start.x)<.02 and game.hero.position.z>outer_right_start.z+1.5,
+		"Outer ground beside the east ramp wall must advance without a lateral snap")
+	check(is_equal_approx(game.hero.position.y,game.outpost_height(game.hero.position)),
+		"Outer east ramp ground movement must follow the terrain height")
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	# The ground outside the east and west retaining walls must stay outside
+	# the courtyard clearance clamp and remain freely traversable.
+	reset_hero(Vector3(8.3, 0, 0.0), Vector3.RIGHT)
+	await key(KEY_D, true)
+	var outer_east_start: Vector3=game.hero.position
+	for frame in 30: game.simulate(STEP)
+	check(game.hero.position.x>outer_east_start.x+1.5 and absf(game.hero.position.z-outer_east_start.z)<.02,
+		"Outer ground beside the east courtyard wall must advance without being pulled onto the high platform")
+	await key(KEY_D, false)
+	game.simulate(STEP)
+	reset_hero(Vector3(-8.3, 0, -4.0), Vector3.LEFT)
+	await key(KEY_A, true)
+	var outer_west_start: Vector3=game.hero.position
+	for frame in 30: game.simulate(STEP)
+	check(game.hero.position.x<outer_west_start.x-1.5 and absf(game.hero.position.z-outer_west_start.z)<.02,
+		"Outer ground beside the west courtyard wall must advance without being pulled onto the high platform")
+	await key(KEY_A, false)
+	game.simulate(STEP)
 	reset_hero(Vector3(-2.45, 0, 10.5), Vector3(-1, 0, 1).normalized())
 	await key(KEY_A, true)
 	await key(KEY_S, true)

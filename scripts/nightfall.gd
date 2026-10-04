@@ -852,15 +852,21 @@ func move_hero_position(next: Vector3) -> bool:
 			var tangent_x:=Vector3(origin.x+signf(requested.x)*requested_distance,origin.y,origin.z)
 			if can_traverse(origin,tangent_x):next=tangent_x
 	if ramp_motion and requested_distance>.0001 and not is_equal_approx(next.x,unclamped_next.x):
-		# Re-centering at the ramp edge must not turn a diagonal input into a
-		# visibly slower crawl. Preserve the requested step on the downhill
-		# tangent while applying the same inward correction in this frame.
-		# Use the tighter limit of the two ends. This keeps a downhill move
-		# inside the safe centre corridor instead of letting it jump back toward
-		# the wall as soon as it leaves the sloped section.
+		# Keep the clamped edge position instead of projecting the whole frame
+		# back to the old centre. The old projection made a lateral input beside
+		# the ramp wall lose its entire step, which felt like terrain snagging.
+		# Preserve the requested step length on the downhill tangent after the
+		# visual clearance correction, so diagonal motion remains responsive.
 		var limit:=minf(hero_ramp_side_limit(origin.z),hero_ramp_side_limit(unclamped_next.z))
-		var projected:=Vector3(clampf(origin.x,-limit,limit),origin.y,
-			origin.z+signf(requested.y)*requested_distance)
+		var corrected_x:=clampf(next.x,-limit,limit)
+		# A test or a low-FPS frame can begin just outside the visual corridor.
+		# Move back into it over at most this frame's requested distance instead
+		# of teleporting the centre across the ramp width.
+		var corrected_x_delta:=clampf(corrected_x-origin.x,-requested_distance,requested_distance)
+		corrected_x=origin.x+corrected_x_delta
+		var downhill_distance:=sqrt(maxf(0.0,requested_distance*requested_distance-corrected_x_delta*corrected_x_delta))
+		var projected:=Vector3(corrected_x,origin.y,
+			origin.z+signf(requested.y)*downhill_distance)
 		if can_traverse(origin,projected):next=projected
 	if can_traverse(origin,next):
 		next.y=outpost_height(next)
@@ -930,7 +936,11 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 	# centre position at x=±2.6 visibly intersects the wall and feels sticky.
 	# Apply a small centre-only margin while crossing the sloped section; the
 	# physical walkable map remains unchanged for enemies, escorts and clicks.
-	if point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6:
+	# Only the walkable ramp corridor needs a side-clearance clamp. The ground
+	# beside the ramp is intentionally open; applying this to every point in
+	# the ramp's z range pulled an outer-ground hero across the retaining wall
+	# or left it unable to move along that side.
+	if point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6 and absf(point.x)<3.9:
 		var limit:=hero_ramp_side_limit(point.z)
 		point.x=clampf(point.x,-limit,limit)
 	# The raised courtyard has three solid retaining walls. Apply the same
@@ -939,7 +949,7 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 	# passes handle a diagonal step that first enters the south wall band and
 	# then reaches an east/west wall corner in the same frame.
 	for _pass in 2:
-		if absf(point.z)<6.5:
+		if absf(point.z)<6.5 and absf(point.x)<6.5:
 			point.x=clampf(point.x,-HERO_FORT_SAFE_EDGE,HERO_FORT_SAFE_EDGE)
 		if absf(point.x)<2.65 and point.z>HERO_FORT_SAFE_EDGE and point.z<8.1:
 			continue
