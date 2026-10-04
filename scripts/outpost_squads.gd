@@ -14,6 +14,7 @@ const RECALL := "recall"
 
 var game: Node3D
 var ranged_enabled := false
+var health_multiplier := 1.0
 var squads: Array[Dictionary] = []
 var shots: Array[Dictionary] = []
 var _intercepts: Dictionary = {}
@@ -22,6 +23,21 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 	clear()
 	game = controller
 	ranged_enabled = allow_ranged
+	health_multiplier = 1.0
+
+func set_health_multiplier(value: float) -> void:
+	var next := clampf(value, 0.5, 3.0)
+	if is_equal_approx(next, health_multiplier): return
+	for squad in squads:
+		for soldier: BattleUnit in squad.members:
+			if not _living(soldier): continue
+			var ratio := clampf(soldier.hp / maxf(1.0, soldier.max_hp), 0.0, 1.0)
+			soldier.max_hp = _base_max_hp(str(squad.kind)) * next
+			soldier.hp = soldier.max_hp * ratio
+	health_multiplier = next
+
+func _base_max_hp(kind: String) -> float:
+	return 200.0 if kind == "shield" else 110.0
 
 func _active() -> bool:
 	return is_instance_valid(game) and str(game.get("phase")) in ["day", "night"]
@@ -53,7 +69,7 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.set_meta("outpost_squad", true)
 	soldier.set_meta("squad_kind", squad.kind)
 	soldier.title = "盾卫" if squad.kind == "shield" else "弩手"
-	soldier.max_hp = 200.0 if squad.kind == "shield" else 110.0
+	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
 	soldier.damage = 10.0 if squad.kind == "shield" else 16.0

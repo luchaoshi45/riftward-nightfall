@@ -13,9 +13,23 @@ var card_rects: Array[Rect2] = []
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
 	font=SystemFont.new()
-	font.font_names=PackedStringArray(["Microsoft YaHei UI","Microsoft YaHei","Noto Sans CJK SC"])
+	font.font_names=PackedStringArray(_ui_font_names())
+	font.allow_system_fallback=true
 	display_font=SystemFont.new()
-	display_font.font_names=PackedStringArray(["Bahnschrift","Segoe UI"])
+	display_font.font_names=PackedStringArray(_display_font_names())
+	display_font.allow_system_fallback=true
+
+func _ui_font_names() -> Array[String]:
+	match OS.get_name():
+		"macOS": return ["Hiragino Sans", "Arial Unicode MS"]
+		"Windows": return ["Microsoft YaHei UI", "Microsoft YaHei"]
+		_: return ["Noto Sans CJK SC", "DejaVu Sans"]
+
+func _display_font_names() -> Array[String]:
+	match OS.get_name():
+		"macOS": return ["Helvetica"]
+		"Windows": return ["Bahnschrift", "Segoe UI"]
+		_: return ["DejaVu Sans"]
 
 func label(value: String,point: Vector2,size_px: int,color: Color=Color("e7e1d3"),latin: bool=false) -> void:
 	draw_string(display_font if latin else font,point,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,color)
@@ -89,9 +103,10 @@ func _draw() -> void:
 		var alarm_width:=font.get_string_size(alarm_text,HORIZONTAL_ALIGNMENT_LEFT,-1,20).x
 		label(alarm_text,Vector2(720-alarm_width*.5,60),20,Color("ff9d80"))
 	draw_minimap()
+	draw_squads()
 	if game.run.pending>0 and game.phase in ["day","night"]:
-		box(Rect2(1050,480,365,46),Color(.07,.11,.10,.95),amber)
-		label("V / 点击铭刻 · 待选 %d 张" % game.run.pending,Vector2(1071,510),18,amber)
+		box(Rect2(1050,620,365,46),Color(.07,.11,.10,.95),amber)
+		label("V / 点击铭刻 · 待选 %d 张" % game.run.pending,Vector2(1071,650),18,amber)
 	if game.notice_time>0:
 		box(Rect2(368,192,704,48),Color(.035,.046,.050,.86),Color("9a7051"))
 		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
@@ -135,7 +150,7 @@ func _draw() -> void:
 		box(Rect2(x,770,106,72),Color(.068,.087,.083,.9),Color("80524f") if status=="法力不足" else Color("59685f"))
 		label(names[i],Vector2(x+11,798),14,ink)
 		label(status,Vector2(x+11,824),13,status_color)
-	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
+	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  U 盾卫  ·  O 驻守/撤回  ·  L 白昼补员  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
 	draw_combat_rewards()
 	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
 	for core_key in core_names:
@@ -165,7 +180,7 @@ func draw_combat_floats() -> void:
 	var occupied: Array[Rect2]=[
 		Rect2(24,22,405,160),Rect2(1050,22,365,173),
 		Rect2(24,197,340,108+game.reward_toasts.size()*70),
-		Rect2(1161,195,254,373),Rect2(300,746,840,129),Rect2(492,670,456,48)
+			Rect2(1161,195,254,373),Rect2(1050,480,365,125),Rect2(1050,620,365,46),Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
 	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
 	if game.combat_milestone_time>0.0:occupied.append(Rect2(504,259,432,65))
@@ -315,6 +330,22 @@ func draw_minimap() -> void:
 		label("南门路障  %d / %d" % [ceili(game.gate_barricade_hp),int(game.BARRICADE_MAX)] if game.gate_barricade_hp>0 else "南门路障  未部署",Vector2(1174,434),13,red if game.gate_barricade_hp>0 and game.gate_barricade_hp<game.BARRICADE_MAX*.4 else muted)
 	if maxf(game.world.gate_light_drain[0],game.world.gate_light_drain[1])>.3:
 		label("哨灯遭噬 · 击杀紫色目标恢复",Vector2(1174,456),13,Color("b7a5ee"))
+
+func draw_squads() -> void:
+	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
+	var snapshot: Dictionary=game.squads.snapshot()
+	box(Rect2(1050,480,365,125),Color(.022,.045,.047,.9),Color("5c7f76"))
+	label("盾卫小队",Vector2(1071,508),17,Color("a9d8cf"))
+	if int(snapshot.count)<=0:
+		label("U 招募 · 70 零件 · 据点内使用",Vector2(1071,538),14,amber)
+		label("驻守承伤 · 白昼可付费补员",Vector2(1071,565),12,muted)
+		return
+	label("总计 %d/%d 人 · 补员 %d 零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(1071,535),13,ink)
+	for index in snapshot.squads.size():
+		var row: Dictionary=snapshot.squads[index]
+		var order_label: String="驻守" if String(row.order)=="hold" else "撤回"
+		label("小队%d  ·  %s  ·  存活 %d/%d  ·  当前生命 %.0f" % [index+1,order_label,int(row.alive),int(row.capacity),float(row.hp)],Vector2(1071,558+index*18),12,Color("e1d5b7") if String(row.order)=="hold" else muted)
+	label("U 招募  ·  O 驻守/撤回  ·  L 白昼补员",Vector2(1071,596),11,amber)
 
 func draw_exploration_rewards() -> void:
 	if not game.discoveries:return

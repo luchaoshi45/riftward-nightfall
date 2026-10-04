@@ -2,6 +2,7 @@ extends Node3D
 ## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
+const SquadScript = preload("res://scripts/outpost_squads.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
@@ -40,6 +41,7 @@ var night_plan: Array[Dictionary]=[]
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
 var districts=preload("res://scripts/outpost_districts.gd").new()
+var squads: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var mana := 300.0
@@ -139,10 +141,12 @@ func _ready() -> void:
 	hud=HudScript.new();hud.game=self;layer.add_child(hud)
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
+	squads=SquadScript.new();add_child(squads);squads.setup(self,false)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	districts.setup(self)
+	squads.set_health_multiplier(districts.squad_health_multiplier())
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
 	pickup_sound=make_pickup_sound()
@@ -216,6 +220,9 @@ func simulate(delta: float) -> void:
 	hero.tick(delta)
 	update_hero_attack(delta)
 	if phase!="day" and phase!="night":return
+	if squads:
+		squads.set_health_multiplier(districts.squad_health_multiplier())
+		squads.advance(delta)
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -223,6 +230,8 @@ func simulate(delta: float) -> void:
 			enemies.remove_at(i)
 			continue
 		creature.tick(delta)
+		if squads and squads.intercept_enemy(creature,delta):
+			continue
 		update_creature(creature,delta)
 		if creature.get_meta("threat","")=="light_eater":
 			var eater:=creature.get_node_or_null("LightEater") as NightLightEater
@@ -266,6 +275,7 @@ func start_night() -> void:
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	var withdrew_expedition:=expeditions.on_night()
+	if squads:squads.on_night()
 	contracts.on_night()
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
@@ -318,7 +328,9 @@ func finish_night() -> void:
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	world.wave_warning=false
 	clear_gate_barricade()
+	if squads:squads.on_day()
 	if day_number>=3:
+		if squads:squads.clear()
 		victory=true;phase="ended";world.set_night(false)
 		ending_key="signal" if remaining_nests()==0 else "hold"
 		if ending_key=="signal":
@@ -352,6 +364,7 @@ func begin_day() -> void:
 	phase="day";phase_time=DAY_LENGTH
 	world.set_night(false)
 	expeditions.on_day()
+	if squads:squads.on_day()
 	contracts.on_day()
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
@@ -992,6 +1005,7 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 func end_defeat(message: String) -> void:
 	cores.clear()
 	specializations.reset_effects()
+	if squads:squads.clear()
 	phase="ended";victory=false;ending_key="defeat";notify(message,8)
 
 func open_draft() -> void:
@@ -1083,13 +1097,67 @@ func repair_tower() -> bool:
 func build_district(kind: String) -> bool:
 	var result: Dictionary=districts.choose(districts.nearest(),kind)
 	if not result.ok:notify(result.reason,2);return false
+	if squads:squads.set_health_multiplier(districts.squad_health_multiplier())
 	notify("兵营建成 · 灯下恢复增强" if kind=="barracks" else "工坊建成 · 塔建设与维修减费",3)
 	return true
 
 func upgrade_district() -> bool:
 	var result: Dictionary=districts.upgrade(districts.nearest())
 	if not result.ok:notify(result.reason,2);return false
+	if squads:squads.set_health_multiplier(districts.squad_health_multiplier())
 	notify("城区升至二级 · 收益增强",3)
+	return true
+
+func near_squad_controls() -> bool:
+	if not is_instance_valid(hero):return false
+	var horizontal := Vector2(hero.position.x,hero.position.z).length()
+	return horizontal < 6.4 and hero.position.y >= 4.8
+
+func hire_shield_squad() -> bool:
+	if phase!="day" and phase!="night":return false
+	if not near_squad_controls():
+		notify("请回到灯塔内侧再招募盾卫小队",2)
+		return false
+	var result: Dictionary=squads.hire("shield")
+	if not result.ok:
+		notify(result.reason,2)
+		return false
+	BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,3.1),2.1,Color("79c6c9"),.45)
+	notify("盾卫小队抵达 · 3人 · -%d零件" % result.cost,3)
+	return true
+
+func toggle_squad_order() -> bool:
+	if phase!="day" and phase!="night":return false
+	if not near_squad_controls():
+		notify("请回到灯塔内侧再指挥小队",2)
+		return false
+	var snapshot: Dictionary=squads.snapshot()
+	if int(snapshot.count)<=0:
+		notify("尚未招募盾卫小队 · U 招募 70 零件",2)
+		return false
+	var hold := true
+	for row: Dictionary in snapshot.squads:
+		if String(row.order)!="hold":hold=false;break
+	var order := "recall" if hold else "hold"
+	var result: Dictionary=squads.set_order(order)
+	if not result.ok:
+		notify(result.reason,2)
+		return false
+	notify("盾卫小队%s" % ("驻守南门" if order=="hold" else "撤回灯塔"),2)
+	return true
+
+func refill_squads() -> bool:
+	if phase!="day":
+		notify("只能在白昼付费补员休整",2)
+		return false
+	if not near_squad_controls():
+		notify("请回到灯塔内侧再进行小队休整",2)
+		return false
+	var result: Dictionary=squads.refill()
+	if not result.ok:
+		notify(result.reason,2)
+		return false
+	notify("小队补员休整完成 · -%d零件" % result.cost,3)
 	return true
 
 func near_gate_controls() -> bool:
@@ -1266,7 +1334,20 @@ func interaction_prompt() -> String:
 		if level>=3:return "塔耐久 %s%s · G %s · 满级" % [durability,repair_hint,mode_label]
 		return "塔耐久 %s · F 升级%d%s · G %s" % [durability,districts.tower_cost(TOWER_COSTS[level]),repair_hint,mode_label]
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
+	if near_squad_controls() and squads:
+		var squad_state: Dictionary=squads.snapshot()
+		if int(squad_state.count)<=0:
+			return "U  招募盾卫小队 · 70 零件"
+		var order_label := "撤回" if _squads_all_holding(squad_state) else "驻守"
+		var refill: int=int(squad_state.refill_cost)
+		return "U 招盾卫 · O %s · L 白昼补员%s · %d/6人" % [order_label,(" %d零件" % refill) if refill>0 else "",int(squad_state.alive)]
 	return ""
+
+func _squads_all_holding(snapshot: Dictionary) -> bool:
+	if int(snapshot.count)<=0:return false
+	for row: Dictionary in snapshot.squads:
+		if String(row.order)!="hold":return false
+	return true
 
 func interact() -> bool:
 	if phase!="day" and phase!="night":return false
@@ -1492,6 +1573,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_1:build_district("barracks")
 			KEY_2:build_district("workshop")
 			KEY_3:upgrade_district()
+			KEY_U:hire_shield_squad()
+			KEY_O:toggle_squad_order()
+			KEY_L:refill_squads()
 			KEY_P:follow_contract()
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")
@@ -1588,6 +1672,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	cores.clear()
+	if squads:squads.clear()
 	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()
 	if music:
