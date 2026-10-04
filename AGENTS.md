@@ -291,13 +291,13 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 - 状态：待主机验收。
 - 实际基准提交SHA：`843ec7a`（2026-10-04，从 `origin/main` 快进同步，GAME-007已推送）。
 - 协作分支：`main`；已执行 `git fetch origin main`，工作树干净后领取任务。
-- 提交SHA：实现提交待推送。
+- 提交SHA：`487b40a205c9accc91441662e9abbcb00b74c4ca`（已推送）。
 - 改动文件：`scripts/nightfall.gd`、`scripts/outpost_squads.gd`、`scripts/nightfall_hud.gd`、`tests/nightfall_ranged_controls.gd`。
 - 完成内容：生产入口使用`setup(self,true)`开放弩手；I 招募弩手（80零件），白昼新招募默认撤回；弩手保留8.6米射程、.26秒蓄力、破城/蚀塔/噬灯特殊目标优先和光束反馈；支持双盾、盾弩、双弩阵容；L 白昼补员按弩手26零件/人收费；HUD按兵种显示人数、状态、生命和I提示；新增真实生产控制测试覆盖射程、出界/死亡取消、暂停、击杀归因和三种阵容。
 - 验证命令与结果：Godot 4.7.2 无头通过 `tests/outpost_squads_fixture.gd`（`OUTPOST_SQUADS_FIXTURE_OK`）、`tests/nightfall_squads_scene.gd`（`NIGHTFALL_SQUADS_SCENE_OK`）、`tests/nightfall_squad_controls.gd`（`NIGHTFALL_SQUAD_CONTROLS_OK`）、`tests/nightfall_ranged_controls.gd`（`NIGHTFALL_RANGED_CONTROLS_OK`）、`tests/nightfall_loop.gd`（`NIGHTFALL_LOOP_OK`）；隐藏窗口 Forward+ + Dummy 音频运行弩手生产用例通过并生成 `build/nightfall-ranged-controls.png`，日志无`ERROR`/`SCRIPT ERROR`；`python3 tools/verify_git_tracking.py`在提交后复核通过。
 - 性能/画面结论及剩余问题：实际夜景中的弩手HUD、兵种标签、I操作提示和远程队伍可见；复用现有minion占位模型和光束反馈，未声称新增专业弩手模型；尚未做Windows成品导出，需主机验收后再更新0.8.27和37/100计数。
 - 需要主机接入的具体接口/差异：`Nightfall._ready`开放弩手，新增`hire_ranged_squad`并接入`KEY_I`；`interaction_prompt`和HUD显示两类小队；`outpost_squads.hire`按白昼/夜晚设置初始撤回/驻守；无需额外手工接入。
-- 阻碍（没有则写无）：无。
+- 阻碍（没有则写无）：无。已在推送前获取`origin/main`，普通推送成功，并以`git ls-remote origin refs/heads/main`核对远端为`487b40a`。
 
 更新同一份当前回执，不累积开发日志；交付结论必须能由提交内容和真实测试复核。
 
