@@ -767,7 +767,11 @@ func move_hero(delta: float) -> void:
 		hero_keyboard_active=false
 		hero_path.clear()
 		move_goal=hero.position
-	while not hero_path.is_empty() and hero.position.distance_to(hero_path[0])<.18:
+	# Waypoint completion is planar. A raised-ramp waypoint can differ in Y by
+	# over a metre while its ground position is already reached; using 3D
+	# distance there leaves the route waiting on a vertical gap and feels like
+	# the hero is stuck at the high-ground edge.
+	while not hero_path.is_empty() and Vector2(hero.position.x,hero.position.z).distance_to(Vector2(hero_path[0].x,hero_path[0].z))<.18:
 		hero_path.remove_at(0)
 	var target: Vector3=hero_path[0] if not hero_path.is_empty() else move_goal
 	var to_goal:=target-hero.position

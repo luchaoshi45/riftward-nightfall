@@ -86,6 +86,15 @@ func run() -> void:
 	game.enemies.clear()
 	await process_frame
 	check(is_equal_approx(game.hero.speed, 8.4 + float(game.run.stats.speed)), "The playable hero must retain the new 8.4 m/s base speed after choosing a card")
+	# A route node may carry a stale elevated Y while its ground position is
+	# already reached. Completion must use the walkable plane so the hero does
+	# not wait forever at the high-ground edge.
+	reset_hero(Vector3(0, 0, 15.5))
+	var reached_ground: Vector3 = game.hero.position
+	game.hero_path = PackedVector3Array([reached_ground + Vector3(0, 1.4, 0)])
+	game.move_goal = reached_ground
+	game.simulate(STEP)
+	check(game.hero_path.is_empty(), "A raised-ramp waypoint must complete by ground distance")
 	var measured_speed: float = game.hero.speed
 	var directions := [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK, Vector3(1, 0, -1).normalized(), Vector3(-1, 0, -1).normalized(), Vector3(1, 0, 1).normalized(), Vector3(-1, 0, 1).normalized()]
 	var combinations := [[KEY_D], [KEY_A], [KEY_Z], [KEY_S], [KEY_D, KEY_Z], [KEY_A, KEY_Z], [KEY_D, KEY_S], [KEY_A, KEY_S]]

@@ -105,6 +105,12 @@ func _ground_height(point: Vector3) -> float:
 func _traversable(from: Vector3, to: Vector3) -> bool:
 	return not game.has_method("can_traverse") or bool(game.call("can_traverse", from, to))
 
+func _ground_distance(a: Vector3, b: Vector3) -> float:
+	# Combat spacing follows the walkable plane. Raised terrain can put two
+	# units more than a metre apart vertically while they are still adjacent on
+	# the ramp; Vector3 distance would make guards fail to intercept at the gate.
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
 func set_order(order: String, squad_id: int = -1) -> Dictionary:
 	if not _active(): return _result(false, "暂停或选卡时不能指挥")
 	if order not in [HOLD, RECALL]: return _result(false, "未知小队命令")
@@ -218,14 +224,14 @@ func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
 		if not _enemy(candidate): continue
 		var enemy := candidate as BattleUnit
 		if not _in_range(soldier, enemy): continue
-		var candidate_score := -soldier.position.distance_to(enemy.position)
+		var candidate_score := -_ground_distance(soldier.position, enemy.position)
 		if str(soldier.get_meta("squad_kind")) == "ranged":
 			candidate_score += float({"breaker": 4, "sapper": 3, "light_eater": 2}.get(str(enemy.get_meta("threat", "")), 0)) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected
 
 func _in_range(soldier: BattleUnit, enemy: BattleUnit) -> bool:
-	return soldier.position.distance_to(enemy.position) <= soldier.attack_range and _traversable(soldier.position, enemy.position)
+	return _ground_distance(soldier.position, enemy.position) <= soldier.attack_range and _traversable(soldier.position, enemy.position)
 
 func blocker_for(enemy: Variant) -> BattleUnit:
 	if not _active() or str(game.get("phase")) != "night" or not _enemy(enemy): return null
@@ -236,7 +242,7 @@ func blocker_for(enemy: Variant) -> BattleUnit:
 		if squad.kind != "shield" or squad.order != HOLD: continue
 		for soldier: BattleUnit in squad.members:
 			if not _living(soldier) or soldier.moving: continue
-			var separation := soldier.position.distance_to(enemy.position)
+			var separation := _ground_distance(soldier.position, enemy.position)
 			if separation < distance and _traversable(enemy.position, soldier.position):
 				closest = soldier; distance = separation
 	return closest
@@ -251,7 +257,7 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 	var blocker: BattleUnit
 	if _intercepts.has(key):
 		blocker = (_intercepts[key].target as WeakRef).get_ref() as BattleUnit
-		if not _living(blocker) or not _is_holding(blocker) or blocker.position.distance_to(enemy.position) > 3.5:
+		if not _living(blocker) or not _is_holding(blocker) or _ground_distance(blocker.position, enemy.position) > 3.5:
 			blocker = null
 	if not is_instance_valid(blocker): blocker = blocker_for(enemy)
 	if not is_instance_valid(blocker):
@@ -261,13 +267,20 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 		_cancel_enemy_intercept(enemy)
 		_intercepts[key] = {"enemy": weakref(enemy), "target": weakref(blocker)}
 		enemy.attack_queued = false; enemy.attack_windup = 0.0
-	var distance: float = enemy.position.distance_to(blocker.position)
+	var distance: float = _ground_distance(enemy.position, blocker.position)
 	enemy.face(blocker.position, delta)
 	if distance > enemy.attack_range:
 		enemy.attack_queued = false; enemy.attack_windup = 0.0
 		var direction: Vector3 = blocker.position - enemy.position
 		direction.y = 0
-		var next: Vector3 = enemy.position + direction.normalized() * minf(direction.length(), enemy.speed * maxf(0.0, delta))
+		# Intercepted enemies use the same live tower slow as the normal
+		# movement path. Do not write the modified value back to speed: a
+		# short control effect must expire without changing enemy data.
+		var movement_multiplier := 1.0
+		var specialization: Variant = game.get("specializations")
+		if specialization != null:
+			movement_multiplier = float(specialization.movement_multiplier(enemy))
+		var next: Vector3 = enemy.position + direction.normalized() * minf(direction.length(), enemy.speed * movement_multiplier * maxf(0.0, delta))
 		next.y = _ground_height(next)
 		enemy.moving = _traversable(enemy.position, next)
 		if enemy.moving: enemy.position = next

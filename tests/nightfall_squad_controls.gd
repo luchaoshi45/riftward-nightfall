@@ -82,6 +82,24 @@ func run() -> void:
 	game.squads.intercept_enemy(attacker, .35)
 	check(defender.hp < defender_hp and game.hero.hp == hero_hp and game.beacon_hp == beacon_hp, "Interception damage must reach the shield member instead of hero or beacon")
 
+	# A control tower slow must also apply while the enemy is walking toward a
+	# shield blocker, without changing the enemy's permanent speed field.
+	var control_pad: Dictionary = game.world.tower_pads[1]
+	control_pad.level = 2; control_pad.hp = 280.0; control_pad.max_hp = 280.0
+	control_pad.specialization = "control"
+	var slowed_attacker: BattleUnit = game.spawn_creature(true)
+	slowed_attacker.set_meta("threat", "stalker")
+	slowed_attacker.position = defender.position + Vector3(0, 0, 2.8)
+	slowed_attacker.position.y = game.outpost_height(slowed_attacker.position)
+	slowed_attacker.damage = 1.0; slowed_attacker.speed = 3.2; slowed_attacker.attack_timer = 999.0
+	var original_speed: float = slowed_attacker.speed
+	game.specializations.resolve_shot(control_pad, slowed_attacker, game.enemies, 1.0, game.hero)
+	var slow_before: Vector3 = slowed_attacker.position
+	check(game.squads.intercept_enemy(slowed_attacker, .1), "A slowed enemy must still be intercepted while approaching a shield")
+	var slow_step: float = Vector2(slowed_attacker.position.x - slow_before.x, slowed_attacker.position.z - slow_before.z).length()
+	check(slow_step > .18 and slow_step < .29, "Shield interception must use the active control slow multiplier")
+	check(is_equal_approx(slowed_attacker.speed, original_speed), "Control slow must not rewrite the enemy's base speed")
+
 	game.phase = "paused"
 	var paused_hp: float = defender.hp
 	var paused_attack: float = attacker.attack_windup
