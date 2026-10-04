@@ -11,7 +11,7 @@ func run() -> void:
 	game.start_night()
 	assert(game.wave_index==1 and game.enemies.size()==game.initial_night_pack())
 	assert(game.spawn_timer>15 and not game.world.wave_warning)
-	game.spawn_timer=4.01
+	game.phase_time=game.NIGHT_LENGTH-15.99
 	game.simulate(.02)
 	assert(game.wave_index==1 and game.world.wave_warning)
 	game.hero.position=Vector3(0,5,3)
@@ -22,7 +22,7 @@ func run() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://build/night-wave-warning.png")
 	var before: int=game.enemies.size()
-	game.spawn_timer=.01
+	game.phase_time=game.NIGHT_LENGTH-float(game.night_plan[1].time)-.01
 	game.simulate(.02)
 	assert(game.wave_index==2 and game.enemies.size()>before)
 	assert(not game.world.wave_warning)
@@ -31,5 +31,9 @@ func run() -> void:
 	before=game.enemies.size()
 	game.spawn_night_wave()
 	assert(game.enemies.size()==before)
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.15).timeout
 	print("NIGHTFALL_WAVES_OK")
 	quit()

@@ -96,7 +96,11 @@ func run() -> void:
 			check(root.get_texture().get_image().save_png("res://build/nightfall-run-modes.png")==OK,"Standard mode night scene must render")
 
 	# Finish the last standard night without combat damage; the four-night rule must end it.
+	# The timer crossing still creates the saved final wave, so remove those
+	# real units before the next frame verifies the clearance-only ending.
 	game.phase_time=.01
+	game.simulate(.02)
+	clear_enemies()
 	game.simulate(.02)
 	await process_frame
 	check(game.phase=="ended" and game.victory and game.day_number==4,"A standard run must finish after its fourth night")

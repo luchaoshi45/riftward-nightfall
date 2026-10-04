@@ -11,6 +11,8 @@ func verify_wave(entry: Dictionary) -> void:
 	for role in entry.roles:
 		var kind: String="stalker" if role=="basic" else role
 		expected[kind]=int(expected.get(kind,0))+1
+	if bool(entry.get("boss_entry",false)):
+		expected["breaker"]=int(expected.get("breaker",0))+1
 	for enemy in game.enemies:
 		var kind: String=enemy.get_meta("threat","")
 		actual[kind]=int(actual.get(kind,0))+1

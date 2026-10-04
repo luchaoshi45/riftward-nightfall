@@ -5,6 +5,7 @@ const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
+const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
@@ -60,6 +61,7 @@ var districts=preload("res://scripts/outpost_districts.gd").new()
 var squads: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
+var siege_boss: Node
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -69,6 +71,8 @@ var rng := RandomNumberGenerator.new()
 var spawn_timer := 4.0
 var wave_index := 0
 var wave_warning_issued := false
+var active_wave_reward_id := -1
+var final_clearance_active := false
 var pulse_timer := 3.0
 var guardian_timer := 12.0
 var aim := Vector3(8,0,0)
@@ -252,6 +256,10 @@ func simulate(delta: float) -> void:
 	if squads:
 		squads.set_health_multiplier(districts.squad_health_multiplier())
 		squads.advance(delta)
+	var boss_action_handled:=false
+	if phase=="night" and is_instance_valid(siege_boss):
+		boss_action_handled=siege_boss.advance(delta)
+		if phase!="day" and phase!="night":return
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -259,6 +267,8 @@ func simulate(delta: float) -> void:
 			enemies.remove_at(i)
 			continue
 		creature.tick(delta)
+		if creature.get_meta("siege_boss",false) and boss_action_handled:
+			continue
 		if squads and squads.intercept_enemy(creature,delta):
 			continue
 		update_creature(creature,delta)
@@ -282,20 +292,27 @@ func simulate(delta: float) -> void:
 	wildlife.tick(delta)
 	update_salvage_refresh(delta)
 	if phase=="night":
-		if wave_index<WAVES_PER_NIGHT:
-			spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time))
-			if spawn_timer<=4.0 and not wave_warning_issued:
-				wave_warning_issued=true
-				world.wave_warning=true
-				notify("南门警报 · 第 %d 波即将到达" % (wave_index+1),3)
-			while wave_index<night_plan.size() and float(night_plan[wave_index].time)<=NIGHT_LENGTH-phase_time:
-				spawn_night_wave()
+		if not final_clearance_active:
+			if wave_index<WAVES_PER_NIGHT:
+				spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time))
+				if spawn_timer<=4.0 and not wave_warning_issued:
+					wave_warning_issued=true
+					world.wave_warning=true
+					notify("南门警报 · 第 %d 波即将到达" % (wave_index+1),3)
+				while wave_index<night_plan.size() and float(night_plan[wave_index].time)<=NIGHT_LENGTH-phase_time:
+					spawn_night_wave()
 		pulse_timer-=delta
 		if pulse_timer<=0:
 			beacon_pulse()
 			pulse_timer=beacon_pulse_interval()
+	if phase=="night" and final_clearance_active and not _has_living_night_enemies():
+		finish_night()
+		return
 	if phase_time<=0 and (phase=="day" or phase=="night"):
 		if phase=="day":start_night()
+		elif day_number>=max_nights():
+			begin_final_clearance()
+			if not _has_living_night_enemies():finish_night()
 		else:finish_night()
 
 func start_night() -> void:
@@ -312,6 +329,12 @@ func start_night() -> void:
 	phase="night";phase_time=NIGHT_LENGTH
 	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	wave_rewards.reset()
+	active_wave_reward_id=-1
+	final_clearance_active=false
+	if is_instance_valid(siege_boss):
+		siege_boss.clear()
+		siege_boss.queue_free()
+		siege_boss=null
 	spawn_timer=night_spawn_interval();pulse_timer=2.0
 	wave_index=0;wave_warning_issued=false
 	world.set_night(true)
@@ -332,19 +355,54 @@ func spawn_night_wave() -> void:
 	var reward_id: int=(day_number-1)*WAVES_PER_NIGHT+wave_index
 	var standard_rewards: bool=run_mode!="teaching"
 	if standard_rewards:wave_rewards.begin_wave(reward_id,WaveRewardsScript.DEFAULT_BUDGET)
+	active_wave_reward_id=reward_id if standard_rewards else -1
 	wave_index+=1
 	for role: String in entry.roles:
 		var creature: BattleUnit=spawn_creature(true,role)
 		if standard_rewards:wave_rewards.register_enemy(reward_id,creature)
+	if bool(entry.get("boss_entry",false)):
+		var boss: BattleUnit=spawn_creature(true,"breaker")
+		siege_boss=SiegeBossScript.new()
+		siege_boss.name="SiegeBossController"
+		siege_boss.setup(self,boss)
+		if standard_rewards:wave_rewards.register_enemy(reward_id,boss)
 	if standard_rewards:wave_rewards.seal_wave(reward_id)
 	spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time)) if wave_index<night_plan.size() else 0.0
 	wave_warning_issued=false
 	world.wave_warning=false
 	BattleVisuals.burst(effects,Vector3(0,0,19),3.2,Color("dc7957"),.5)
 	if wave_index>1:notify("第 %d/%d 波 · %s · %d 只" % [wave_index,WAVES_PER_NIGHT,entry.title,entry.count],3)
+	if bool(entry.get("boss_entry",false)):
+		notify("末夜首领已抵达 · 先打断蓄力，再清理残敌",4)
+
+func register_active_wave_enemy(enemy: Variant) -> bool:
+	if run_mode=="teaching" or active_wave_reward_id<0 or not is_instance_valid(enemy):return false
+	var registered:=wave_rewards.register_enemy(active_wave_reward_id,enemy)
+	if registered:wave_rewards.seal_wave(active_wave_reward_id)
+	return registered
+
+func _has_living_night_enemies() -> bool:
+	for creature in enemies:
+		if is_instance_valid(creature) and not creature.is_queued_for_deletion() and creature.alive:return true
+	return false
+
+func begin_final_clearance() -> void:
+	if final_clearance_active or phase!="night":return
+	final_clearance_active=true
+	phase_time=0.0
+	wave_index=WAVES_PER_NIGHT
+	wave_warning_issued=false
+	spawn_timer=0.0
+	world.wave_warning=false
+	notify("末夜清场 · 首领与残敌仍在，清除全部威胁后才能迎来日出",5)
 
 func wave_preview() -> Dictionary:
 	return encounters.next_preview(night_plan,wave_index,NIGHT_LENGTH-phase_time)
+
+func boss_snapshot() -> Dictionary:
+	if not is_instance_valid(siege_boss) or not siege_boss.has_method("snapshot"):
+		return {}
+	return siege_boss.snapshot()
 
 func initial_night_pack() -> int:
 	return maxi(5,8+day_number*3-cleansed_nests()*2)
@@ -359,15 +417,24 @@ func beacon_repair_cost() -> int:
 	return maxi(14,20-survivors_rescued*3)
 
 func finish_night() -> void:
+	if phase=="ended":return
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	world.wave_warning=false
 	clear_gate_barricade()
+	final_clearance_active=false
+	if is_instance_valid(siege_boss):
+		siege_boss.clear()
+		siege_boss.queue_free()
+		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
 		if squads:squads.clear()
+		for creature in enemies:
+			if is_instance_valid(creature):creature.queue_free()
+		enemies.clear()
 		victory=true;phase="ended";world.set_night(false)
 		ending_key="signal" if remaining_nests()==0 else "hold"
 		if ending_key=="signal":
@@ -1317,9 +1384,14 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 		source.hurt(18+hero.armor*.25,hero)
 
 func end_defeat(message: String) -> void:
+	if phase=="ended":return
 	cores.clear()
 	specializations.reset_effects()
 	if squads:squads.clear()
+	if is_instance_valid(siege_boss):
+		siege_boss.clear()
+		siege_boss.queue_free()
+		siege_boss=null
 	phase="ended";victory=false;ending_key="defeat";notify(message,8)
 
 func open_draft() -> void:

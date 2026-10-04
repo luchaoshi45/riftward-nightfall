@@ -10,6 +10,7 @@ var red:=Color("db756c")
 var panel:=Color(.022,.035,.045,.88)
 var card_rects: Array[Rect2] = []
 var mode_rects: Array[Rect2] = []
+const BOSS_PANEL_RECT := Rect2(457,24,570,110)
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -70,8 +71,11 @@ func _draw() -> void:
 	draw_exploration_rewards()
 	if game.phase=="night":
 		var preview: Dictionary=game.wave_preview()
-		box(Rect2(457,24,570,110),panel,Color("876f52"))
-		if not preview.is_empty():
+		var boss: Dictionary=game.boss_snapshot() if game.has_method("boss_snapshot") else {}
+		box(BOSS_PANEL_RECT,panel,Color("9a5d4e") if not boss.is_empty() else Color("876f52"))
+		if not boss.is_empty():
+			draw_boss_panel(boss)
+		elif not preview.is_empty():
 			label("下一波 · %s · %d只 · %.0f秒" % [preview.title,preview.count,preview.remaining],Vector2(477,54),19,amber)
 			label(preview.advice,Vector2(477,85),14,muted)
 			label("先安排防线，再处理主要威胁",Vector2(477,114),13,Color("8dcfc3"))
@@ -185,6 +189,8 @@ func draw_combat_floats() -> void:
 		Rect2(24,197,340,128+game.reward_toasts.size()*70),
 			Rect2(1161,195,254,373),Rect2(1050,480,365,125),Rect2(1050,620,365,46),Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
+	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
+		occupied.append(BOSS_PANEL_RECT)
 	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
 	if game.combat_milestone_time>0.0:occupied.append(Rect2(504,259,432,65))
 	if game.beacon_alarm_time>0.0:occupied.append(Rect2(500,25,440,54))
@@ -220,6 +226,35 @@ func draw_combat_floats() -> void:
 		occupied.append(footprint)
 		draw_string_outline(font,position,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,3,Color(.014,.024,.028,.84*fade))
 		label(value,position,size_px,tint)
+
+func draw_boss_panel(snapshot: Dictionary) -> void:
+	var phase_name: String=String(snapshot.get("phase","approach"))
+	var hp: float=maxf(0.0,float(snapshot.get("hp",0.0)))
+	var max_hp: float=maxf(1.0,float(snapshot.get("max_hp",1.0)))
+	var clearance: bool=bool(game.get("final_clearance_active"))
+	if phase_name=="dead":
+		label("末夜首领 · 已击破",Vector2(477,54),19,Color("8dd4c7"))
+		if clearance:
+			var remaining: int=0
+			for enemy in game.enemies:
+				if is_instance_valid(enemy) and not enemy.is_queued_for_deletion() and enemy.alive:remaining+=1
+			label("清场中 · 残敌 %d · 清除全部威胁后结算" % remaining,Vector2(477,112),14,amber)
+		else:label("首领威胁已解除",Vector2(477,94),14,muted)
+		return
+	label("末夜首领 · 灯噬巨兽",Vector2(477,53),19,Color("f0b177"))
+	progress(Rect2(477,65,530,10),hp/max_hp,Color("d7625e"))
+	label("生命 %d / %d" % [roundi(hp),roundi(max_hp)],Vector2(477,91),13,ink)
+	var detail: String
+	match phase_name:
+		"windup":
+			detail="蓄力 %.1f秒 · 打断 %.0f / %.0f" % [float(snapshot.get("windup",0.0)),float(snapshot.get("interrupt_damage",0.0)),float(snapshot.get("interrupt_threshold",220.0))]
+			progress(Rect2(719,84,288,8),float(snapshot.get("interrupt_progress",0.0)),Color("82ced2"))
+		"exposed":
+			detail="护甲破绽 %.1f秒 · 立即集火" % float(snapshot.get("exposed",0.0))
+			progress(Rect2(719,84,288,8),1.0,Color("82ced2"))
+		_:
+			detail="正在接近 · 增援 %d / 6" % int(snapshot.get("adds",0))
+	label(detail,Vector2(477,113),14,Color("82ced2") if phase_name in ["windup","exposed"] else muted)
 
 func draw_combat_rewards() -> void:
 	if game.phase!="day" and game.phase!="night":return

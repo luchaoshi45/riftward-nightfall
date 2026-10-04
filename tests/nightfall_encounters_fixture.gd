@@ -36,8 +36,8 @@ func _initialize() -> void:
 			for index in range(original.size()):
 				var wave: Dictionary = original[index]
 				var less: Dictionary = reduced[index]
-				assert(wave.count <= 24 and wave.count >= 4)
-				assert(wave.count == wave.roles.size() and less.count == less.roles.size())
+				assert(wave.count <= 25 and wave.count >= 4)
+				assert(wave.count == wave.roles.size() + int(wave.get("boss_count",0)) and less.count == less.roles.size() + int(less.get("boss_count",0)))
 				assert(less.count >= 4 and wave.count - less.count == 6)
 				assert(wave.title == less.title and wave.advice == less.advice)
 				assert(wave.threat == less.threat and wave.time == less.time)

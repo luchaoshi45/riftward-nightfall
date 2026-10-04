@@ -9,6 +9,9 @@ const WINDUP_SECONDS: float = 2.4
 const SLAM_RADIUS: float = 3.2
 const INTERRUPT_DAMAGE: float = 220.0
 const EXPOSE_SECONDS: float = 4.0
+const REINFORCEMENT_BATCH_SIZE: int = 3
+const REINFORCEMENT_BATCH_COUNT: int = 2
+const REINFORCEMENT_ROLE: String = "runner"
 
 var game: Node3D
 var boss: BattleUnit
@@ -19,7 +22,7 @@ var _exposed: float = 0.0
 var _loss: float = 0.0
 var _last_hp: float = MAX_HEALTH
 var _locked_point: Vector3 = Vector3.ZERO
-var _adds_spawned: int = 0
+var _reinforcement_batches_spawned: int = 0
 var _visual_root: Node3D
 var _ring: MeshInstance3D
 var _lamp: OmniLight3D
@@ -35,7 +38,7 @@ func setup(owner_game: Node3D, owner_boss: BattleUnit) -> void:
 	_windup = 0.0
 	_exposed = 0.0
 	_loss = 0.0
-	_adds_spawned = 0
+	_reinforcement_batches_spawned = 0
 	if not _living(boss):
 		_state = "dead"
 		return
@@ -104,7 +107,7 @@ func advance(delta: float) -> bool:
 	return true
 
 func snapshot() -> Dictionary:
-	return {"phase": _state, "windup": _windup, "interrupt_progress": minf(1.0, _loss / INTERRUPT_DAMAGE), "interrupt_damage": _loss, "interrupt_threshold": INTERRUPT_DAMAGE, "exposed": _exposed, "cooldown": _cooldown, "adds": _adds_spawned, "position": _locked_point, "radius": SLAM_RADIUS, "hp": boss.hp if is_instance_valid(boss) else 0.0, "max_hp": MAX_HEALTH}
+	return {"phase": _state, "windup": _windup, "interrupt_progress": minf(1.0, _loss / INTERRUPT_DAMAGE), "interrupt_damage": _loss, "interrupt_threshold": INTERRUPT_DAMAGE, "exposed": _exposed, "cooldown": _cooldown, "adds": _reinforcement_batches_spawned * REINFORCEMENT_BATCH_SIZE, "reinforcement_batches": _reinforcement_batches_spawned, "reinforcement_total": REINFORCEMENT_BATCH_COUNT * REINFORCEMENT_BATCH_SIZE, "position": _locked_point, "radius": SLAM_RADIUS, "hp": boss.hp if is_instance_valid(boss) else 0.0, "max_hp": MAX_HEALTH}
 
 func clear() -> void:
 	if is_instance_valid(boss):
@@ -229,11 +232,16 @@ func _spawn_reinforcements() -> void:
 		return
 	for threshold in [2.0 / 3.0, 1.0 / 3.0]:
 		var step: int = 1 if threshold > 0.5 else 2
-		if _adds_spawned >= step or boss.hp / boss.max_hp > threshold:
+		if _reinforcement_batches_spawned >= step or boss.hp / boss.max_hp > threshold:
 			continue
-		_adds_spawned = step
-		for index in range(3):
-			game.call("spawn_creature", true, "runner")
+		_reinforcement_batches_spawned = step
+		for index in range(REINFORCEMENT_BATCH_SIZE):
+			var reinforcement: Variant = game.call("spawn_creature", true, REINFORCEMENT_ROLE)
+			# Reinforcements belong to the same live wave as the boss. Register
+			# each real unit immediately so standard-wave rewards cannot use the
+			# old unregistered eight-part fallback.
+			if game.has_method("register_active_wave_enemy"):
+				game.call("register_active_wave_enemy", reinforcement)
 
 func _clear_warning() -> void:
 	if is_instance_valid(_ring):

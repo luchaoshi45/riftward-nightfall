@@ -33,6 +33,12 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 		order_random.seed = run_seed + night * 104729 + (index + 1) * 9719
 		_shuffle_roles(roles, order_random)
 		var final_night: int = 3 if selected_mode == "teaching" else 4
+		var boss_entry: bool = night == final_night and index == WAVE_TIMES.size() - 1
+		if boss_entry:
+			# The boss is spawned beside the saved role list by the production
+			# controller. Keep it in the same preview count so the warning cannot
+			# under-report the real final-wave population.
+			count += 1
 		plan.append({
 			"index": index,
 			"wave_number": index + 1,
@@ -41,13 +47,19 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 			"threat": String(composition.threat),
 			"advice": String(composition.advice),
 			"roles": roles,
-			"count": roles.size(),
+			"count": count,
+			"role_count": roles.size(),
 			"night": night,
 			"mode": selected_mode,
 			"theme": theme,
 			"nest_reduction": base_count - roles.size(),
-			"boss_entry": night == final_night and index == WAVE_TIMES.size() - 1,
+			"boss_entry": boss_entry,
+			"boss_count": 1 if boss_entry else 0,
+			"boss_role": "breaker" if boss_entry else "",
 		})
+		if boss_entry:
+			plan[plan.size() - 1].title = "末夜首领 · 灯噬巨兽 · %s" % String(composition.title)
+			plan[plan.size() - 1].advice = "灯噬巨兽将在本波压门 · 打断蓄力后清理增援与残敌"
 	return plan
 
 ## index 是已经生成的波数（0表示尚未生成）；返回值可供HUD自由修改。
