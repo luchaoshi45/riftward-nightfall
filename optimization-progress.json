@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 44,
-  "latest_version": "0.8.34",
-  "latest_improvement": "昼间威胁情报与战前反制选择",
-  "verification": "Godot 4.7.2 生产场景回归通过：白昼保存五波真实计划，夜间沿用同一计划；7/8/9反制实际影响灯光压制、南门路障和防御塔火力，无选择无隐藏加成；昼间封巢按公开规则更新普通随从数量；高地移动与主循环回归通过；Windows成品仍为0.8.25"
+  "completed": 45,
+  "latest_version": "0.8.35",
+  "latest_improvement": "高地镜头跟随响应与移动流畅度",
+  "verification": "Godot 4.7.2 生产场景回归通过：高地镜头水平滞后约0.66米且固定视角不变，平地仍保留约1.26米缓动；高地移动、坡口输入、右键取点、地形引导和主循环回归通过；非headless Forward+实际渲染加载通过；Windows成品仍为0.8.25"
 }

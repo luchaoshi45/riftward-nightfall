@@ -56,8 +56,9 @@ func run() -> void:
 	game.set_process(false)
 	game.world.set_process(false)
 	# Vertical camera follow used to share the slow horizontal response. On the
-	# steep ramp that left the fixed-angle camera almost a metre behind the
-	# hero, even though the simulated movement stayed at full speed.
+	# steep ramp that left the fixed-angle camera more than a metre behind the
+	# hero, even though the simulated movement stayed at full speed. High-ground
+	# travel now uses the faster horizontal response while keeping a short glide.
 	var start_position: Vector3 = game.hero.position
 	var camera_ramp_z := 15.5
 	var ramp_position := Vector3(0, game.outpost_height(Vector3(0, 0, camera_ramp_z)), camera_ramp_z)
@@ -73,8 +74,8 @@ func run() -> void:
 	check(vertical_lag < .35,
 		"The fixed camera must catch a moving hero's raised-ramp height without visible vertical drag")
 	var horizontal_lag := absf(game.camera_follow.z - (game.hero.position.z + 29.0))
-	check(horizontal_lag > .8 and horizontal_lag < 1.6,
-		"Raised-ramp camera follow must keep its deliberate horizontal glide")
+	check(horizontal_lag > .35 and horizontal_lag < .9,
+		"Raised-ramp camera follow must stay responsive without snapping")
 	check(game.camera.global_transform.basis.is_equal_approx(camera_basis),
 		"Raised-ramp camera follow must preserve the fixed view direction")
 	game.hero.position = start_position

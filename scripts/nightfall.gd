@@ -22,6 +22,9 @@ const HERO_RAMP_SAFE_FULL_Z := 8.35
 # this centre-only margin prevents the cape and shoulders from scraping it.
 const HERO_FORT_WALL_CLEARANCE := 0.34
 const HERO_FORT_SAFE_EDGE := 6.5 - HERO_FORT_WALL_CLEARANCE
+const CAMERA_FLAT_FOLLOW_RATE := 6.0
+const CAMERA_HIGH_GROUND_FOLLOW_RATE := 11.5
+const CAMERA_HIGH_GROUND_THRESHOLD := 1.0
 const WAVES_PER_NIGHT := 5
 const BEACON_MAX := 1200.0
 const TOWER_COSTS := [60,50,75]
@@ -228,12 +231,14 @@ func _process(delta: float) -> void:
 	if is_instance_valid(hero):
 		world.follow_ashfall(hero.position)
 		var target:=hero.position+Vector3(0,25,29)
-		# Keep the fixed camera direction and horizontal glide, but let its
-		# height catch a steep ramp sooner. At the ramp's steepest point the
-		# hero can change height by over five metres per second; using the old
-		# six-per-second response left the camera nearly a metre behind and made
-		# otherwise continuous movement look like a snag.
-		var horizontal_follow:=1.0-exp(-delta*6.0)
+		# Keep the fixed camera direction and a deliberate glide on the outer
+		# ground. Once the hero reaches the raised outpost, use a faster
+		# horizontal response as well as the existing fast vertical response.
+		# The old six-per-second horizontal response left the camera about 1.4 m
+		# behind a moving hero on the high ground, which made smooth ramp travel
+		# look like a terrain snag. The camera still eases rather than snapping.
+		var follow_rate:=CAMERA_HIGH_GROUND_FOLLOW_RATE if hero.position.y>=CAMERA_HIGH_GROUND_THRESHOLD else CAMERA_FLAT_FOLLOW_RATE
+		var horizontal_follow:=1.0-exp(-delta*follow_rate)
 		var vertical_follow:=1.0-exp(-delta*18.0)
 		camera_follow.x=lerpf(camera_follow.x,target.x,horizontal_follow)
 		camera_follow.y=lerpf(camera_follow.y,target.y,vertical_follow)
