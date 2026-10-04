@@ -658,16 +658,23 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 		target=Vector3(lane,0,19.0)
 	elif phase=="night" and not pursuing_hero and creature.position.z>5.1:
 		target=Vector3(lane,NightfallWorld.FORT_HEIGHT,4.4)
+	if pursuing_hero:
+		# Hero pursuit must use the same gate-aware route as daytime hunters.
+		# A direct distance check is insufficient near the raised courtyard wall.
+		target=day_hunter_waypoint(creature,selected_position)
 	var final_target: bool=target.distance_to(selected_position)<.2
 	var distance:=creature.position.distance_to(target)
 	var attacking_tower: bool=target_kind=="tower" and final_target
 	var attacking_unit: bool=target_kind=="squad" and final_target
-	var reach:=creature.attack_range if pursuing_hero or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else .2
+	var hero_attackable: bool=pursuing_hero and final_target
+	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
 	if distance>reach or (day_hunter and not can_traverse(creature.position,target)):
 		creature.attack_queued=false
 		creature.attack_windup=0
 		if day_hunter:
-			var waypoint:=day_hunter_waypoint(creature,target)
+			var waypoint:=target
+			if not can_traverse(creature.position,waypoint):
+				waypoint=day_hunter_waypoint(creature,selected_position)
 			var direction:=waypoint-creature.position;direction.y=0
 			var previous:=creature.position
 			if direction.length()>.05:
@@ -682,7 +689,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 		else:
 			var direction:=(target-creature.position).normalized()
 			var next:=creature.position+direction*move_speed*delta
-			if outpost_walkable(next):
+			var can_move: bool=can_traverse(creature.position,next) if pursuing_hero else outpost_walkable(next)
+			if can_move:
 				next.y=outpost_height(next)
 				creature.position=next
 			creature.face(target,delta)
@@ -711,13 +719,13 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 				record_beacon_hit(previous_hp-beacon_hp)
 				BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),1.15,Color("ff9a4d"),.28)
 				if beacon_hp<=0:end_defeat("灯塔熄灭 · 哨站失守")
-			else:
+			elif target_kind=="hero" and hero_attackable:
 				hero.hurt(creature.damage,creature)
 				BattleVisuals.sparks(effects,hero.position+Vector3.UP,Color("ef9d76"),5)
 				BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
-		elif not creature.attack_queued and creature.attack_timer<=0:
+		elif not creature.attack_queued and creature.attack_timer<=0 and (target_kind!="hero" or hero_attackable):
 			creature.attack_queued=true
-			creature.attack_target_hero=pursuing_hero
+			creature.attack_target_hero=hero_attackable
 			creature.attack_target_pad=target_pad
 			creature.attack_target_barricade=attacking_barricade
 			creature.set_meta("attack_target_kind",target_kind)

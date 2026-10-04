@@ -68,5 +68,28 @@ func run() -> void:
 	var previous:=ordinary.position
 	game.update_creature(ordinary,.1)
 	if not check(ordinary.position.z<previous.z and is_equal_approx(ordinary.position.x,0),"Ordinary night creatures must retain their south-gate lane"):return
+	# Night pursuers must also route through the gate when the hero is on the
+	# raised courtyard. A straight-line chase used to stall against the east
+	# ramp wall and could queue a hit on an intermediate waypoint.
+	for pad: Dictionary in game.world.tower_pads:
+		pad.level=0;pad.hp=0.0
+	game.gate_barricade_hp=0.0
+	game.hero.position=Vector3(.8,5,1.0)
+	var night_hunter: BattleUnit=game.spawn_creature(true,"runner")
+	night_hunter.position=Vector3(8.5,0,18)
+	night_hunter.position.y=game.outpost_height(night_hunter.position)
+	var entered_courtyard:=false
+	var reached_hero:=false
+	for step in 1800:
+		var before:=night_hunter.position
+		night_hunter.tick(.04)
+		game.update_creature(night_hunter,.04)
+		if not check(game.can_traverse(before,night_hunter.position),"Night pursuer crossed a raised-terrain wall"):return
+		if night_hunter.position.y>4.8:entered_courtyard=true
+		if night_hunter.position.distance_to(game.hero.position)<=night_hunter.attack_range:
+			reached_hero=true
+			break
+	if not check(entered_courtyard and reached_hero,"Night pursuer got stuck before reaching a high-ground hero"):return
+	if not check(not night_hunter.attack_queued or night_hunter.attack_target_hero,"A high-ground waypoint must never queue a non-hero attack"):return
 	print("NIGHTFALL_DAY_HUNTER_PATH_OK both fortress sides, south-gate pursuit, target replanning, continuous wall checks, unchanged night lane")
 	quit()
