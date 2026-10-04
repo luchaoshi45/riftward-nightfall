@@ -746,24 +746,58 @@ func move_hero(delta: float) -> void:
 
 func move_hero_position(next: Vector3) -> bool:
 	# Keep movement responsive when the desired diagonal step clips a ramp
-	# wall. Move along the free component instead of cancelling both axes.
+	# wall. Try both component orders first so a corner keeps its diagonal
+	# progress, then project the full step onto a free axis for a true slide.
 	var origin:=hero.position
 	if can_traverse(origin,next):
 		next.y=outpost_height(next)
 		hero.position=next
 		return true
-	var moved:=false
+	var delta:=next-origin
+	delta.y=0.0
+	var step_distance:=Vector2(delta.x,delta.z).length()
+	var candidates: Array[Vector3]=[]
 	var x_step:=Vector3(next.x,origin.y,origin.z)
-	if absf(next.x-origin.x)>.0001 and can_traverse(origin,x_step):
-		x_step.y=outpost_height(x_step)
-		hero.position=x_step
-		moved=true
-	var z_step:=Vector3(next.x if moved else origin.x,origin.y,next.z)
-	if absf(next.z-origin.z)>.0001 and can_traverse(hero.position,z_step):
-		z_step.y=outpost_height(z_step)
-		hero.position=z_step
-		moved=true
-	return moved
+	var x_reachable:=absf(delta.x)>.0001 and can_traverse(origin,x_step)
+	var z_step:=Vector3(origin.x,origin.y,next.z)
+	var z_reachable:=absf(delta.z)>.0001 and can_traverse(origin,z_step)
+	if x_reachable:
+		candidates.append(x_step)
+		if absf(delta.z)>.0001:
+			var x_then_z:=Vector3(next.x,origin.y,next.z)
+			if can_traverse(x_step,x_then_z):candidates.append(x_then_z)
+	if z_reachable:
+		candidates.append(z_step)
+		if absf(delta.x)>.0001:
+			var z_then_x:=Vector3(next.x,origin.y,next.z)
+			if can_traverse(z_step,z_then_x):candidates.append(z_then_x)
+	# A diagonal input has a normalized step. If one component is blocked,
+	# retain that step length along the free tangent instead of slowing to the
+	# smaller component length at the wall.
+	if step_distance>.0001:
+		if absf(delta.x)>.0001:
+			var x_slide:=Vector3(origin.x+signf(delta.x)*step_distance,origin.y,origin.z)
+			if can_traverse(origin,x_slide):candidates.append(x_slide)
+		if absf(delta.z)>.0001:
+			var z_slide:=Vector3(origin.x,origin.y,origin.z+signf(delta.z)*step_distance)
+			if can_traverse(origin,z_slide):candidates.append(z_slide)
+	if candidates.is_empty():return false
+	var desired:=Vector2(delta.x,delta.z).normalized()
+	var best:=origin
+	var best_progress: float=-INF
+	var best_distance: float=-INF
+	for candidate in candidates:
+		var offset:=Vector2(candidate.x-origin.x,candidate.z-origin.z)
+		var progress:=offset.dot(desired)
+		var travelled:=offset.length_squared()
+		if progress>best_progress+.000001 or (is_equal_approx(progress,best_progress) and travelled>best_distance):
+			best=candidate
+			best_progress=progress
+			best_distance=travelled
+	if best==origin:return false
+	best.y=outpost_height(best)
+	hero.position=best
+	return true
 
 func build_hero_navigation() -> void:
 	hero_navigation=AStarGrid2D.new()

@@ -124,6 +124,7 @@ func run() -> void:
 	var ramp_start: Vector3=game.hero.position
 	for frame in 45: game.simulate(STEP)
 	check(game.hero.position.x<2.61 and game.hero.position.z>ramp_start.z+2.0, "Raised-ramp diagonal movement must slide along the side wall")
+	check(flat_distance(game.hero.position,ramp_start)>5.7, "Raised-ramp wall sliding must preserve near-full movement speed")
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
