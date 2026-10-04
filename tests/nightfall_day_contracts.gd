@@ -195,6 +195,12 @@ func check_early_salvage() -> void:
 	check(game.phase_time >= 15.0, "Selected real route plus respawn must retain the fifteen-second early-return margin")
 	check(game.contracts.status == "completed" and game.contracts.pending_reward.is_empty(), "Production update must consume the actual completed contract request")
 	check(game.scrap == before_scrap + 40 and game.essence == before_memory + 8, "Actual early return must pay forty supplies and eight memory exactly once")
+	check(game.exploration.affinity_active() and game.exploration.affinity_kinds.has("ember_bloom"),
+		"Returning a salvage contract must arm a one-shot ember/supply exploration affinity")
+	var affinity_before: int = game.essence
+	game.grant_exploration_reward("委托共鸣测试", game.hero.position, 0, 0, 0.0, 0.0, "ember_bloom")
+	check(game.essence >= affinity_before + 8 and not game.exploration.affinity_active(),
+		"The next matching production discovery must consume the affinity exactly once")
 	await capture("res://build/day-contract-return.png")
 	before_scrap = game.scrap; before_memory = game.essence
 	for step in 20: game.update_day_contracts(.1)

@@ -8,6 +8,7 @@ const REWARD_MEMORY := 8
 const EARLY_RETURN_SECONDS := 15.0
 const OFFER_RISK_SECONDS := [0.0, 8.0, 16.0]
 const OFFER_NAMES := ["稳妥路线", "加码路线", "孤注路线"]
+const AFFINITY_KINDS := {"salvage":["ember_bloom", "supply_cache"], "generator":["waylight"], "escort":["memory_crystal"], "nest":["waylight", "ember_bloom"]}
 var game: Node3D
 var run_seed := 0
 var day_id := -1
@@ -183,7 +184,7 @@ func tick(_delta: float) -> void:
 	if done.size() == targets.size() and returned_home():
 		status = "completed"
 		var early: bool = game.phase_time >= EARLY_RETURN_SECONDS
-		pending_reward = {"id":"day_contract_%d" % day_id, "day":day_id, "kind":kind, "scrap":int(selected_reward.scrap) + (10 if early else 0), "memory":int(selected_reward.memory), "early_return":early}
+		pending_reward = {"id":"day_contract_%d" % day_id, "day":day_id, "kind":kind, "scrap":int(selected_reward.scrap) + (10 if early else 0), "memory":int(selected_reward.memory), "early_return":early, "affinity":AFFINITY_KINDS.get(kind, []).duplicate()}
 	emit_progress()
 
 func returned_home() -> bool:

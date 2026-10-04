@@ -25,6 +25,8 @@ var speed_time := 0.0
 var speed_bonus := 0.0
 var last_event := ""
 var event_history: Array[String] = []
+var affinity_kinds: Array[String] = []
+var affinity_time := 0.0
 
 func setup(owner_game: Node3D) -> void:
 	game = owner_game
@@ -49,6 +51,8 @@ func reset_run() -> void:
 	speed_bonus = 0.0
 	last_event = ""
 	event_history.clear()
+	affinity_kinds.clear()
+	affinity_time = 0.0
 
 func begin_day() -> void:
 	day_kinds.clear()
@@ -58,6 +62,8 @@ func begin_day() -> void:
 	full_set_claimed = false
 	day_discoveries = 0
 	phase_night_discoveries = 0
+	affinity_kinds.clear()
+	affinity_time = 0.0
 	last_event = "新的白昼路线：换一种发现类型，连段奖励会更高"
 
 func begin_night() -> void:
@@ -78,6 +84,9 @@ func tick(delta: float) -> void:
 	if speed_time <= 0.0:
 		speed_bonus = 0.0
 	network_time = maxf(0.0, network_time-delta)
+	affinity_time = maxf(0.0, affinity_time-delta)
+	if affinity_time <= 0.0:
+		affinity_kinds.clear()
 
 func set_waylight_count(count: int) -> void:
 	waylight_count = maxi(0, count)
@@ -89,6 +98,18 @@ func speed_bonus_value() -> float:
 
 func network_active() -> bool:
 	return network_time > 0.0 and waylight_count >= 2
+
+func arm_contract_affinity(kinds: Array) -> void:
+	affinity_kinds.clear()
+	for kind in kinds:
+		if not affinity_kinds.has(String(kind)):
+			affinity_kinds.append(String(kind))
+	affinity_time = 75.0 if not affinity_kinds.is_empty() else 0.0
+	if not affinity_kinds.is_empty():
+		last_event = "委托共鸣已准备 · 下一次匹配探索额外获得记忆"
+
+func affinity_active() -> bool:
+	return affinity_time > 0.0 and not affinity_kinds.is_empty()
 
 func record(kind: String, point: Vector3, phase_name: String) -> Dictionary:
 	var result := {"scrap": 0, "memory": 0, "event": ""}
@@ -137,6 +158,11 @@ func record(kind: String, point: Vector3, phase_name: String) -> Dictionary:
 			result.event = "夜行搜寻 · +6 零件、+3 记忆"
 	if route_kind and network_active() and category != "waylight":
 		result.memory += 2
+	if category in affinity_kinds and affinity_active():
+		result.memory += 8
+		result.event = "委托共鸣 · 匹配探索额外 +8 记忆"
+		affinity_kinds.clear()
+		affinity_time = 0.0
 
 	if not result.event.is_empty():
 		last_event = result.event
@@ -163,6 +189,8 @@ func route_text() -> String:
 		if day_kinds.has(kind):
 			collected += 1
 	var next := next_kind()
+	if affinity_active():
+		return "委托共鸣 · 下一次探索额外 +8 记忆"
 	if next.is_empty():
 		return "完整搜寻已完成 · 连段 %d" % streak
 	var names := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}

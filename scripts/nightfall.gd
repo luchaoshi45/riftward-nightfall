@@ -401,6 +401,8 @@ func update_day_contracts(delta: float) -> void:
 	var reward: Dictionary=contracts.take_reward_request()
 	if not reward.is_empty():
 		scrap+=int(reward.scrap);essence+=int(reward.memory)
+		if exploration and reward.has("affinity"):
+			exploration.arm_contract_affinity(reward.affinity)
 		collect_memory_upgrades()
 		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":"+%d零件 · +%d记忆%s" % [reward.scrap,reward.memory," · 提前返家奖励" if reward.early_return else ""],"time":3.5,"color":Color("e8bc76")})
 		while reward_toasts.size()>4:reward_toasts.remove_at(0)

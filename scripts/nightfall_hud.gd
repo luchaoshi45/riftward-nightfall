@@ -365,13 +365,15 @@ func draw_exploration_rewards() -> void:
 	label("荧光互动点 %d · 采集后会刷新" % ready,Vector2(43,298),11,muted)
 	if game.exploration:
 		label(game.exploration.route_text(),Vector2(43,317),11,amber if game.exploration.streak>1 else Color("a3c7b7"))
+		if game.exploration.affinity_active():
+			label("委托共鸣已就绪 · 匹配探索 +8记忆",Vector2(43,347),10,Color("e8bc70"))
 		var target: Dictionary=game.discoveries.motivation_target()
 		if not target.is_empty():
 			label("目标距离 %.0f 米 · 22 秒内换类型可连段" % float(target.distance),Vector2(43,333),10,muted)
 	for i in game.reward_toasts.size():
 		var reward: Dictionary=game.reward_toasts[game.reward_toasts.size()-1-i]
 		var fade: float=minf(1.0,reward.time/.45)
-		var y:=342.0+float(i)*70.0
+		var y:=360.0+float(i)*70.0
 		box(Rect2(24,y,340,62),Color(.026,.067,.060,.92*fade),Color("527c6b",fade))
 		var tint: Color=reward.color;tint.a=fade
 		label(reward.title,Vector2(42,y+24),15,tint)

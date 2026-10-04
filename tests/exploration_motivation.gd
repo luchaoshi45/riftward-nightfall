@@ -25,6 +25,12 @@ func run() -> void:
 	var network: Dictionary=motivation.record("ember_bloom",Vector3(12,0,0),"day")
 	assert(network.memory>=2,"A two-lantern network adds a small route bonus")
 	assert(motivation.run_summary().contains("最长连段 4"))
+	motivation.set_waylight_count(0)
+	motivation.arm_contract_affinity(["ember_bloom"])
+	var affinity: Dictionary=motivation.record("ember_bloom",Vector3(12,0,0),"day")
+	assert(affinity.memory>=8 and not motivation.affinity_active(),"A matched contract affinity pays once and is consumed")
+	var no_repeat: Dictionary=motivation.record("ember_bloom",Vector3(12,0,0),"day")
+	assert(no_repeat.memory==0,"Consumed contract affinity must not repeat on later discoveries")
 	print("EXPLORATION_MOTIVATION_OK route streak, full set, deep/night risk, light network and recap")
 	owner.queue_free();motivation.queue_free()
 	await process_frame
