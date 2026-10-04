@@ -116,6 +116,19 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_FORTRESS_CORNER_OK")
 
+	# Near the raised ramp's side wall, a diagonal input must slide along the
+	# free downhill axis instead of freezing both axes at the corner.
+	reset_hero(Vector3(2.45, 0, 10.5), Vector3(1, 0, 1).normalized())
+	await key(KEY_D, true)
+	await key(KEY_S, true)
+	var ramp_start: Vector3=game.hero.position
+	for frame in 45: game.simulate(STEP)
+	check(game.hero.position.x<2.61 and game.hero.position.z>ramp_start.z+2.0, "Raised-ramp diagonal movement must slide along the side wall")
+	await key(KEY_D, false)
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_RAMP_SLIDE_OK")
+
 	# Actual right-click input retains its autonomous route after the user has
 	# released movement keys, and must enter by the only southern gateway.
 	reset_hero(Vector3(10, 0, 25))

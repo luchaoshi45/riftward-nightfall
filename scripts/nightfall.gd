@@ -734,9 +734,7 @@ func move_hero(delta: float) -> void:
 	if to_goal.length()>.11:
 		var move:=to_goal.normalized()*minf(to_goal.length(),hero.speed*delta)
 		var next:=hero.position+move
-		if can_traverse(hero.position,next):
-			next.y=outpost_height(next)
-			hero.position=next
+		if move_hero_position(next):
 			hero.moving=true
 			hero.face(hero.position+to_goal.normalized(),delta)
 		else:
@@ -745,6 +743,27 @@ func move_hero(delta: float) -> void:
 			move_goal=hero.position
 	else:hero.moving=false
 	hero.set_locomotion_velocity((hero.position-old_position)/maxf(delta,.001))
+
+func move_hero_position(next: Vector3) -> bool:
+	# Keep movement responsive when the desired diagonal step clips a ramp
+	# wall. Move along the free component instead of cancelling both axes.
+	var origin:=hero.position
+	if can_traverse(origin,next):
+		next.y=outpost_height(next)
+		hero.position=next
+		return true
+	var moved:=false
+	var x_step:=Vector3(next.x,origin.y,origin.z)
+	if absf(next.x-origin.x)>.0001 and can_traverse(origin,x_step):
+		x_step.y=outpost_height(x_step)
+		hero.position=x_step
+		moved=true
+	var z_step:=Vector3(next.x if moved else origin.x,origin.y,next.z)
+	if absf(next.z-origin.z)>.0001 and can_traverse(hero.position,z_step):
+		z_step.y=outpost_height(z_step)
+		hero.position=z_step
+		moved=true
+	return moved
 
 func build_hero_navigation() -> void:
 	hero_navigation=AStarGrid2D.new()
