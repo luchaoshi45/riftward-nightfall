@@ -1,0 +1,47 @@
+extends SceneTree
+## Side-wall cursor regression: clicking the raised ramp flank must resolve to
+## the nearest walkable ramp edge instead of the low outer ground.
+const TARGET_ZS := [8.0, 9.0, 12.0, 15.0]
+var failures: Array[String] = []
+func _initialize() -> void:
+	call_deferred("run")
+func check(condition: bool, message: String) -> void:
+	if condition:return
+	failures.append(message)
+	push_error(message)
+func run() -> void:
+	var game: Node3D=load("res://scenes/nightfall.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.set_process(false)
+	game.world.set_process(false)
+	game.phase="day"
+	game.camera.size=48.0
+	game.camera.position=Vector3(5,25,43)
+	game.camera.look_at(Vector3(5,0,14))
+	for side in [-1.0,1.0]:
+		for z in TARGET_ZS:
+			var wall_point:=Vector3(3.2*side,game.outpost_height(Vector3(3.2*side,0,z)),z)
+			var screen: Vector2=game.camera.unproject_position(wall_point)
+			var resolved: Vector3=game.ground_point(screen)
+			check(absf(resolved.x)<=game.hero_ramp_side_limit(resolved.z)+.001,
+				"Side-wall click must resolve inside the ramp visual corridor at x=%.1f z=%.1f" % [wall_point.x,z])
+			check(resolved.z>=7.49 and resolved.z<=18.56,
+				"Side-wall click must remain on the raised ramp z corridor at x=%.1f z=%.1f" % [wall_point.x,z])
+			check(absf(resolved.z-z)<1.21,
+				"Side-wall click must preserve nearby forward position at x=%.1f z=%.1f (resolved z=%.2f)" % [wall_point.x,z,resolved.z])
+			check(game.outpost_walkable(resolved),
+				"Side-wall click must resolve to a walkable endpoint at x=%.1f z=%.1f" % [wall_point.x,z])
+			game.hero.position=Vector3(15.0,0,25.0)
+			game.hero.position.y=game.outpost_height(game.hero.position)
+			game.plan_hero_path(resolved)
+			check(not game.hero_path.is_empty() or game.move_goal.distance_to(resolved)<.25,
+				"Side-wall route must produce a reachable endpoint at x=%.1f z=%.1f" % [wall_point.x,z])
+	print("NIGHTFALL_HIGH_GROUND_EDGE_CLICK_OK")
+	if not failures:
+		await game.prepare_shutdown()
+		game.queue_free()
+		await process_frame
+		quit(0)
+	else:
+		quit(1)

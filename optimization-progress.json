@@ -1,7 +1,7 @@
 {
   "target": 100,
-	"completed": 41,
-	"latest_version": "0.8.31",
-	"latest_improvement": "三重裂光独立光刃：Q按三条扇形光刃分别判定，每刃70%伤害并可独立命中目标",
-	"verification": "无卡Q保持单次基础命中；持有三重裂光时中心目标承受三次独立70%命中，扇形两侧目标可分别命中，暂停不造成伤害；Godot 4.7.2裂光、技能灯光、普攻反馈和主循环回归通过"
+  "completed": 42,
+  "latest_version": "0.8.32",
+  "latest_improvement": "高地侧墙点击修正、远景装饰迟滞裁剪与防御塔威胁优先模式",
+  "verification": "Godot 4.7.2 高地侧墙点击、输入合帧、移动响应、地形引导、塔威胁优先、塔模式、集火和主循环回归通过；Forward+移动基线完成远景装饰裁剪后复测，保留Mac实机性能边界，Windows成品仍为0.8.25"
 }

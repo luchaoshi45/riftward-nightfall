@@ -4,6 +4,9 @@ extends Node3D
 const FORT_HEIGHT := 5.0
 const LIGHT_TRANSITION_SECONDS := 6.0
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
+const DECORATION_CULL_NEAR := 84.0
+const DECORATION_CULL_FAR := 98.0
+const DECORATION_CULL_INTERVAL := 0.16
 
 var terrain: Node3D
 var salvage: Array[Dictionary] = []
@@ -21,6 +24,10 @@ var gate_spots: Array[SpotLight3D] = []
 var gate_flames: Array[MeshInstance3D] = []
 var gate_light_drain: Array[float] = [0.0,0.0]
 var hero_lantern: OmniLight3D
+var decorative_nodes: Array[Node3D] = []
+var decoration_cull_origin := Vector3(INF, INF, INF)
+var decoration_cull_time := 0.0
+var decoration_visible_count := 0
 var night_active:=false
 var night_mix:=0.0
 var wave_warning:=false
@@ -74,15 +81,15 @@ func build() -> void:
 	for i in range(210):
 		var angle := rng.randf_range(0,TAU)
 		var radius := rng.randf_range(15,104)
-		place_scene(tree_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.74,1.35),angle)
+		place_scene(tree_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.74,1.35),angle,true)
 	for i in range(48):
 		var angle := TAU*i/48.0+rng.randf_range(-.18,.18)
 		var radius := rng.randf_range(23,102)
-		place_scene(ruin_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.8,1.18),angle)
+		place_scene(ruin_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.8,1.18),angle,true)
 	for i in range(160):
 		var angle := rng.randf_range(0,TAU)
 		var radius := rng.randf_range(10,104)
-		place_scene(rock_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.25,.68),angle)
+		place_scene(rock_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.25,.68),angle,true)
 	for i in range(8):
 		var angle := TAU*i/8.0+.26
 		var radius := 46.0+float(i%3)*21.0
@@ -99,7 +106,7 @@ func build() -> void:
 	for i in range(18):
 		var angle := TAU*i/18.0+.43
 		var radius := 30.0+float(i%4)*19.0
-		place_scene(truck_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.82,1.1),angle)
+		place_scene(truck_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.82,1.1),angle,true)
 	var nest_scene:=load("res://assets/models/night_nest.glb") as PackedScene
 	var sealed_scene:=load("res://assets/models/sealed_nest.glb") as PackedScene
 	for point in [Vector3(-22,0,31),Vector3(34,0,46),Vector3(-42,0,65)]:
@@ -232,6 +239,27 @@ func create_ashfall() -> void:
 func follow_ashfall(point: Vector3) -> void:
 	if ashfall:ashfall.position=point+Vector3(0,8,0)
 	if hero_lantern:hero_lantern.position=point+Vector3(0,2.25,0)
+	update_decoration_culling(point)
+
+func update_decoration_culling(point: Vector3) -> void:
+	decoration_cull_time=maxf(0.0,decoration_cull_time-get_process_delta_time())
+	var flat_point:=Vector2(point.x,point.z)
+	if decoration_cull_time>0.0 and flat_point.distance_squared_to(Vector2(decoration_cull_origin.x,decoration_cull_origin.z))<9.0:return
+	decoration_cull_time=DECORATION_CULL_INTERVAL
+	decoration_cull_origin=point
+	var near_squared:=DECORATION_CULL_NEAR*DECORATION_CULL_NEAR
+	var far_squared:=DECORATION_CULL_FAR*DECORATION_CULL_FAR
+	decoration_visible_count=0
+	for node in decorative_nodes:
+		if not is_instance_valid(node):continue
+		var node_point:=Vector2(node.position.x,node.position.z)
+		var distance_squared:=flat_point.distance_squared_to(node_point)
+		# Hysteresis keeps a tree from popping while the hero walks across the
+		# boundary. Only background decoration is culled; gameplay landmarks and
+		# the terrain mesh remain available at every distance.
+		var visible:=distance_squared<=far_squared if node.visible else distance_squared<=near_squared
+		node.visible=visible
+		if visible:decoration_visible_count+=1
 
 func create_gate_lamp(point: Vector3) -> void:
 	var metal:=StandardMaterial3D.new()
@@ -281,12 +309,13 @@ func terrain_height(point: Vector3) -> float:
 func place(path: String, point: Vector3, size_factor: float, angle: float) -> Node3D:
 	return place_scene(load(path) as PackedScene,point,size_factor,angle)
 
-func place_scene(scene: PackedScene, point: Vector3, size_factor: float, angle: float) -> Node3D:
+func place_scene(scene: PackedScene, point: Vector3, size_factor: float, angle: float, decorative: bool=false) -> Node3D:
 	var node := scene.instantiate() as Node3D
 	add_child(node)
 	node.position=point
 	node.scale=Vector3.ONE*size_factor
 	node.rotation.y=angle
+	if decorative:decorative_nodes.append(node)
 	return node
 
 func set_night(is_night: bool) -> void:

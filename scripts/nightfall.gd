@@ -1276,13 +1276,21 @@ func update_towers(delta: float) -> void:
 		var nearest:=range_limit
 		var breaker: BattleUnit
 		var breaker_distance:=nearest
+		var threat_target: BattleUnit
+		var threat_rank:=99
+		var threat_distance:=nearest
 		for creature in enemies:
 			if not is_instance_valid(creature) or not creature.alive:continue
 			var distance: float=pad.position.distance_to(creature.position)
 			if distance<nearest:selected=creature;nearest=distance
 			if pad.mode=="breaker" and creature.get_meta("threat","")=="breaker" and distance<breaker_distance:
 				breaker=creature;breaker_distance=distance
+			if pad.mode=="threat":
+				var rank:=tower_threat_rank(String(creature.get_meta("threat","")))
+				if rank<99 and (rank<threat_rank or (rank==threat_rank and distance<threat_distance)):
+					threat_target=creature;threat_rank=rank;threat_distance=distance
 		if breaker!=null:selected=breaker
+		if pad.mode=="threat" and threat_target!=null:selected=threat_target
 		if is_instance_valid(focus_target) and focus_target.alive and focus_time>0 and pad.position.distance_to(focus_target.position)<range_limit:
 			selected=focus_target
 		if selected==null:continue
@@ -1553,9 +1561,15 @@ func toggle_tower_mode() -> bool:
 	var index:=nearest_tower_pad()
 	if index<0 or world.tower_pads[index].level<=0:return false
 	var pad: Dictionary=world.tower_pads[index]
-	pad.mode="breaker" if pad.mode=="nearest" else "nearest"
-	notify("防御塔目标：破城优先" if pad.mode=="breaker" else "防御塔目标：最近目标",2)
+	pad.mode={"nearest":"breaker","breaker":"threat","threat":"nearest"}.get(String(pad.mode),"nearest")
+	notify("防御塔目标：%s" % tower_mode_label(String(pad.mode)),2)
 	return true
+
+func tower_threat_rank(threat: String) -> int:
+	return {"light_eater":0,"sapper":1,"breaker":2}.get(threat,99)
+
+func tower_mode_label(mode: String) -> String:
+	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
 
 func choose_tower_specialization(kind: String) -> bool:
 	var index:=nearest_tower_pad()
@@ -1850,7 +1864,7 @@ func interaction_prompt() -> String:
 		var level: int=world.tower_pads[pad_index].level
 		var zone_label: String="核心防线 · " if String(world.tower_pads[pad_index].get("zone","outer"))=="core" else ""
 		if level==0:return "F  %s建造自动防御塔 · 消耗 %d 零件" % [zone_label,districts.tower_cost(TOWER_COSTS[0])]
-		var mode_label: String="破城优先" if world.tower_pads[pad_index].mode=="breaker" else "最近目标"
+		var mode_label: String=tower_mode_label(String(world.tower_pads[pad_index].mode))
 		var durability: String="%d/%d" % [ceili(world.tower_pads[pad_index].hp),ceili(world.tower_pads[pad_index].max_hp)]
 		var repair_hint: String=" · H 修复%d" % districts.repair_cost(20) if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
 		if level>=3:return "%s塔耐久 %s%s · G %s · 满级" % [zone_label,durability,repair_hint,mode_label]
@@ -2119,6 +2133,7 @@ func ground_point(screen: Vector2) -> Vector3:
 	var origin:=camera.project_ray_origin(screen)
 	var direction:=camera.project_ray_normal(screen)
 	var result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
+	var flat_seed: Vector3=result if result is Vector3 else hero.position
 	# The raised south ramp is a smooth, sloped surface rather than a flat
 	# plane. Three fixed-point updates leave the cursor more than a metre away
 	# from the visible slope in the middle of the ramp, which makes right-click
@@ -2138,7 +2153,28 @@ func ground_point(screen: Vector2) -> Vector3:
 				result=next
 				break
 		result=next
+	if result is Vector3:
+		var ramp_click: Vector3=resolve_ramp_click(flat_seed,result)
+		if ramp_click!=Vector3.INF:return ramp_click
 	return result if result is Vector3 else hero.position
+
+func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
+	# The imported ramp meets the outer ground at x=±3.2. A cursor placed on
+	# that vertical side wall can make the fixed-point sampler alternate between
+	# the raised surface and y=0, producing a target several metres away from
+	# the visible terrain. Treat a near-side-wall click as a request for the
+	# nearest walkable ramp edge while leaving clicks on the outer ground alone.
+	if absf(flat_seed.x)<2.77 or absf(flat_seed.x)>3.75:return Vector3.INF
+	if sampled is Vector3 and outpost_walkable(sampled) and absf((sampled as Vector3).x)<2.77:return Vector3.INF
+	var side: float=signf(flat_seed.x)
+	# Preserve the cursor's forward position whenever possible. The y=0 ray
+	# can land well before the ramp at the steep lower lip, so clamp only that
+	# ambiguous part to the entrance instead of searching the whole ramp and
+	# accidentally sending a click several metres uphill.
+	var z: float=clampf(flat_seed.z,7.5,18.55)
+	var candidate_x: float=side*hero_ramp_side_limit(z)
+	var candidate: Vector3=Vector3(candidate_x,outpost_height(Vector3(candidate_x,0,z)),z)
+	return candidate if not camera.is_position_behind(candidate) else Vector3.INF
 
 func flush_pending_aim() -> void:
 	if not aim_sample_pending or not is_instance_valid(camera):return

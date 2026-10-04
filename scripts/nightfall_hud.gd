@@ -354,7 +354,10 @@ func draw_minimap() -> void:
 	for pad in game.world.tower_pads:
 		var p: Vector3=pad.position
 		var pad_color: Color=Color("78d1c2") if String(pad.get("zone","outer"))=="core" else amber
-		draw_circle(center+Vector2(p.x,p.z)*scale,3.2,Color("ed945b") if pad.level>0 and pad.mode=="breaker" else (pad_color if pad.level>0 else Color("697473")))
+		var tower_color: Color=Color("697473")
+		if pad.level>0:
+			tower_color=Color("b78be8") if pad.mode=="threat" else (Color("ed945b") if pad.mode=="breaker" else pad_color)
+		draw_circle(center+Vector2(p.x,p.z)*scale,3.2,tower_color)
 	if game.expeditions:
 		for site in game.expeditions.generators:
 			var p: Vector3=site.position
