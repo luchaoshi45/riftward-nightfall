@@ -10,6 +10,7 @@ const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
 const HERO_MOVE_SUBSTEP := 0.08
+const HERO_MOVE_RETRY_FACTORS := [1.0, 0.5, 0.25]
 # The hero mesh is wider than its selection ring. Keep its centre slightly
 # inside the raised ramp side walls so the cape and shoulders do not scrape the
 # retaining geometry while the input still slides at full speed.
@@ -77,6 +78,10 @@ var final_clearance_active := false
 var pulse_timer := 3.0
 var guardian_timer := 12.0
 var aim := Vector3(8,0,0)
+var pending_aim_screen := Vector2(-INF,-INF)
+var aim_sample_pending := false
+var ground_point_queries := 0
+var hero_move_retries := 0
 var move_goal := Vector3.ZERO
 var hero_navigation: AStarGrid2D
 var hero_path := PackedVector3Array()
@@ -198,6 +203,7 @@ func prepare_opening_defenses() -> void:
 	show_gate_trap_charges()
 
 func _process(delta: float) -> void:
+	flush_pending_aim()
 	if phase=="day" or phase=="night":simulate(delta)
 	if exploration:exploration.tick(delta)
 	update_beacon_alarm(delta)
@@ -942,13 +948,18 @@ func move_hero(delta: float) -> void:
 		while remaining>.0001:
 			var step_distance:=minf(remaining,HERO_MOVE_SUBSTEP)
 			var before:=hero.position
-			if not move_hero_position(before+direction*step_distance):break
-			var travelled: float=Vector2(before.x-hero.position.x,before.z-hero.position.z).length()
-			if travelled<step_distance*.999:
-				moved_any=travelled>.000001
+			var accepted:=false
+			for factor: float in HERO_MOVE_RETRY_FACTORS:
+				var requested_step:=step_distance*factor
+				if not move_hero_position(before+direction*requested_step):continue
+				var travelled: float=Vector2(before.x-hero.position.x,before.z-hero.position.z).length()
+				if travelled<.000001:continue
+				accepted=true
+				if factor<.999:hero_move_retries+=1
+				moved_any=true
+				remaining=maxf(0.0,remaining-travelled)
 				break
-			moved_any=true
-			remaining-=step_distance
+			if not accepted:break
 		if moved_any:
 			hero.moving=true
 			# A wall-slide can resolve a diagonal request onto the free tangent.
@@ -2088,6 +2099,7 @@ func hit_area(point: Vector3,radius: float,amount: float) -> void:
 			creature.hurt(amount,hero)
 
 func ground_point(screen: Vector2) -> Vector3:
+	ground_point_queries+=1
 	var origin:=camera.project_ray_origin(screen)
 	var direction:=camera.project_ray_normal(screen)
 	var result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
@@ -2112,16 +2124,27 @@ func ground_point(screen: Vector2) -> Vector3:
 		result=next
 	return result if result is Vector3 else hero.position
 
+func flush_pending_aim() -> void:
+	if not aim_sample_pending or not is_instance_valid(camera):return
+	aim=ground_point(pending_aim_screen)
+	aim_sample_pending=false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if music_credits_open and not event is InputEventKey:return
 	if event is InputEventMouseMotion:
-		aim=ground_point(event.position)
+		pending_aim_screen=event.position
+		aim_sample_pending=true
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index==MOUSE_BUTTON_RIGHT and (phase=="day" or phase=="night"):
-			plan_hero_path(ground_point(event.position))
+			var click_point:=ground_point(event.position)
+			aim=click_point
+			pending_aim_screen=event.position
+			aim_sample_pending=false
+			plan_hero_path(click_point)
 		if event.button_index==MOUSE_BUTTON_WHEEL_UP:camera.size=maxf(21,camera.size-1.5)
 		if event.button_index==MOUSE_BUTTON_WHEEL_DOWN:camera.size=minf(42,camera.size+1.5)
 	if event is InputEventKey and event.pressed and not event.echo:
+		flush_pending_aim()
 		if event.keycode==KEY_M and music:
 			music.toggle_mute()
 			notify("配乐已静音" if music.muted else "配乐已开启",2)
