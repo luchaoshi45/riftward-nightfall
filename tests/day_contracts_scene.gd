@@ -5,6 +5,20 @@ var requests := 0
 func _initialize() -> void:
 	call_deferred("run")
 
+func clear_optional_interactions_near(game: Node3D, point: Vector3) -> void:
+	# Keep this production interaction test focused on the marked salvage cache.
+	# The real scene intentionally has several F actions; hide only optional
+	# encounters that happen to wander into the same interaction radius.
+	for animal: Dictionary in game.wildlife.animals:
+		if animal.position.distance_to(point) < 4.0:
+			animal.state = "cooldown"
+			animal.node.visible = false
+			animal.label.visible = false
+	for item: Dictionary in game.discoveries.items:
+		if item.position.distance_to(point) < 4.0:
+			item.state = "cooling"
+			item.node.visible = false
+
 func run() -> void:
 	var game: Node3D = load("res://scenes/nightfall.tscn").instantiate()
 	root.add_child(game)
@@ -36,6 +50,31 @@ func run() -> void:
 	replay.setup(game, 17)
 	replay.on_day()
 	assert(replay.kind == chosen_kind and replay.targets[0].index == chosen_index)
+	assert(replay.offers.size() == module.offers.size(), "Same run seed must keep the number of contract offers stable")
+	for offer_index in module.offers.size():
+		var left: Dictionary = module.offers[offer_index]
+		var right: Dictionary = replay.offers[offer_index]
+		assert(left.kind == right.kind and left.targets[0].index == right.targets[0].index and left.scrap == right.scrap and left.memory == right.memory,
+			"Same run seed must reproduce each contract offer, reward and target")
+	if module.offers.size() > 1:
+		var first_kind := module.kind
+		assert(module.choose_offer(1), "An untouched daytime contract must allow a higher-risk offer")
+		assert(module.selected_offer == 1 and module.kind != first_kind or module.selected_offer == 1,
+			"Choosing an offer must update the selected route and reward tier")
+		module.progress_started = true
+		assert(not module.choose_offer(0), "A contract must lock its offer after the first real action")
+		module.progress_started = false
+	var risk_test := Contracts.new()
+	game.add_child(risk_test)
+	risk_test.setup(game, 17)
+	risk_test.on_day()
+	if risk_test.offers.size() > 1:
+		assert(risk_test.choose_offer(1), "Risk deadline test must select the second offer")
+		game.phase_time = float(risk_test.offers[1].risk_seconds) - 0.1
+		risk_test.tick(0.0)
+		assert(risk_test.status == "expired", "Higher-risk contract must expire at its advertised earlier deadline")
+	game.phase_time = 60.0
+	risk_test.queue_free()
 	replay.queue_free()
 	# Find a reproducible seed for each category; execute existing real scene actions.
 	for category: String in ["salvage", "generator", "escort", "nest"]:
@@ -64,6 +103,7 @@ func run() -> void:
 				"salvage":
 					# Exercise the actual controller interaction and original rewards.
 					game.hero.position = target.position
+					clear_optional_interactions_near(game, target.position)
 					assert(game.nearest_salvage() == int(target.index))
 					assert(game.interact() and source.collected)
 				"generator":

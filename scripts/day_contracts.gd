@@ -77,6 +77,16 @@ func seeded_order(values: Array, rng: RandomNumberGenerator) -> Array:
 		result.append(remaining.pop_at(pick))
 	return result
 
+func live_offer(option: Dictionary) -> Dictionary:
+	# Keep each target's source dictionary owned by the world/expedition module.
+	# A deep duplicate would make F actions update a stale contract copy.
+	var offer: Dictionary = option.duplicate(false)
+	var live_targets: Array[Dictionary] = []
+	for target: Dictionary in option.targets:
+		live_targets.append(target.duplicate(false))
+	offer["targets"] = live_targets
+	return offer
+
 func reachable_range(point: Vector3) -> bool:
 	return flat_distance(point, Vector3.ZERO) >= 16.0 and flat_distance(point, Vector3.ZERO) <= 45.0 and game.outpost_walkable(point)
 
@@ -109,7 +119,7 @@ func on_day() -> void:
 			for option in options:
 				if option.kind == offer_kind: matching.append(option)
 			var chosen: Dictionary = matching[rng.randi_range(0, matching.size()-1)]
-			var offer: Dictionary=chosen.duplicate(true)
+			var offer: Dictionary=live_offer(chosen)
 			offer["risk"] = offer_index
 			offer["risk_seconds"] = OFFER_RISK_SECONDS[offer_index]
 			offer["name"] = OFFER_NAMES[offer_index]

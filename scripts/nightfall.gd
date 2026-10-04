@@ -1592,6 +1592,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
+		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
+			var offer_index: int = int(event.keycode)-KEY_4
+			if contracts.choose_offer(offer_index):
+				notify("已切换委托方案%d · 完成第一项后锁定" % (offer_index+1),2)
+			elif contracts.status=="active" and contracts.progress_started:
+				notify("委托已开始 · 方案已锁定",2)
+			else:
+				notify("当前没有可切换的委托方案",2)
+			return
 		match event.keycode:
 			KEY_1:build_district("barracks")
 			KEY_2:build_district("workshop")

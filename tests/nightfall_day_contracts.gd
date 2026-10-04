@@ -1,6 +1,7 @@
 extends SceneTree
 ## Production scene, real seeds/actions/routes, production-only reward payout.
 ## Optional actual render: -- --render-test (hidden window + Dummy audio).
+const Contracts = preload("res://scripts/day_contracts.gd")
 const HOME := Vector3(0, 5, 3.1)
 const STEP := .05
 var game: Node3D
@@ -48,23 +49,28 @@ func option_budget(option: Dictionary, spare_seconds: float = 15.0) -> float:
 
 func seed_for(wanted: String, respawn_wait: bool) -> int:
 	var options: Array = game.contracts.candidates()
-	var categories: Array[String] = []
 	for option: Dictionary in options:
-		if not categories.has(option.kind): categories.append(option.kind)
 		check(option_budget(option) <= game.DAY_LENGTH,
 			"Available candidate %s must have a real gate route and action/return budget below ninety seconds" % option.kind)
-	if not categories.has(wanted): return -1
+	var previous_phase: String = game.phase
+	var previous_day: int = game.day_number
+	game.phase = "day"
+	game.day_number = 2
+	var probe = Contracts.new()
+	game.add_child(probe)
 	for seed in 2000:
-		var rng := RandomNumberGenerator.new()
-		rng.seed = seed + 2 * 7919
-		var chosen_kind: String = categories[rng.randi_range(0, categories.size() - 1)]
-		if chosen_kind != wanted: continue
-		var matching: Array[Dictionary] = []
-		for option: Dictionary in options:
-			if option.kind == wanted: matching.append(option)
-		var chosen := matching[rng.randi_range(0, matching.size() - 1)]
+		probe.setup(game, seed)
+		probe.on_day()
+		if probe.status != "active" or probe.offers.is_empty() or probe.offers[0].kind != wanted: continue
+		var chosen: Dictionary = probe.offers[0]
 		if respawn_wait and option_budget(chosen, 55.2 + 15.0) >= game.DAY_LENGTH: continue
+		probe.queue_free()
+		game.phase = previous_phase
+		game.day_number = previous_day
 		return seed
+	probe.queue_free()
+	game.phase = previous_phase
+	game.day_number = previous_day
 	return -1
 
 func start_day(wanted: String, respawn_wait: bool = false) -> bool:
@@ -89,6 +95,14 @@ func start_day(wanted: String, respawn_wait: bool = false) -> bool:
 	check(game.contracts.status == "active" and game.contracts.kind == wanted,
 		"Production day generation must select the requested real %s candidate" % wanted)
 	check(game.contracts.day_id == 2 and game.phase_time == game.DAY_LENGTH, "Production contract must belong to the new ninety-second day")
+	if game.contracts.offers.size() > 1:
+		var key := InputEventKey.new()
+		key.pressed = true
+		key.keycode = KEY_5
+		var before_offer: int = game.contracts.selected_offer
+		game._unhandled_input(key)
+		check(game.contracts.selected_offer == 1 and before_offer != game.contracts.selected_offer,
+			"Production 5 key must switch to the second untouched contract offer")
 	return game.contracts.status == "active" and game.contracts.kind == wanted
 
 func close_game() -> void:
