@@ -55,6 +55,30 @@ func run() -> void:
 	await process_frame
 	game.set_process(false)
 	game.world.set_process(false)
+	# Vertical camera follow used to share the slow horizontal response. On the
+	# steep ramp that left the fixed-angle camera almost a metre behind the
+	# hero, even though the simulated movement stayed at full speed.
+	var start_position: Vector3 = game.hero.position
+	var camera_ramp_z := 15.5
+	var ramp_position := Vector3(0, game.outpost_height(Vector3(0, 0, camera_ramp_z)), camera_ramp_z)
+	game.hero.position = ramp_position
+	game.camera_follow = ramp_position + Vector3(0, 25, 29)
+	var camera_basis: Basis = game.camera.global_transform.basis
+	var vertical_lag := 0.0
+	for frame in 30:
+		camera_ramp_z -= game.hero.speed * STEP
+		game.hero.position = Vector3(0, game.outpost_height(Vector3(0, 0, camera_ramp_z)), camera_ramp_z)
+		game._process(STEP)
+		vertical_lag = maxf(vertical_lag, absf(game.camera_follow.y - (game.hero.position.y + 25.0)))
+	check(vertical_lag < .35,
+		"The fixed camera must catch a moving hero's raised-ramp height without visible vertical drag")
+	var horizontal_lag := absf(game.camera_follow.z - (game.hero.position.z + 29.0))
+	check(horizontal_lag > .8 and horizontal_lag < 1.6,
+		"Raised-ramp camera follow must keep its deliberate horizontal glide")
+	check(game.camera.global_transform.basis.is_equal_approx(camera_basis),
+		"Raised-ramp camera follow must preserve the fixed view direction")
+	game.hero.position = start_position
+	game.camera_follow = game.hero.position + Vector3(0, 25, 29)
 	await tap(KEY_1)
 	check(game.phase == "night", "Real card input must start the playable scene")
 	for enemy in game.enemies:

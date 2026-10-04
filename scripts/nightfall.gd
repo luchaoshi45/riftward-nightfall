@@ -191,7 +191,16 @@ func _process(delta: float) -> void:
 	if is_instance_valid(hero):
 		world.follow_ashfall(hero.position)
 		var target:=hero.position+Vector3(0,25,29)
-		camera_follow=camera_follow.lerp(target,1.0-exp(-delta*6.0))
+		# Keep the fixed camera direction and horizontal glide, but let its
+		# height catch a steep ramp sooner. At the ramp's steepest point the
+		# hero can change height by over five metres per second; using the old
+		# six-per-second response left the camera nearly a metre behind and made
+		# otherwise continuous movement look like a snag.
+		var horizontal_follow:=1.0-exp(-delta*6.0)
+		var vertical_follow:=1.0-exp(-delta*18.0)
+		camera_follow.x=lerpf(camera_follow.x,target.x,horizontal_follow)
+		camera_follow.y=lerpf(camera_follow.y,target.y,vertical_follow)
+		camera_follow.z=lerpf(camera_follow.z,target.z,horizontal_follow)
 		if combat:combat.tick(delta)
 		camera.position=camera_follow+(combat.camera_offset() if combat else Vector3.ZERO)
 	if hud:hud.queue_redraw()
