@@ -324,6 +324,7 @@ func start_night() -> void:
 	if squads:squads.on_night()
 	if exploration:exploration.begin_night()
 	contracts.on_night()
+	settle_contract_reward()
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
@@ -499,6 +500,11 @@ func select_run_mode(index: int) -> bool:
 	return true
 
 func contract_goal() -> Vector3:
+	if contracts.status in ["bonus_offer", "returning"]:
+		return Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
+	if contracts.status=="bonus_active":
+		var bonus_source:=contracts.bonus_source()
+		return bonus_source.position if not bonus_source.is_empty() else Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
 	if contracts.status!="active":return Vector3.INF
 	if contracts.done.size()==contracts.targets.size():return Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
 	for target: Dictionary in contracts.targets:
@@ -517,15 +523,7 @@ func follow_contract() -> bool:
 func update_day_contracts(delta: float) -> void:
 	if phase!="day":return
 	contracts.tick(delta)
-	var reward: Dictionary=contracts.take_reward_request()
-	if not reward.is_empty():
-		scrap+=int(reward.scrap);essence+=int(reward.memory)
-		if exploration and reward.has("affinity"):
-			exploration.arm_contract_affinity(reward.affinity)
-		collect_memory_upgrades()
-		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":"+%d零件 · +%d记忆%s" % [reward.scrap,reward.memory," · 提前返家奖励" if reward.early_return else ""],"time":3.5,"color":Color("e8bc76")})
-		while reward_toasts.size()>4:reward_toasts.remove_at(0)
-		notify("委托已交回 · +%d零件 +%d记忆" % [reward.scrap,reward.memory],3)
+	settle_contract_reward()
 	var goal:=contract_goal() if phase=="day" else Vector3.INF
 	if goal==Vector3.INF:
 		if is_instance_valid(contract_marker):contract_marker.queue_free()
@@ -533,6 +531,20 @@ func update_day_contracts(delta: float) -> void:
 	else:
 		if not is_instance_valid(contract_marker):contract_marker=BattleVisuals.ring(effects,goal,1.4,Color("a2d5bb"),.075)
 		contract_marker.position=goal+Vector3(0,.14,0)
+
+func settle_contract_reward() -> void:
+	var reward: Dictionary=contracts.take_reward_request()
+	if not reward.is_empty():
+		scrap+=int(reward.scrap);essence+=int(reward.memory)
+		if exploration and reward.has("affinity"):
+			exploration.arm_contract_affinity(reward.affinity)
+		collect_memory_upgrades()
+		var reward_detail: String="+%d零件 · +%d记忆" % [reward.scrap,reward.memory]
+		if bool(reward.get("bonus",false)):reward_detail+=" · 追加补给已兑现"
+		elif bool(reward.get("early_return",false)):reward_detail+=" · 提前返家奖励"
+		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":reward_detail,"time":3.5,"color":Color("e8bc76")})
+		while reward_toasts.size()>4:reward_toasts.remove_at(0)
+		notify("委托已交回 · +%d零件 +%d记忆" % [reward.scrap,reward.memory],3)
 
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
@@ -1725,6 +1737,8 @@ func gate_pressure() -> int:
 
 func contract_interaction_prompt(action: Dictionary) -> String:
 	var source: Dictionary=action.source
+	if String(action.get("kind",""))=="bonus_discovery":
+		return "F 带回追加%s · 返回灯塔领取 +%d 零件/+%d 记忆" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0)),int(contracts.bonus_target.get("memory",0))]
 	match contracts.kind:
 		"salvage":return "F 采集委托废料 · +%d 物资" % int(source.amount)
 		"generator":
@@ -1789,6 +1803,8 @@ func _squads_all_holding(snapshot: Dictionary) -> bool:
 
 func interact_contract_target(action: Dictionary) -> bool:
 	var index:=int(action.index)
+	if String(action.get("kind",""))=="bonus_discovery":
+		return discoveries.interact_index(index)
 	match contracts.kind:
 		"salvage":
 			var collected:=collect_salvage(index)
@@ -2054,6 +2070,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
 		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
+			if contracts.status=="bonus_offer" and event.keycode in [KEY_4,KEY_5]:
+				var bonus_index: int=int(event.keycode)-KEY_4
+				if contracts.choose_bonus(bonus_index):
+					notify("立即返家领取主委托保底" if bonus_index==0 else "追加目标已锁定 · 完成后回灯塔领额外奖励",3)
+				else:
+					notify("附近没有可达的追加发现物" if bonus_index==1 else "追加选择不可用",2)
+				return
 			var offer_index: int = int(event.keycode)-KEY_4
 			if contracts.choose_offer(offer_index):
 				notify("已切换委托方案%d · 完成第一项后锁定" % (offer_index+1),2)

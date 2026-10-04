@@ -160,7 +160,16 @@ func interact() -> bool:
 		if item.state=="channel":return true
 	var index:=nearest_item()
 	if index<0:return false
+	return interact_index(index)
+
+func interact_index(index: int) -> bool:
+	if not gameplay_active() or index<0 or index>=items.size():return false
+	for item: Dictionary in items:
+		if item.state=="channel":return item == items[index]
 	var item: Dictionary=items[index]
+	if item.state!="ready":return false
+	if game.hero.position.distance_to(item.position)>USE_RADIUS and item.kind!="supply_cache":return false
+	if game.hero.position.distance_to(item.position)>CHANNEL_RADIUS and item.kind=="supply_cache":return false
 	match item.kind:
 		"supply_cache":
 			item.state="channel";item.progress=0.0

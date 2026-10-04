@@ -141,10 +141,13 @@ func run() -> void:
 				assert(module.take_reward_request().is_empty())
 		assert(module.done.size() == module.targets.size())
 		assert(not module.progress_text().is_empty())
+		assert(module.status == "bonus_offer", "Completing the primary objective must open the optional bonus decision")
+		assert(module.choose_bonus(0), "The immediate-return branch must preserve the primary contract payout")
+		assert(module.status == "returning")
 		if category == "generator": game.phase_time = 10.0
 		game.hero.position = Vector3(0,0,0)
 		module.tick(0.0)
-		if category != "escort": assert(module.status == "active", "Ground below fort is not a hand-in")
+		if category != "escort": assert(module.status == "returning", "Ground below fort is not a hand-in")
 		game.hero.position = Vector3(0,5,0)
 		module.tick(0.0)
 		assert(module.status == "completed")
@@ -159,6 +162,45 @@ func run() -> void:
 			assert(module.take_reward_request().is_empty())
 		requests += 1
 	assert(requests == 4)
+	# A completed primary objective can bind one real nearby discovery as a
+	# second, delayed payout. Exercise the supply-cache channel through the
+	# production discovery module, then verify returning home is required.
+	var bonus_test := Contracts.new()
+	game.add_child(bonus_test)
+	bonus_test.setup(game, 17)
+	bonus_test.on_day()
+	for target in bonus_test.targets:
+		match bonus_test.kind:
+			"salvage": target.source.collected=true
+			"generator": target.source.state="complete"
+			"escort": target.source.state="delivered"
+			"nest": target.source.cleansed=true
+	bonus_test.tick(0.0)
+	assert(bonus_test.status == "bonus_offer")
+	var bonus := bonus_test.bonus_candidate()
+	assert(not bonus.is_empty(), "A real ready discovery must be available for the bonus branch")
+	var bonus_index: int=bonus.index
+	var bonus_item: Dictionary=game.discoveries.items[bonus_index]
+	var bonus_point:=Vector3(1.0,0.0,1.0)
+	bonus_point.y=game.outpost_height(bonus_point)
+	bonus_item.position=bonus_point;bonus_item.node.position=bonus_point;bonus_item.state="ready"
+	bonus_test.tick(0.0)
+	assert(bonus_test.choose_bonus(1), "The bonus branch must bind the chosen real discovery")
+	game.hero.position=bonus_point
+	if bonus_item.kind=="supply_cache":
+		assert(game.discoveries.interact_index(bonus_index))
+		game.discoveries.tick(3.1)
+	else:
+		assert(game.discoveries.interact_index(bonus_index))
+	bonus_test.tick(0.0)
+	assert(bonus_test.status == "returning" and bonus_test.bonus_done)
+	game.hero.position=Vector3(0,5,0)
+	bonus_test.tick(0.0)
+	var bonus_reward:=bonus_test.take_reward_request()
+	assert(bonus_test.status == "completed" and bool(bonus_reward.get("bonus",false)))
+	assert(bonus_reward.scrap == int(bonus_test.selected_reward.scrap)+10+int(bonus.scrap))
+	assert(bonus_reward.memory == int(bonus_test.selected_reward.memory)+int(bonus.memory))
+	bonus_test.queue_free()
 	module.setup(game, 9)
 	module.on_day()
 	var hp: float = game.beacon_hp
