@@ -1693,7 +1693,13 @@ func ground_point(screen: Vector2) -> Vector3:
 	var origin:=camera.project_ray_origin(screen)
 	var direction:=camera.project_ray_normal(screen)
 	var result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
-	for i in 3:
+	# The raised south ramp is a smooth, sloped surface rather than a flat
+	# plane. Three fixed-point updates leave the cursor more than a metre away
+	# from the visible slope in the middle of the ramp, which makes right-click
+	# movement appear to snag while the route is corrected. Extra iterations are
+	# cheap (only two scalar plane intersections) and converge to the same
+	# terrain profile used by movement and navigation.
+	for i in 16:
 		if not result is Vector3:break
 		var point: Vector3=result
 		result=Plane(Vector3.UP,outpost_height(point)).intersects_ray(origin,direction)

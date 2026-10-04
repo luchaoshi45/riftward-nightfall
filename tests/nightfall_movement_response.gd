@@ -142,6 +142,15 @@ func run() -> void:
 	game.camera.look_at(Vector3(5, 0, 14))
 	var screen: Vector2 = game.camera.unproject_position(home)
 	check(game.ground_point(screen).distance_to(home) < .15, "The real click ray must resolve the elevated courtyard accurately")
+	# The ramp is where a flat-ground approximation used to miss the visible
+	# surface by over a metre. Test several actual slope points so right-click
+	# movement starts from the location under the cursor instead of correcting
+	# late and appearing to stick near the high ground.
+	for ramp_z in [9.0, 12.0, 15.0]:
+		var ramp_point := Vector3(0, game.outpost_height(Vector3(0, 0, ramp_z)), ramp_z)
+		var ramp_screen: Vector2 = game.camera.unproject_position(ramp_point)
+		check(game.ground_point(ramp_screen).distance_to(ramp_point) < .025,
+			"The real click ray must converge on the raised ramp at z=%.1f" % ramp_z)
 	var click := InputEventMouseButton.new()
 	# Input.parse_input_event receives window pixels. Headless Godot uses a
 	# tiny physical window even though the stretched viewport is 1440 x 900.
