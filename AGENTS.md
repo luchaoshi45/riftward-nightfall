@@ -308,6 +308,7 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 - 完整游戏验证/Windows版本：0.8.25（Godot4.7.2），本地build/Riftward_Nightfall_v0.8.25.exe，启动入口已更新；成品未上传GitHub Release。
 - 完成计数：35/100，本轮已交付6/10；以optimization-progress.json为准。
 - 退回修复事项：暂无新验收；已知待处理问题在对应任务中。
+- 2026-10-05高地战斗修复：提交`79f6483c59e8e686ffd116bfa9d30e06ef25efcf`让夜间追英雄复用南门A*航点，并以连续`can_traverse`检查通过高地坡道；中间航点不再误伤。`tests/nightfall_day_hunter_path.gd`、`nightfall_movement_response.gd`、`nightfall_attack_feedback.gd`、`nightfall_loop.gd`、小队、弩手和首领生产回归均通过；未更新Windows版本与35/100计数，等待成品验收。
 - GAME-009本轮接入（待成品验收）：`scripts/nightfall.gd` 增加开局7/8/9键与鼠标模式选择，教学三夜保留原8零件夜间击杀，铁潮/暗翼锁定四夜并按实际计划生成；标准夜每波用 `wave_rewards.gd` 登记/封波，击杀按滚动账本发放24零件，清波一次补齐余款。`scripts/nightfall_hud.gd` 显示模式、四夜结算文案和开局模式卡；新增 `tests/nightfall_run_modes.gd` 覆盖键盘/鼠标模式选择、锁定、四夜流程、真实波次登记、滚动奖励与重复死亡幂等。Godot4.7.2 headless 与隐藏Forward+生产测试通过；Windows目标包已生成但尚未完成Windows成品内测试与关闭验收，尚未更新版本号或完成计数。
 - GAME-010本轮接入（待成品验收）：末夜第五波计划人数包含唯一首领；首领拥有2600生命、18护甲、2.4秒蓄力、220实际伤害打断、4秒破绽及两批各3只疾行增援。增援实时登记同一波次账本，末夜计时结束进入清场，首领死亡且残敌存在时不会提前胜利，英雄/灯塔失败与结算均加幂等保护；HUD显示首领生命、蓄力、打断、破绽、增援和清场残敌。新增生产行为测试与隐藏Forward+三态截图测试，Godot4.7.2 headless/Forward+通过；Mac已生成Windows目标包但无法在本机运行Windows成品，计数仍保持35/100。
 - 本轮共享源码检查：Windows0.8.25内城区生产按键/真实恢复/实际塔折扣/新局重置、塔分支、日间委托、三夜整局四项通过；后台启动与Windows关闭请求退出0，无脚本/资源/泄漏错误。隐藏Forward+默认31昼夜城区画面目检通过，三条归家路径保持；Git追踪569文件、285资源引用检查通过。成品153883232字节、文件版本0.8.25.0、SHA256 `4c81ac2671f3c40ff17d53a3fd469f55eb0e6a47ab7665d5a3dd0fe6811bec0c`，启动入口指向此成品。
