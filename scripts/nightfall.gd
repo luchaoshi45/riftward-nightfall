@@ -842,7 +842,19 @@ func move_hero_position(next: Vector3) -> bool:
 		if absf(delta.z)>.0001:
 			var z_slide:=Vector3(origin.x,origin.y,origin.z+signf(delta.z)*step_distance)
 			if can_traverse(origin,z_slide):candidates.append(z_slide)
-	if candidates.is_empty():return false
+	if candidates.is_empty():
+		# At the raised platform's south lip the top retaining wall and the
+		# ramp side wall meet at an L-shaped corner. A diagonal input aimed
+		# toward that corner can legitimately block both component steps even
+		# though the ramp is immediately beyond it. Move inward first, then
+		# continue downhill as one short step so the player does not have to
+		# release the sideways key to enter the ramp.
+		var corner_escape:=raised_ramp_corner_escape(origin,delta,step_distance)
+		if corner_escape.x<INF:
+			corner_escape.y=outpost_height(corner_escape)
+			hero.position=corner_escape
+			return true
+		return false
 	var desired:=Vector2(delta.x,delta.z).normalized()
 	var best:=origin
 	var best_progress: float=-INF
@@ -859,6 +871,21 @@ func move_hero_position(next: Vector3) -> bool:
 	best.y=outpost_height(best)
 	hero.position=best
 	return true
+
+func raised_ramp_corner_escape(origin: Vector3, delta: Vector3, step_distance: float) -> Vector3:
+	if step_distance<=.0001 or delta.z<=.0001:return Vector3.INF
+	if origin.z<6.45 or origin.z>8.05:return Vector3.INF
+	var side:=signf(origin.x)
+	if absf(origin.x)<2.52 or side==0.0 or signf(delta.x)!=side:return Vector3.INF
+	# Keep the whole corrective step inside the 2.6 m walkable ramp width.
+	var inward_limit:=maxf(0.0,absf(origin.x)-2.54)
+	var inward:=minf(step_distance*.75,inward_limit)
+	if inward<.0001:return Vector3.INF
+	var downhill:=sqrt(maxf(0.0,step_distance*step_distance-inward*inward))
+	var inner:=Vector3(origin.x-side*inward,origin.y,origin.z)
+	var exit:=Vector3(inner.x,origin.y,origin.z+downhill)
+	if not can_traverse(origin,inner) or not can_traverse(inner,exit):return Vector3.INF
+	return exit
 
 func build_hero_navigation() -> void:
 	hero_navigation=AStarGrid2D.new()

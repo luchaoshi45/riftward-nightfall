@@ -163,6 +163,23 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_RAISED_RAMP_SLIDE_OK")
 
+	# At the elevated platform lip, the side wall and retaining wall form an
+	# L-shaped corner. Holding the diagonal toward the ramp must ease inward
+	# and continue downhill instead of stopping at that single corner.
+	reset_hero(Vector3(2.45, 0, 7.7), Vector3(1, 0, 1).normalized())
+	await key(KEY_D, true)
+	await key(KEY_S, true)
+	var ramp_lip_start: Vector3 = game.hero.position
+	for frame in 30: game.simulate(STEP)
+	check(game.hero.position.x < 2.61 and game.hero.position.z > ramp_lip_start.z + 2.0,
+		"Diagonal movement at the raised-ramp lip must enter the ramp instead of sticking at the corner")
+	check(flat_distance(game.hero.position, ramp_lip_start) > 2.4,
+		"Raised-ramp lip escape must preserve continuous travel")
+	await key(KEY_D, false)
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_RAMP_LIP_OK")
+
 	# A slower render cadence must still advance smoothly up the raised ramp.
 	# The controller uses short terrain substeps so one long frame cannot
 	# reject the whole move when it reaches the ramp's wall corner.
