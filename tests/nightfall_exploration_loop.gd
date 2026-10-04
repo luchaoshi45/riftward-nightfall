@@ -47,9 +47,10 @@ func run() -> void:
 	assert(game.exploration_count==5 and game.exploration_milestones==1)
 	assert(game.scrap==before+cache.amount*2+30+35)
 	assert(game.essence==26 and game.reward_toasts.back().title.contains("里程碑"))
-	game.essence=99
+	game.essence=game.run.memory_cost()-1
 	game.grant_exploration_reward("晶簇记忆",game.hero.position,0,8)
-	assert(game.phase=="draft" and game.essence==7 and game.return_phase=="night")
+	assert(game.phase=="night" and game.essence==7 and game.run.pending>0 and game.return_phase=="night")
+	assert(game.request_upgrade() and game.phase=="draft","A queued memory inscription must open its draft through the real upgrade action")
 	game.simulate(5)
 	assert(game.phase_time==clock,"Reward card selection must freeze the night clock")
 	assert(game.choose_card(0) and game.phase=="night" and game.phase_time==clock)
@@ -67,18 +68,20 @@ func run() -> void:
 		var creature: BattleUnit=game.spawn_creature(true)
 		creature.position=game.hero.position+Vector3(1+i,0,0)
 		creature.hp=50
-	game.essence=96;game.mana=game.max_mana;game.cooldowns[3]=0
+	game.essence=game.run.memory_cost()-36;game.mana=game.max_mana;game.cooldowns[3]=0
 	before=game.scrap
-	assert(game.cast(3) and game.phase=="draft")
-	assert(game.scrap==before+24 and game.essence==32,"R multi-kills must retain night rewards after the first kill opens a draft")
+	assert(game.cast(3) and game.phase=="night" and game.run.pending>0)
+	assert(game.scrap==before+24 and game.essence==0,"R multi-kills must retain night rewards while queuing the next memory inscription")
+	assert(game.request_upgrade() and game.phase=="draft","A queued multi-kill memory inscription must open through the real upgrade action")
 	assert(game.choose_card(0) and game.phase=="night")
 	for item in game.discoveries.items:
 		if item.kind!="memory_crystal" or item.state!="ready":continue
 		game.hero.position=item.position;game.move_goal=game.hero.position
-		game.essence=88
+		game.essence=game.run.memory_cost()-12
 		var rerolls: int=game.run.rerolls
 		await press(KEY_F)
-		assert(game.phase=="draft" and item.state=="cooling")
+		assert(game.phase=="night" and item.state=="cooling" and game.run.pending>0)
+		assert(game.request_upgrade() and game.phase=="draft","A memory crystal reaching the threshold must queue, then open through the upgrade action")
 		await press(KEY_F)
 		assert(game.run.rerolls==rerolls,"A quick repeated gathering tap must not consume a card reroll")
 		break
@@ -89,14 +92,18 @@ func run() -> void:
 		if item.kind=="supply_cache" and item.state=="ready":charging=item;break
 	assert(not charging.is_empty())
 	game.hero.position=charging.position;game.move_goal=game.hero.position
-	game.essence=98
+	game.essence=game.run.memory_cost()-6
 	assert(game.interact() and charging.state=="channel")
 	charging.progress=2.9
 	var later: Dictionary=game.discoveries.items.back()
 	assert(charging!=later)
 	game.discoveries.begin_cooling(later,40)
 	game.discoveries.tick(.2)
-	assert(game.phase=="draft" and later.respawn==40,"A cache reward opening cards must immediately freeze later refresh entries")
+	assert(game.phase=="night" and game.run.pending>0,"A cache reward must queue an upgrade without interrupting the night")
+	assert(game.request_upgrade() and game.phase=="draft","A queued cache memory reward must open through the upgrade action")
+	var frozen_later_respawn: float=later.respawn
+	game.discoveries.tick(100.0)
+	assert(is_equal_approx(later.respawn,frozen_later_respawn),"A cache reward opening cards must freeze later refresh entries")
 	print("NIGHTFALL_EXPLORATION_LOOP_OK opening night, refreshing F, milestones, pause/draft clocks, R multi-kill payouts, rapid F protection")
 	for sound: AudioStreamPlayer in game.effects.find_children("*","AudioStreamPlayer",true,false):
 		sound.stop();sound.stream=null;sound.queue_free()

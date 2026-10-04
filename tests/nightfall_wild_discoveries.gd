@@ -60,7 +60,7 @@ func run() -> void:
 	var before_scrap: int=game.scrap
 	var before_hp: float=game.hero.hp
 	if not check(game.interaction_prompt().contains("余烬花") and game.interact(),"A flower must be usable through the game's F interaction in the first night"):return
-	if not check(bloom.state=="cooling" and game.scrap==before_scrap+12 and is_equal_approx(game.hero.hp,before_hp+70.0),"A flower must award its stated supplies and recovery"):return
+	if not check(bloom.state=="cooling" and game.scrap>=before_scrap+12 and is_equal_approx(game.hero.hp,before_hp+70.0),"A flower must award its base supplies and recovery, plus any active route bonus"):return
 	if not check(bloom.respawn>=45.0 and bloom.respawn<=65.0,"Harvested discoveries must set a real refresh timer"):return
 	before_scrap=game.scrap
 	if not check(not events.interact() and game.scrap==before_scrap,"A harvested flower must not award twice"):return
@@ -69,7 +69,7 @@ func run() -> void:
 	var before_memory: int=game.essence
 	var before_mana: float=game.mana
 	if not check(game.interact(),"A memory crystal must be usable in the first night"):return
-	if not check(crystal.state=="cooling" and game.essence==before_memory+12 and is_equal_approx(game.mana,before_mana+45.0),"A crystal must award memory and mana once"):return
+	if not check(crystal.state=="cooling" and game.essence>=before_memory+12 and is_equal_approx(game.mana,before_mana+45.0),"A crystal must award its base memory and mana once, plus any active route bonus"):return
 	before_memory=game.essence
 	events.tick(0.0);events.interact()
 	if not check(game.essence==before_memory,"Consumed crystal interaction must not duplicate memory"):return
@@ -92,7 +92,7 @@ func run() -> void:
 	if not check(cache.state=="channel" and game.scrap==before_scrap,"Opening progress must remain incomplete before three seconds"):return
 	before_memory=game.essence
 	events.tick(.1)
-	if not check(cache.state=="cooling" and game.scrap==before_scrap+40 and game.essence==before_memory+6,"A completed cache must award exactly once"):return
+	if not check(cache.state=="cooling" and game.scrap>=before_scrap+40 and game.essence>=before_memory+6,"A completed cache must award its base supplies exactly once, plus any active route bonus"):return
 	before_scrap=game.scrap;before_memory=game.essence
 	events.tick(0.0);events.interact()
 	if not check(game.scrap==before_scrap and game.essence==before_memory,"Completed caches must never award duplicate supplies"):return

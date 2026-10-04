@@ -19,12 +19,20 @@ var rng := RandomNumberGenerator.new()
 var items: Array[Dictionary] = []
 var scenes: Dictionary = {}
 var elapsed := 0.0
+var motivation_revision := 0
+var motivation_cache_revision := -1
+var motivation_cache_cell := Vector2i(9999,9999)
+var motivation_cache_kind := ""
+var motivation_cache: Dictionary = {}
 
 func _init() -> void:
 	rng.randomize()
 
 func setup(owner_game: Node3D) -> void:
 	game = owner_game
+	motivation_revision=0
+	motivation_cache_revision=-1
+	motivation_cache.clear()
 	for kind: String in KINDS:
 		scenes[kind] = load("res://assets/models/"+kind+".glb") as PackedScene
 	for index in ITEM_COUNT:
@@ -170,6 +178,7 @@ func interact_index(index: int) -> bool:
 	if item.state!="ready":return false
 	if game.hero.position.distance_to(item.position)>USE_RADIUS and item.kind!="supply_cache":return false
 	if game.hero.position.distance_to(item.position)>CHANNEL_RADIUS and item.kind=="supply_cache":return false
+	motivation_revision+=1
 	match item.kind:
 		"supply_cache":
 			item.state="channel";item.progress=0.0
@@ -190,6 +199,7 @@ func interact_index(index: int) -> bool:
 	return true
 
 func begin_cooling(item: Dictionary, seconds: float) -> void:
+	motivation_revision+=1
 	item.state="cooling";item.respawn=seconds;item.progress=0.0;item.remaining=0.0
 	item.node.visible=false;item.lamp.light_energy=0.0
 	item.field.visible=false;item.label.visible=false;item.ring.visible=false
@@ -202,6 +212,7 @@ func apply_waylight(item: Dictionary) -> void:
 			game.hero.shield_time=2.0
 
 func respawn_item(index: int) -> void:
+	motivation_revision+=1
 	var item: Dictionary=items[index]
 	var point:=choose_position(index,item.position)
 	var old_kind: int=KINDS.find(item.kind)
@@ -256,15 +267,41 @@ func motivation_target() -> Dictionary:
 	if not game or not game.get("exploration"):return {}
 	var kind: String=game.exploration.next_kind()
 	if kind.is_empty():return {}
+	var cell:=Vector2i(roundi(game.hero.position.x),roundi(game.hero.position.z))
+	if motivation_cache_revision==motivation_revision and motivation_cache_cell==cell and motivation_cache_kind==kind:
+		return motivation_cache.duplicate(true)
 	var selected: Dictionary={}
 	var distance:=INF
-	for item: Dictionary in items:
+	var selected_index:=-1
+	for index in items.size():
+		var item: Dictionary=items[index]
 		if item.kind!=kind or item.state!="ready":continue
-		var candidate: float=game.hero.position.distance_to(item.position)
+		var candidate: float=route_distance(game.hero.position,item.position)
+		if not is_finite(candidate):continue
 		if candidate<distance:
-			distance=candidate;selected=item
-	if selected.is_empty():return {}
-	return {"kind":kind,"distance":distance,"position":selected.position}
+			distance=candidate;selected=item;selected_index=index
+	if selected.is_empty():
+		motivation_cache={}
+	else:
+		motivation_cache={"index":selected_index,"serial":int(selected.serial),"kind":kind,"distance":distance,"position":selected.position}
+	motivation_cache_revision=motivation_revision
+	motivation_cache_cell=cell
+	motivation_cache_kind=kind
+	return motivation_cache.duplicate(true)
+
+func route_distance(from: Vector3, to: Vector3) -> float:
+	if game.can_traverse(from,to):return flat_distance(from,to)
+	var start: Vector2i=game.nearest_navigation_cell(from,true)
+	var finish: Vector2i=game.nearest_navigation_cell(to,false)
+	if start.x==999 or finish.x==999:return INF
+	var route: PackedVector2Array=game.hero_navigation.get_point_path(start,finish)
+	if route.is_empty():return INF
+	var previous:=Vector2(from.x,from.z)
+	var distance:=0.0
+	for point in route:
+		distance+=previous.distance_to(point)
+		previous=point
+	return distance+previous.distance_to(Vector2(to.x,to.z))
 
 func update_lights() -> void:
 	var nearby: Array[Dictionary]=[]

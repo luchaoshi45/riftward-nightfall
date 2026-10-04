@@ -57,6 +57,7 @@ var night_plan: Array[Dictionary]=[]
 var wave_rewards=WaveRewardsScript.new()
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
+var motivation_marker: Node3D
 var districts=preload("res://scripts/outpost_districts.gd").new()
 var squads: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
@@ -289,6 +290,7 @@ func simulate(delta: float) -> void:
 	expeditions.tick(delta)
 	update_day_contracts(delta)
 	discoveries.tick(delta)
+	update_exploration_guidance()
 	wildlife.tick(delta)
 	update_salvage_refresh(delta)
 	if phase=="night":
@@ -419,6 +421,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	clear_exploration_marker()
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
@@ -513,6 +516,20 @@ func contract_goal() -> Vector3:
 		return target.position
 	return Vector3.INF
 
+func follow_exploration() -> bool:
+	if phase not in ["day","night"] or not is_instance_valid(discoveries):return false
+	var target: Dictionary=discoveries.motivation_target()
+	if target.is_empty():return false
+	plan_hero_path(target.position)
+	if hero_path.is_empty():return false
+	notify("沿路线寻找%s · 约%.0f米" % [discoveries.TITLES.get(String(target.kind),"下一种发现"),float(target.distance)],2)
+	return true
+
+func follow_route() -> bool:
+	if phase=="day" and contract_goal()!=Vector3.INF:
+		return follow_contract()
+	return follow_exploration()
+
 func follow_contract() -> bool:
 	if phase!="day":return false
 	var target:=contract_goal()
@@ -531,6 +548,22 @@ func update_day_contracts(delta: float) -> void:
 	else:
 		if not is_instance_valid(contract_marker):contract_marker=BattleVisuals.ring(effects,goal,1.4,Color("a2d5bb"),.075)
 		contract_marker.position=goal+Vector3(0,.14,0)
+
+func clear_exploration_marker() -> void:
+	if is_instance_valid(motivation_marker):motivation_marker.queue_free()
+	motivation_marker=null
+
+func update_exploration_guidance() -> void:
+	if phase not in ["day","night"] or not is_instance_valid(discoveries):
+		clear_exploration_marker()
+		return
+	var target: Dictionary=discoveries.motivation_target()
+	if target.is_empty():
+		clear_exploration_marker()
+		return
+	if not is_instance_valid(motivation_marker):
+		motivation_marker=BattleVisuals.ring(effects,target.position,1.3,Color("e8bc70"),.055)
+	motivation_marker.position=target.position+Vector3(0,.16,0)
 
 func settle_contract_reward() -> void:
 	var reward: Dictionary=contracts.take_reward_request()
@@ -1973,7 +2006,12 @@ func cast(slot: int, feedback: bool = false) -> bool:
 					creature.hurt(78+float(run.stats.spell)*.65,hero)
 		2:
 			var origin:=hero.position
-			var target:=hero.position+direction*6.0
+			var requested_target:=hero.position+direction*6.0
+			# Dash uses the same visual clearance corridor as keyboard/click
+			# movement. Without this resolution, a diagonal E from the raised
+			# ramp or courtyard can place the hero's cape inside a retaining wall,
+			# which makes the next ordinary frame look like terrain snagging.
+			var target:=hero_safe_destination(requested_target)
 			if can_traverse(origin,target):
 				target.y=outpost_height(target)
 				hero.position=target;move_goal=target;hero_path.clear()
@@ -2101,7 +2139,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I:hire_ranged_squad()
 			KEY_O:toggle_squad_order()
 			KEY_L:refill_squads()
-			KEY_P:follow_contract()
+			KEY_P:follow_route()
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")
 			KEY_K:choose_tower_specialization("control")

@@ -331,6 +331,11 @@ func draw_minimap() -> void:
 			var p: Vector3=item.position
 			var color:=Color("f2bc6b") if item.kind=="supply_cache" else (Color("91c5f3") if item.kind=="memory_crystal" else Color("85d7ba"))
 			draw_circle(center+Vector2(p.x,p.z)*scale,2.3,color)
+		var target: Dictionary=game.discoveries.motivation_target()
+		if not target.is_empty():
+			var target_point:=center+Vector2(target.position.x,target.position.z)*scale
+			draw_circle(target_point,5.5,Color("f2d28b"))
+			draw_arc(target_point,8.0,0,TAU,18,Color("e8bc70"),1.5)
 	if game.wildlife:
 		for animal in game.wildlife.animals:
 			if not animal.node.visible or (animal.position as Vector3).distance_to(game.hero.position)>45:continue
@@ -416,7 +421,8 @@ func draw_exploration_rewards() -> void:
 			label("委托共鸣已就绪 · 匹配探索 +8记忆",Vector2(43,347),10,Color("e8bc70"))
 		var target: Dictionary=game.discoveries.motivation_target()
 		if not target.is_empty():
-			label("目标距离 %.0f 米 · 22 秒内换类型可连段" % float(target.distance),Vector2(43,333),10,muted)
+			var target_name: String=game.discoveries.TITLES.get(String(target.kind),"下一种发现")
+			label("下一站 %s · 可达路线 %.0f 米 · P 跟随" % [target_name,float(target.distance)],Vector2(43,333),10,amber)
 	for i in game.reward_toasts.size():
 		var reward: Dictionary=game.reward_toasts[game.reward_toasts.size()-1-i]
 		var fade: float=minf(1.0,reward.time/.45)

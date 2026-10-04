@@ -103,6 +103,18 @@ func check_casts_and_balance() -> void:
 	var blocked_origin: Vector3 = game.hero.position
 	game.cast(2)
 	check(game.hero.position == blocked_origin and game.skill_lights.lights.is_empty(), "An untravelled dash must not create misleading lamps")
+	# A diagonal dash from the raised ramp must resolve to the same safe
+	# corridor as ordinary movement instead of parking the hero's mesh in the
+	# retaining wall.
+	reset_case()
+	game.hero.position = Vector3(2.5, game.outpost_height(Vector3(2.5, 0, 7.6)), 7.6)
+	game.move_goal = game.hero.position
+	var ramp_dash_origin: Vector3 = game.hero.position
+	game.aim = game.hero.position + Vector3(.2, 0, .98).normalized() * 10.0
+	check(game.cast(2), "A ramp-edge dash must remain usable")
+	check(game.can_traverse(ramp_dash_origin, game.hero.position), "A ramp-edge dash must stay on a traversable segment")
+	check(game.hero.position.x <= game.hero_ramp_side_limit(game.hero.position.z) + .001, "A ramp-edge dash must keep the hero mesh inside the visual clearance corridor")
+	check(game.hero.position.distance_to(ramp_dash_origin) > 5.4, "A ramp-edge dash must preserve almost its full travel distance")
 	reset_case(); game.phase = "night"
 	for slot in 5:
 		check(game.cast(slot), "Night-time slot %d must remain usable" % slot)
