@@ -875,7 +875,17 @@ func move_hero(delta: float) -> void:
 			remaining-=step_distance
 		if moved_any:
 			hero.moving=true
-			hero.face(hero.position+to_goal.normalized(),delta)
+			# A wall-slide can resolve a diagonal request onto the free tangent.
+			# Facing the original blocked vector makes the hero run into the
+			# retaining wall while the feet move sideways, which reads as terrain
+			# snagging even though the controller is still advancing. Follow the
+			# actual planar displacement whenever the resolver produced one.
+			var travelled_direction:=hero.position-old_position
+			travelled_direction.y=0.0
+			if travelled_direction.length_squared()>.000001:
+				hero.face(hero.position+travelled_direction.normalized(),delta)
+			else:
+				hero.face(hero.position+to_goal.normalized(),delta)
 		else:
 			hero.moving=false
 			hero_path.clear()

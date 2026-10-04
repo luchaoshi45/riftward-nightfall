@@ -158,6 +158,13 @@ func run() -> void:
 	for frame in 45: game.simulate(STEP)
 	check(game.hero.position.x<2.25 and game.hero.position.z>ramp_start.z+2.0, "Raised-ramp diagonal movement must keep the hero mesh clear of the side wall while sliding")
 	check(flat_distance(game.hero.position,ramp_start)>5.7, "Raised-ramp wall sliding must preserve near-full movement speed")
+	# The visual heading must follow the resolved slide tangent. If it keeps
+	# aiming at the blocked diagonal, the feet move sideways while the body
+	# appears to push into the retaining wall and the terrain feels sticky.
+	var ramp_travel: Vector3=game.hero.position-ramp_start
+	ramp_travel.y=0.0
+	check(face_alignment(ramp_travel)>0.82,
+		"Raised-ramp wall sliding must face the actual free tangent")
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
