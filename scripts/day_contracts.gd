@@ -7,6 +7,7 @@ const REWARD_SCRAP := 30
 const REWARD_MEMORY := 8
 const EARLY_RETURN_SECONDS := 15.0
 const OFFER_RISK_SECONDS := [0.0, 8.0, 16.0]
+const OFFER_RISK_HUNTERS := [0, 1, 2]
 const OFFER_NAMES := ["稳妥路线", "加码路线", "孤注路线"]
 const AFFINITY_KINDS := {"salvage":["ember_bloom", "supply_cache"], "generator":["waylight"], "escort":["memory_crystal"], "nest":["waylight", "ember_bloom"]}
 const BONUS_PAYOUTS := {
@@ -25,7 +26,9 @@ var targets: Array[Dictionary] = []
 var offers: Array[Dictionary] = []
 var selected_offer := 0
 var progress_started := false
-var selected_reward := {"scrap": REWARD_SCRAP, "memory": REWARD_MEMORY, "risk_seconds": 0.0}
+var selected_reward := {"scrap": REWARD_SCRAP, "memory": REWARD_MEMORY, "risk": 0, "risk_hunters": 0, "risk_seconds": 0.0}
+var risk_spawned := false
+var risk_spawn_count := 0
 var done: Dictionary = {}
 var pending_reward: Dictionary = {}
 var bonus_target: Dictionary = {}
@@ -52,7 +55,9 @@ func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	bonus_target.clear()
 	bonus_done=false
 	bonus_choice=""
-	selected_reward={"scrap":REWARD_SCRAP,"memory":REWARD_MEMORY,"risk_seconds":0.0}
+	selected_reward={"scrap":REWARD_SCRAP,"memory":REWARD_MEMORY,"risk":0,"risk_hunters":0,"risk_seconds":0.0}
+	risk_spawned=false
+	risk_spawn_count=0
 	last_text = ""
 
 func candidates() -> Array[Dictionary]:
@@ -117,6 +122,8 @@ func on_day() -> void:
 	bonus_target.clear()
 	bonus_done=false
 	bonus_choice=""
+	risk_spawned=false
+	risk_spawn_count=0
 	kind = ""
 	var options := candidates()
 	if options.is_empty():
@@ -139,6 +146,7 @@ func on_day() -> void:
 			var offer: Dictionary=live_offer(chosen)
 			offer["risk"] = offer_index
 			offer["risk_seconds"] = OFFER_RISK_SECONDS[offer_index]
+			offer["risk_hunters"] = OFFER_RISK_HUNTERS[offer_index]
 			offer["name"] = OFFER_NAMES[offer_index]
 			offer["scrap"] = REWARD_SCRAP+offer_index*20
 			offer["memory"] = REWARD_MEMORY+offer_index*4
@@ -148,6 +156,8 @@ func on_day() -> void:
 	emit_progress()
 
 func on_night() -> void:
+	risk_spawned=false
+	risk_spawn_count=0
 	if status == "active":
 		status = "expired"
 	elif status in ["bonus_offer", "returning", "bonus_active"]:
@@ -186,7 +196,10 @@ func offer_summary(index: int) -> String:
 	if index < 0 or index >= offers.size(): return ""
 	var offer: Dictionary = offers[index]
 	var risk_seconds := int(offer.get("risk_seconds", 0.0))
-	var risk_text := "无额外截止" if risk_seconds <= 0 else "提前%d秒截止" % risk_seconds
+	var risk_count:=int(offer.get("risk_hunters", 0))
+	var risk_label: String=["稳妥", "加码", "孤注"][clampi(int(offer.get("risk", index)),0,2)]
+	var risk_text := "%s · 无额外追猎" % risk_label if risk_count <= 0 else "%s · 额外追猎%d" % [risk_label,risk_count]
+	if risk_seconds > 0.0:risk_text += " · 提前%d秒截止" % risk_seconds
 	return "%s · +%d零件/+%d记忆 · %s" % [String(offer.get("name", "方案%d" % (index + 1))), int(offer.get("scrap", REWARD_SCRAP)), int(offer.get("memory", REWARD_MEMORY)), risk_text]
 
 func _select_offer(index: int) -> void:
@@ -195,7 +208,7 @@ func _select_offer(index: int) -> void:
 	kind=String(offer.kind)
 	targets.clear()
 	for target: Dictionary in offer.targets:targets.append(target)
-	selected_reward={"scrap":int(offer.scrap),"memory":int(offer.memory),"risk_seconds":float(offer.get("risk_seconds", 0.0))}
+	selected_reward={"scrap":int(offer.scrap),"memory":int(offer.memory),"risk":int(offer.get("risk", index)),"risk_hunters":int(offer.get("risk_hunters", 0)),"risk_seconds":float(offer.get("risk_seconds", 0.0))}
 
 func bonus_source() -> Dictionary:
 	if bonus_target.is_empty() or not is_instance_valid(game):return {}
@@ -305,6 +318,10 @@ func mark_target_started() -> void:
 	progress_started=true
 	emit_progress()
 
+func mark_risk_spawned(count: int) -> void:
+	risk_spawned=true
+	risk_spawn_count=maxi(0,count)
+
 func tick(_delta: float) -> void:
 	if not is_instance_valid(game): return
 	if game.phase in ["paused", "draft"]: return
@@ -352,7 +369,7 @@ func build_reward(early: bool, include_bonus: bool) -> Dictionary:
 	if include_bonus:
 		reward_scrap+=int(bonus_target.get("scrap",0))
 		reward_memory+=int(bonus_target.get("memory",0))
-	return {"id":"day_contract_%d" % day_id,"day":day_id,"kind":kind,"scrap":reward_scrap,"memory":reward_memory,"early_return":early,"bonus":include_bonus,"affinity":AFFINITY_KINDS.get(kind, []).duplicate()}
+	return {"id":"day_contract_%d" % day_id,"day":day_id,"kind":kind,"scrap":reward_scrap,"memory":reward_memory,"risk":int(selected_reward.get("risk",selected_offer)),"risk_hunters":int(selected_reward.get("risk_hunters",0)),"early_return":early,"bonus":include_bonus,"affinity":AFFINITY_KINDS.get(kind, []).duplicate()}
 
 func returned_home() -> bool:
 	return game.hero.alive and game.hero.position.y > 4.8 and flat_distance(game.hero.position, Vector3.ZERO) < 6.2

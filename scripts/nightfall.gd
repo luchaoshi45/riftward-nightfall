@@ -342,6 +342,7 @@ func start_night() -> void:
 	wave_index=0;wave_warning_issued=false
 	world.set_night(true)
 	world.wave_warning=false
+	clear_contract_hunters()
 	for creature in enemies:
 		if is_instance_valid(creature):creature.queue_free()
 	enemies.clear()
@@ -428,6 +429,7 @@ func finish_night() -> void:
 	attack_chain=0;attack_chain_time=0.0;kill_chain=0;kill_chain_time=0.0
 	world.wave_warning=false
 	clear_gate_barricade()
+	clear_contract_hunters()
 	final_clearance_active=false
 	if is_instance_valid(siege_boss):
 		siege_boss.clear()
@@ -548,6 +550,27 @@ func update_day_contracts(delta: float) -> void:
 	else:
 		if not is_instance_valid(contract_marker):contract_marker=BattleVisuals.ring(effects,goal,1.4,Color("a2d5bb"),.075)
 		contract_marker.position=goal+Vector3(0,.14,0)
+
+func trigger_contract_risk(center: Vector3) -> void:
+	if phase!="day" or contracts.status not in ["active", "bonus_offer"] or contracts.risk_spawned:return
+	var count:=int(contracts.selected_reward.get("risk_hunters",0))
+	contracts.mark_risk_spawned(count)
+	if count<=0:return
+	var hunters:=expeditions.spawn_ambush(center,count)
+	for hunter: BattleUnit in hunters:
+		hunter.set_meta("contract_hunter",true)
+		hunter.title="委托追猎者"
+	notify("委托风险触发 · 额外追猎%d · 先保住自己再完成目标" % count,4)
+
+func clear_contract_hunters() -> void:
+	for i in range(enemies.size()-1,-1,-1):
+		var creature:=enemies[i]
+		if not is_instance_valid(creature):
+			enemies.remove_at(i)
+			continue
+		if not creature.get_meta("contract_hunter",false):continue
+		creature.queue_free()
+		enemies.remove_at(i)
 
 func clear_exploration_marker() -> void:
 	if is_instance_valid(motivation_marker):motivation_marker.queue_free()
@@ -1849,12 +1872,16 @@ func interact_contract_target(action: Dictionary) -> bool:
 	match contracts.kind:
 		"salvage":
 			var collected:=collect_salvage(index)
-			if collected:contracts.mark_target_started()
+			if collected:
+				contracts.mark_target_started()
+				trigger_contract_risk(action.position)
 			return collected
 		"generator":
 			if String(action.state)=="ready":
 				var started:=expeditions.start_generator(index)
-				if started:contracts.mark_target_started()
+				if started:
+					contracts.mark_target_started()
+					trigger_contract_risk(action.position)
 				return started
 			# Consume F while the marked site is charging; never start a nearby
 			# unrelated action or restart the same generator.
@@ -1862,12 +1889,16 @@ func interact_contract_target(action: Dictionary) -> bool:
 		"escort":
 			if String(action.state)=="waiting":
 				var started:=expeditions.start_camp(index)
-				if started:contracts.mark_target_started()
+				if started:
+					contracts.mark_target_started()
+					trigger_contract_risk(action.position)
 				return started
 			return true
 		"nest":
 			var sealed:=interact_nest(index)
-			if sealed:contracts.mark_target_started()
+			if sealed:
+				contracts.mark_target_started()
+				trigger_contract_risk(action.position)
 			return sealed
 	return false
 
