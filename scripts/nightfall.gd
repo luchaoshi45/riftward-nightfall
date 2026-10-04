@@ -2028,14 +2028,27 @@ func cast(slot: int, feedback: bool = false) -> bool:
 		0:
 			hero.hero_attack_variant=0
 			hero.play_action("attack",direction)
-			BattleVisuals.slash_arc(effects,hero.position,direction)
-			skill_lights.emit_skill(0,hero.position,direction)
-			for creature in enemies:
-				if is_instance_valid(creature) and creature.alive and creature.position.distance_to(hero.position)<11:
-					if direction.dot((creature.position-hero.position).normalized())>.78:
-						var burst_damage: float=110+float(run.stats.spell)*.85
-						creature.hurt(burst_damage*(2.1 if run.count("split")>0 else 1.0),hero)
-						cores.mark(creature)
+			var split_blades:=run.count("split")>0
+			var blade_directions: Array[Vector3]=[direction]
+			if split_blades:
+				blade_directions=[direction.rotated(Vector3.UP,-.22),direction,direction.rotated(Vector3.UP,.22)]
+			for blade_direction: Vector3 in blade_directions:
+				BattleVisuals.slash_arc(effects,hero.position,blade_direction)
+				skill_lights.emit_skill(0,hero.position,blade_direction)
+				for creature in enemies:
+					if not is_instance_valid(creature) or not creature.alive:continue
+					var to_creature:=creature.position-hero.position
+					var distance:=to_creature.length()
+					if distance>=11.0:continue
+					var alignment:=blade_direction.dot(to_creature.normalized())
+					# The three blades overlap slightly at the centre, so a close
+					# target can receive all three independent 70% hits while targets
+					# on either side can be split across the fan.
+					var in_blade: bool=alignment>.965 if split_blades else direction.dot(to_creature.normalized())>.78
+					if not in_blade:continue
+					var burst_damage: float=110+float(run.stats.spell)*.85
+					creature.hurt(burst_damage*(.70 if split_blades else 1.0),hero)
+					cores.mark(creature)
 		1:
 			hero.shield=(150+float(run.stats.spell)*.5)*float(run.stats.shield)
 			hero.shield_time=4
