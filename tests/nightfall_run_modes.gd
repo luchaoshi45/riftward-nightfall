@@ -59,7 +59,7 @@ func run() -> void:
 	var first_enemy: BattleUnit=game.enemies[0]
 	var before_scrap: int=game.scrap
 	first_enemy.hurt(100000.0,game.hero)
-	check(game.wave_rewards.snapshot(0).kills==1 and game.scrap>=before_scrap,"A registered standard death must pay its rolling ledger share")
+	check(game.wave_rewards.snapshot(0).kills==1 and game.wave_rewards.snapshot(0).paid>0 and game.scrap>before_scrap,"A registered standard death must pay its rolling ledger share")
 	for creature in game.enemies.duplicate():
 		if is_instance_valid(creature) and creature.alive:creature.hurt(100000.0,game.hero)
 	await process_frame
