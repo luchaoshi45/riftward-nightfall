@@ -55,7 +55,8 @@ func hire(kind: String) -> Dictionary:
 	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
 	var id := squads.size()
 	var members: Array[BattleUnit] = []
-	var squad := {"id": id, "kind": kind, "order": HOLD, "members": members}
+	var initial_order := RECALL if str(game.get("phase")) == "day" else HOLD
+	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members}
 	game.set("scrap", int(game.get("scrap")) - cost)
 	squads.append(squad)
 	for slot in MEMBERS_PER_SQUAD: members.append(_spawn_member(squad, slot))

@@ -141,7 +141,7 @@ func _ready() -> void:
 	hud=HudScript.new();hud.game=self;layer.add_child(hud)
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
-	squads=SquadScript.new();add_child(squads);squads.setup(self,false)
+	squads=SquadScript.new();add_child(squads);squads.setup(self,true)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
 	add_child(contracts);contracts.setup(self,run.seed_value)
@@ -1126,6 +1126,19 @@ func hire_shield_squad() -> bool:
 	notify("盾卫小队抵达 · 3人 · -%d零件" % result.cost,3)
 	return true
 
+func hire_ranged_squad() -> bool:
+	if phase!="day" and phase!="night":return false
+	if not near_squad_controls():
+		notify("请回到灯塔内侧再招募弩手小队",2)
+		return false
+	var result: Dictionary=squads.hire("ranged")
+	if not result.ok:
+		notify(result.reason,2)
+		return false
+	BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,3.1),2.1,Color("e0b66e"),.45)
+	notify("弩手小队抵达 · 3人 · -%d零件" % result.cost,3)
+	return true
+
 func toggle_squad_order() -> bool:
 	if phase!="day" and phase!="night":return false
 	if not near_squad_controls():
@@ -1337,10 +1350,13 @@ func interaction_prompt() -> String:
 	if near_squad_controls() and squads:
 		var squad_state: Dictionary=squads.snapshot()
 		if int(squad_state.count)<=0:
-			return "U  招募盾卫小队 · 70 零件"
+			return "U 盾卫70 · I 弩手80 · 据点内招募"
 		var order_label := "撤回" if _squads_all_holding(squad_state) else "驻守"
 		var refill: int=int(squad_state.refill_cost)
-		return "U 招盾卫 · O %s · L 白昼补员%s · %d/6人" % [order_label,(" %d零件" % refill) if refill>0 else "",int(squad_state.alive)]
+		var recruit_hint := ""
+		if int(squad_state.count)<int(squad_state.max_squads):
+			recruit_hint=" · U盾卫70/I弩手80"
+		return "O %s · L 白昼补员%s%s · %d/6人" % [order_label,(" %d零件" % refill) if refill>0 else "",recruit_hint,int(squad_state.alive)]
 	return ""
 
 func _squads_all_holding(snapshot: Dictionary) -> bool:
@@ -1574,6 +1590,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_2:build_district("workshop")
 			KEY_3:upgrade_district()
 			KEY_U:hire_shield_squad()
+			KEY_I:hire_ranged_squad()
 			KEY_O:toggle_squad_order()
 			KEY_L:refill_squads()
 			KEY_P:follow_contract()

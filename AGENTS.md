@@ -191,7 +191,7 @@ GAME-003按用户最新反馈由主机在本聊天完成，不改变从机VIS-00
 | 顺序 | 任务 | 当前状态 | 建议发布 |
 | --- | --- | --- | --- |
 | GAME-007 | 盾卫小队：招募、守门承伤、撤回、付费休整 | 生产接入已推送`fc481b7`，待主机验收 | 0.8.26，36/100 |
-| GAME-008 | 弩手小队：远程输出、特殊敌优先、双盾/盾弩/双弩阵容 | 进行中，基线`843ec7a` | 0.8.27，37/100 |
+| GAME-008 | 弩手小队：远程输出、特殊敌优先、双盾/盾弩/双弩阵容 | 生产接入已完成，待主机验收 | 0.8.27，37/100 |
 | GAME-009 | 三夜教学＋两种四夜标准场、波次经济与每局重建 | 波计划/预算模块通过；入口/流程/经济未接入 | 0.8.28，38/100 |
 | GAME-010 | 末夜首领、可打断蓄力、破绽、增援、真正清场后结算 | 首领独立fixture通过；未在游戏生成 | 0.8.29，39/100 |
 
@@ -288,15 +288,15 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 ## 从机B回执（由从机维护）
 
 - 当前任务ID：GAME-008。
-- 状态：进行中。
+- 状态：待主机验收。
 - 实际基准提交SHA：`843ec7a`（2026-10-04，从 `origin/main` 快进同步，GAME-007已推送）。
 - 协作分支：`main`；已执行 `git fetch origin main`，工作树干净后领取任务。
-- 提交SHA：领取回执待推送。
-- 改动文件：领取阶段仅更新本回执；实现文件待填写。
-- 完成内容：准备把已有弩手模块开放到真实守城入口，接入 I 招募、远程输出、特殊敌优先和盾弩/双盾/双弩阵容选择。
-- 验证命令与结果：领取阶段未验证；实现后补生产控制、隐藏渲染和相关回归。
-- 性能/画面结论及剩余问题：未验证。
-- 需要主机接入的具体接口/差异：暂未交付。
+- 提交SHA：实现提交待推送。
+- 改动文件：`scripts/nightfall.gd`、`scripts/outpost_squads.gd`、`scripts/nightfall_hud.gd`、`tests/nightfall_ranged_controls.gd`。
+- 完成内容：生产入口使用`setup(self,true)`开放弩手；I 招募弩手（80零件），白昼新招募默认撤回；弩手保留8.6米射程、.26秒蓄力、破城/蚀塔/噬灯特殊目标优先和光束反馈；支持双盾、盾弩、双弩阵容；L 白昼补员按弩手26零件/人收费；HUD按兵种显示人数、状态、生命和I提示；新增真实生产控制测试覆盖射程、出界/死亡取消、暂停、击杀归因和三种阵容。
+- 验证命令与结果：Godot 4.7.2 无头通过 `tests/outpost_squads_fixture.gd`（`OUTPOST_SQUADS_FIXTURE_OK`）、`tests/nightfall_squads_scene.gd`（`NIGHTFALL_SQUADS_SCENE_OK`）、`tests/nightfall_squad_controls.gd`（`NIGHTFALL_SQUAD_CONTROLS_OK`）、`tests/nightfall_ranged_controls.gd`（`NIGHTFALL_RANGED_CONTROLS_OK`）、`tests/nightfall_loop.gd`（`NIGHTFALL_LOOP_OK`）；隐藏窗口 Forward+ + Dummy 音频运行弩手生产用例通过并生成 `build/nightfall-ranged-controls.png`，日志无`ERROR`/`SCRIPT ERROR`；`python3 tools/verify_git_tracking.py`在提交后复核通过。
+- 性能/画面结论及剩余问题：实际夜景中的弩手HUD、兵种标签、I操作提示和远程队伍可见；复用现有minion占位模型和光束反馈，未声称新增专业弩手模型；尚未做Windows成品导出，需主机验收后再更新0.8.27和37/100计数。
+- 需要主机接入的具体接口/差异：`Nightfall._ready`开放弩手，新增`hire_ranged_squad`并接入`KEY_I`；`interaction_prompt`和HUD显示两类小队；`outpost_squads.hire`按白昼/夜晚设置初始撤回/驻守；无需额外手工接入。
 - 阻碍（没有则写无）：无。
 
 更新同一份当前回执，不累积开发日志；交付结论必须能由提交内容和真实测试复核。

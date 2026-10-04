@@ -150,7 +150,7 @@ func _draw() -> void:
 		box(Rect2(x,770,106,72),Color(.068,.087,.083,.9),Color("80524f") if status=="法力不足" else Color("59685f"))
 		label(names[i],Vector2(x+11,798),14,ink)
 		label(status,Vector2(x+11,824),13,status_color)
-	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  U 盾卫  ·  O 驻守/撤回  ·  L 白昼补员  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
+	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  U 盾卫  ·  I 弩手  ·  O 驻守/撤回  ·  L 白昼补员  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
 	draw_combat_rewards()
 	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
 	for core_key in core_names:
@@ -335,17 +335,19 @@ func draw_squads() -> void:
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
 	var snapshot: Dictionary=game.squads.snapshot()
 	box(Rect2(1050,480,365,125),Color(.022,.045,.047,.9),Color("5c7f76"))
-	label("盾卫小队",Vector2(1071,508),17,Color("a9d8cf"))
+	label("防御小队",Vector2(1071,508),17,Color("a9d8cf"))
 	if int(snapshot.count)<=0:
-		label("U 招募 · 70 零件 · 据点内使用",Vector2(1071,538),14,amber)
-		label("驻守承伤 · 白昼可付费补员",Vector2(1071,565),12,muted)
+		label("U 盾卫 · 70零件   I 弩手 · 80零件",Vector2(1071,538),13,amber)
+		label("驻守承伤/远程输出 · 白昼可付费补员",Vector2(1071,565),12,muted)
 		return
 	label("总计 %d/%d 人 · 补员 %d 零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(1071,535),13,ink)
 	for index in snapshot.squads.size():
 		var row: Dictionary=snapshot.squads[index]
 		var order_label: String="驻守" if String(row.order)=="hold" else "撤回"
-		label("小队%d  ·  %s  ·  存活 %d/%d  ·  当前生命 %.0f" % [index+1,order_label,int(row.alive),int(row.capacity),float(row.hp)],Vector2(1071,558+index*18),12,Color("e1d5b7") if String(row.order)=="hold" else muted)
-	label("U 招募  ·  O 驻守/撤回  ·  L 白昼补员",Vector2(1071,596),11,amber)
+		var kind_label: String="弩手" if String(row.kind)=="ranged" else "盾卫"
+		var kind_color: Color=Color("efcf86") if String(row.kind)=="ranged" else Color("e1d5b7")
+		label("小队%d  ·  %s %s  ·  存活 %d/%d  ·  生命 %.0f" % [index+1,kind_label,order_label,int(row.alive),int(row.capacity),float(row.hp)],Vector2(1071,558+index*18),11,kind_color if String(row.order)=="hold" else muted)
+	label("U盾卫70 · I弩手80 · O驻守/撤回 · L白昼补员",Vector2(1071,596),11,amber)
 
 func draw_exploration_rewards() -> void:
 	if not game.discoveries:return
