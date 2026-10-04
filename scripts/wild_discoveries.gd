@@ -10,6 +10,8 @@ const WAYLIGHT_RADIUS := 7.0
 const LIGHT_BUDGET := 6
 const LIGHT_VIEW_DISTANCE := 40.0
 const MIN_SPACING := 4.8
+const MOTIVATION_REFRESH_SECONDS := 0.28
+const MOTIVATION_CELL_SIZE := 2.0
 const KINDS := ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]
 const TITLES := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"遗落补给箱", "waylight":"引路灯碑"}
 const COLORS := {"ember_bloom":Color("ffb26b"), "memory_crystal":Color("82c8ff"), "supply_cache":Color("e4b47a"), "waylight":Color("94ead3")}
@@ -24,6 +26,8 @@ var motivation_cache_revision := -1
 var motivation_cache_cell := Vector2i(9999,9999)
 var motivation_cache_kind := ""
 var motivation_cache: Dictionary = {}
+var motivation_refresh_time := 0.0
+var motivation_route_queries := 0
 
 func _init() -> void:
 	rng.randomize()
@@ -33,6 +37,8 @@ func setup(owner_game: Node3D) -> void:
 	motivation_revision=0
 	motivation_cache_revision=-1
 	motivation_cache.clear()
+	motivation_refresh_time=0.0
+	motivation_route_queries=0
 	for kind: String in KINDS:
 		scenes[kind] = load("res://assets/models/"+kind+".glb") as PackedScene
 	for index in ITEM_COUNT:
@@ -224,6 +230,7 @@ func respawn_item(index: int) -> void:
 
 func tick(delta: float) -> void:
 	if not gameplay_active():return
+	motivation_refresh_time=maxf(0.0,motivation_refresh_time-delta)
 	elapsed+=delta
 	for index in items.size():
 		if not gameplay_active():break
@@ -267,8 +274,14 @@ func motivation_target() -> Dictionary:
 	if not game or not game.get("exploration"):return {}
 	var kind: String=game.exploration.next_kind()
 	if kind.is_empty():return {}
-	var cell:=Vector2i(roundi(game.hero.position.x),roundi(game.hero.position.z))
-	if motivation_cache_revision==motivation_revision and motivation_cache_cell==cell and motivation_cache_kind==kind:
+	var cell:=Vector2i(floori(game.hero.position.x/MOTIVATION_CELL_SIZE),floori(game.hero.position.z/MOTIVATION_CELL_SIZE))
+	var cache_matches:=motivation_cache_revision==motivation_revision and motivation_cache_kind==kind
+	# Guidance is presentation only. Do not make the movement frame wait for a
+	# fresh A* query every metre while the hero crosses the raised terrain. A
+	# short stale window keeps the marker responsive while collapsing repeated
+	# route searches into a bounded cadence; P still calls plan_hero_path() for
+	# an exact route on demand.
+	if cache_matches and motivation_refresh_time>0.0 and motivation_cache_cell==cell:
 		return motivation_cache.duplicate(true)
 	var selected: Dictionary={}
 	var distance:=INF
@@ -287,10 +300,12 @@ func motivation_target() -> Dictionary:
 	motivation_cache_revision=motivation_revision
 	motivation_cache_cell=cell
 	motivation_cache_kind=kind
+	motivation_refresh_time=MOTIVATION_REFRESH_SECONDS
 	return motivation_cache.duplicate(true)
 
 func route_distance(from: Vector3, to: Vector3) -> float:
 	if game.can_traverse(from,to):return flat_distance(from,to)
+	motivation_route_queries+=1
 	var start: Vector2i=game.nearest_navigation_cell(from,true)
 	var finish: Vector2i=game.nearest_navigation_cell(to,false)
 	if start.x==999 or finish.x==999:return INF

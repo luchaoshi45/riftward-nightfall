@@ -2069,7 +2069,16 @@ func ground_point(screen: Vector2) -> Vector3:
 	for i in 16:
 		if not result is Vector3:break
 		var point: Vector3=result
-		result=Plane(Vector3.UP,outpost_height(point)).intersects_ray(origin,direction)
+		var next: Variant=Plane(Vector3.UP,outpost_height(point)).intersects_ray(origin,direction)
+		if next is Vector3:
+			# Flat ground converges in one pass and the raised ramp usually takes
+			# four to six. Stop once the cursor moved less than a millimetre on the
+			# ground; the fixed-point loop otherwise burns all sixteen iterations on
+			# every high-frequency mouse-motion event.
+			if Vector2(next.x,next.z).distance_to(Vector2(point.x,point.z))<.001:
+				result=next
+				break
+		result=next
 	return result if result is Vector3 else hero.position
 
 func _unhandled_input(event: InputEvent) -> void:
