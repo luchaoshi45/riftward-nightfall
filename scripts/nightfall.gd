@@ -1090,6 +1090,12 @@ func plan_hero_path(destination: Vector3) -> void:
 		move_goal=hero.position
 		return
 	if not outpost_walkable(goal):goal=Vector3(end_cell.x,0,end_cell.y)
+	# Clicks can land inside the gameplay clearance band of a raised wall. The
+	# visual controller will clamp those frames while moving, but a fixed click
+	# goal then keeps asking for the unreachable point and makes the hero slide
+	# back and forth along the wall forever. Resolve the goal once up front so
+	# the route has a reachable endpoint on the same walkable terrain.
+	goal=hero_safe_destination(goal)
 	goal.y=outpost_height(goal)
 	move_goal=goal
 	if can_traverse(hero.position,goal):

@@ -401,6 +401,27 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_REAL_RIGHT_CLICK_SOUTH_GATE_OK")
 
+	# A click on the north retaining wall can resolve to a point just inside the
+	# visual clearance band. The route must snap that endpoint to the reachable
+	# edge instead of alternating on the wall forever.
+	reset_hero(Vector3(15, 0, 25))
+	var north_edge_goal:=Vector3(0, game.outpost_height(Vector3(0, 0, -6.3)), -6.3)
+	game.plan_hero_path(north_edge_goal)
+	var north_edge_zero_frames:=0
+	var north_edge_previous: Vector3=game.hero.position
+	for frame in 600:
+		game.simulate(STEP)
+		var north_edge_step:=flat_distance(north_edge_previous, game.hero.position)
+		if north_edge_step<.0001:north_edge_zero_frames+=1
+		else:north_edge_zero_frames=0
+		north_edge_previous=game.hero.position
+		if game.hero_path.is_empty():break
+	check(game.hero_path.is_empty(), "A high-ground wall click must finish at the reachable clearance edge")
+	check(Vector2(game.hero.position.x, game.hero.position.z).distance_to(Vector2(0, -6.16))<.18,
+		"A high-ground wall click must stop on the safe north edge")
+	check(north_edge_zero_frames<20, "A high-ground wall click must not oscillate against the retaining wall")
+	print("MOVEMENT_HIGH_GROUND_CLICK_EDGE_OK")
+
 	reset_hero(Vector3(35, 0, 35))
 	await key(KEY_D, true)
 	for frame in 10: game.simulate(STEP)
