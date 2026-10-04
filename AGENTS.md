@@ -287,9 +287,9 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 
 ## 从机B回执（由从机维护）
 
-- 当前任务ID：GAME-008。
-- 状态：待主机验收。
-- 实际基准提交SHA：`843ec7a`（2026-10-04，从 `origin/main` 快进同步，GAME-007已推送）。
+- 当前任务ID：GAME-009。
+- 状态：生产接入进行中，已完成模式入口、四夜流程和标准波次账本，待Windows成品验收。
+- 实际基准提交SHA：`95ad244`（2026-10-04，从 `origin/main` 快进同步；GAME-007/008源码已在main，计数仍待主机成品验收）。
 - 协作分支：`main`；已执行 `git fetch origin main`，工作树干净后领取任务。
 - 提交SHA：`487b40a205c9accc91441662e9abbcb00b74c4ca`（已推送）。
 - 改动文件：`scripts/nightfall.gd`、`scripts/outpost_squads.gd`、`scripts/nightfall_hud.gd`、`tests/nightfall_ranged_controls.gd`。
@@ -308,6 +308,7 @@ Godot生成的 `.gd.uid`、`.gdshader.uid` 与必要导入配置应随对应资�
 - 完整游戏验证/Windows版本：0.8.25（Godot4.7.2），本地build/Riftward_Nightfall_v0.8.25.exe，启动入口已更新；成品未上传GitHub Release。
 - 完成计数：35/100，本轮已交付6/10；以optimization-progress.json为准。
 - 退回修复事项：暂无新验收；已知待处理问题在对应任务中。
+- GAME-009本轮接入（待成品验收）：`scripts/nightfall.gd` 增加开局7/8/9键与鼠标模式选择，教学三夜保留原8零件夜间击杀，铁潮/暗翼锁定四夜并按实际计划生成；标准夜每波用 `wave_rewards.gd` 登记/封波，击杀按滚动账本发放24零件，清波一次补齐余款。`scripts/nightfall_hud.gd` 显示模式、四夜结算文案和开局模式卡；新增 `tests/nightfall_run_modes.gd` 覆盖键盘/鼠标模式选择、锁定、四夜流程、真实波次登记、滚动奖励与重复死亡幂等。Godot4.7.2 headless 与隐藏Forward+生产测试通过；Windows导出模板在本机未安装，尚未更新版本号或完成计数。
 - 本轮共享源码检查：Windows0.8.25内城区生产按键/真实恢复/实际塔折扣/新局重置、塔分支、日间委托、三夜整局四项通过；后台启动与Windows关闭请求退出0，无脚本/资源/泄漏错误。隐藏Forward+默认31昼夜城区画面目检通过，三条归家路径保持；Git追踪569文件、285资源引用检查通过。成品153883232字节、文件版本0.8.25.0、SHA256 `4c81ac2671f3c40ff17d53a3fd469f55eb0e6a47ab7665d5a3dd0fe6811bec0c`，启动入口指向此成品。
 - GitHub同步：六项源码、测试、新UID及待接入模块已逐轮提交推送main；实现基准`0c002ba`远端已收到。此交接更新将连同35/100计数和入口再次提交推送，并以git ls-remote核对最终SHA；不提交build成品、不声称已上传Release。接手机从最终origin/main领取GAME-007，后续开发与回执均提交main，本机不继续抢改公共文件。
 

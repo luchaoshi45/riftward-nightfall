@@ -9,6 +9,7 @@ var amber:=Color("e2a960")
 var red:=Color("db756c")
 var panel:=Color(.022,.035,.045,.88)
 var card_rects: Array[Rect2] = []
+var mode_rects: Array[Rect2] = []
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -50,6 +51,7 @@ func _draw() -> void:
 	if not is_instance_valid(game) or not is_instance_valid(game.hero):return
 	draw_set_transform(Vector2.ZERO,0,get_viewport_rect().size/Vector2(1440,900))
 	card_rects.clear()
+	mode_rects.clear()
 	draw_combat_floats()
 	box(Rect2(24,22,405,160),panel,Color("6c654f"))
 	label("余烬哨站",Vector2(45,57),27,ink)
@@ -61,7 +63,7 @@ func _draw() -> void:
 	if game.phase=="night":
 		var wave_text: String="夜袭 %d/%d 波" % [game.wave_index,game.WAVES_PER_NIGHT]
 		if game.wave_index<game.WAVES_PER_NIGHT:wave_text+=" · 下一波 %02d 秒" % ceili(game.spawn_timer)
-		label(wave_text,Vector2(46,166),13,red if game.world.wave_warning else amber)
+		label(wave_text+" · "+game.run_mode_title(),Vector2(46,166),13,red if game.world.wave_warning else amber)
 	elif game.expeditions:
 		label(game.expeditions.objective_text(),Vector2(46,170),13,Color("8dcfc3"))
 	progress(Rect2(235,126,173,8),game.phase_time/(game.NIGHT_LENGTH if display_night else game.DAY_LENGTH),red if display_night else amber)
@@ -386,10 +388,19 @@ func draw_draft() -> void:
 	label("灰烬中的记忆",Vector2(205,203),30,ink)
 	label("%s · 选择一项守夜能力" % game.run.reason,Vector2(205,244),16,amber)
 	if game.opening_night_pending:
-		label("许弦：先守住这一夜。天亮后，去接回门外的人。",Vector2(205,275),15,muted)
+		label("先选本局路线（7/8/9 或点击），再用 1/2/3 铭刻核心；选卡后路线锁定。",Vector2(205,275),14,muted)
+		var mode_names: Array[String]=["三夜教学","四夜·铁潮","四夜·暗翼"]
+		var mode_keys: Array[String]=["7","8","9"]
+		for i in mode_names.size():
+			var mode_rect:=Rect2(198+i*349,286,315,54)
+			mode_rects.append(mode_rect)
+			var selected: bool=game.run_mode==["teaching","siege","echo"][i]
+			box(mode_rect,Color(.105,.105,.078,.98) if selected else Color(.046,.066,.075,.97),amber if selected else Color("49605b"))
+			label(mode_keys[i]+"  "+mode_names[i],mode_rect.position+Vector2(16,23),15,amber if selected else ink)
+			label(game.run_mode_description() if selected else ["三夜入门 · 基础奖励易懂","四夜标准 · 重敌压门","四夜标准 · 灯光与快敌"][i],mode_rect.position+Vector2(16,43),11,muted)
 	for i in range(game.run.offer.size()):
 		var card: Dictionary=game.run.offer[i]
-		var rect:=Rect2(198+i*349,292,315,372)
+		var rect:=Rect2(198+i*349,355,315,330)
 		card_rects.append(rect)
 		var color: Color=RunBuild.COLORS[card.school]
 		box(rect,Color(.046,.066,.075,.97),color.darkened(.36))
@@ -406,15 +417,16 @@ func draw_result() -> void:
 	var signal_ending: bool=game.victory and game.ending_key=="signal"
 	var border:=Color("76bcb8") if signal_ending else (Color("b08a57") if game.victory else Color("b7655e"))
 	box(Rect2(340,215,760,515),panel,border)
-	var title: String="第四次日出" if signal_ending else ("灯火未灭" if game.victory else ("哨站失守" if game.beacon_hp<=0 else "守望者倒下"))
+	var sunrise_title: String="第四次日出" if game.max_nights()==3 else "第五次日出"
+	var title: String=sunrise_title if signal_ending else ("灯火未灭" if game.victory else ("哨站失守" if game.beacon_hp<=0 else "守望者倒下"))
 	var title_width:=font.get_string_size(title,HORIZONTAL_ALIGNMENT_LEFT,-1,36).x
 	label(title,Vector2(720-title_width*.5,300),36,Color("a5dfda") if signal_ending else (amber if game.victory else red))
-	label("守住 %d 夜  ·  清除 %d 只夜行体  ·  封闭夜巢 %d/3" % [game.day_number if game.victory else game.day_number-1,game.kills,game.cleansed_nests()],Vector2(425,362),18,ink)
+	label("%s  ·  守住 %d 夜  ·  清除 %d 只夜行体  ·  封闭夜巢 %d/3" % [game.run_mode_title(),game.day_number if game.victory else game.day_number-1,game.kills,game.cleansed_nests()],Vector2(425,362),18,ink)
 	if signal_ending:
-		label("林舟把三夜的回声叠在一起，找到了曙光阵列的入口。",Vector2(425,425),17,ink)
+		label("林舟把 %d 夜的回声叠在一起，找到了曙光阵列的入口。" % game.max_nights(),Vector2(425,425),17,ink)
 		label("哨站的人开始准备远行，而不再只是等待黑夜过去。",Vector2(425,464),16,muted)
 	elif game.victory:
-		label("灯塔撑过了第三夜，但荒原仍有 %d 处夜巢在呼吸。" % game.remaining_nests(),Vector2(425,425),17,ink)
+		label("灯塔撑过了 %d 夜，但荒原仍有 %d 处夜巢在呼吸。" % [game.max_nights(),game.remaining_nests()],Vector2(425,425),17,ink)
 		label("许弦将零件留给下一次远征：先清理黑夜的源头。",Vector2(425,464),16,muted)
 	else:
 		label("灯塔的耐久归零，守夜的防线失守了。" if game.beacon_hp<=0 else "守望者没能回到灯下。哨站还在等待下一次出发。",Vector2(425,425),17,ink)
@@ -444,5 +456,7 @@ func _gui_input(event: InputEvent) -> void:
 	if game.phase!="draft":return
 	if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
+		for i in mode_rects.size():
+			if mode_rects[i].has_point(point):game.select_run_mode(i);accept_event();return
 		for i in card_rects.size():
 			if card_rects[i].has_point(point):game.choose_card(i);accept_event();return

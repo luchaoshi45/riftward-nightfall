@@ -3,6 +3,7 @@ extends Node3D
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
+const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -37,8 +38,10 @@ var attack_count := 0
 var essence := 0
 var day_start_pending: bool=false
 var run_mode: String="teaching"
+var run_mode_locked := false
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
+var wave_rewards=WaveRewardsScript.new()
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
 var districts=preload("res://scripts/outpost_districts.gd").new()
@@ -287,6 +290,7 @@ func start_night() -> void:
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
 	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+	wave_rewards.reset()
 	spawn_timer=night_spawn_interval();pulse_timer=2.0
 	wave_index=0;wave_warning_issued=false
 	world.set_night(true)
@@ -304,8 +308,14 @@ func start_night() -> void:
 func spawn_night_wave() -> void:
 	if phase!="night" or wave_index>=WAVES_PER_NIGHT:return
 	var entry: Dictionary=night_plan[wave_index]
+	var reward_id: int=(day_number-1)*WAVES_PER_NIGHT+wave_index
+	var standard_rewards: bool=run_mode!="teaching"
+	if standard_rewards:wave_rewards.begin_wave(reward_id,WaveRewardsScript.DEFAULT_BUDGET)
 	wave_index+=1
-	for role: String in entry.roles:spawn_creature(true,role)
+	for role: String in entry.roles:
+		var creature: BattleUnit=spawn_creature(true,role)
+		if standard_rewards:wave_rewards.register_enemy(reward_id,creature)
+	if standard_rewards:wave_rewards.seal_wave(reward_id)
 	spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time)) if wave_index<night_plan.size() else 0.0
 	wave_warning_issued=false
 	world.wave_warning=false
@@ -335,17 +345,17 @@ func finish_night() -> void:
 	world.wave_warning=false
 	clear_gate_barricade()
 	if squads:squads.on_day()
-	if day_number>=3:
+	if day_number>=max_nights():
 		if squads:squads.clear()
 		victory=true;phase="ended";world.set_night(false)
 		ending_key="signal" if remaining_nests()==0 else "hold"
 		if ending_key=="signal":
 			world.beacon_light.light_color=Color("96d9d6")
 			BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),11.0,Color("8bd9d5"),.9)
-			notify("第四次日出 · 三处夜巢封印，地下阵列坐标已显现",8)
+			notify(("第四次日出" if max_nights()==3 else "第五次日出")+" · 三处夜巢封印，地下阵列坐标已显现",8)
 		else:
 			BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),8.0,Color("e9aa65"),.8)
-			notify("灯火未灭 · 荒原的夜巢仍在呼吸",8)
+			notify(("灯火未灭 · " + ("三夜" if max_nights()==3 else "四夜") + "守望完成，荒原的夜巢仍在呼吸"),8)
 		return
 	day_number+=1
 	phase="draft"
@@ -378,6 +388,27 @@ func begin_day() -> void:
 		"林舟：启动发电机会惊醒潜伏体，先准备好再接通。",
 		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
 	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
+
+func max_nights() -> int:
+	return 3 if run_mode=="teaching" else 4
+
+func run_mode_title() -> String:
+	return {"teaching":"三夜教学","siege":"四夜·铁潮","echo":"四夜·暗翼"}.get(run_mode,"三夜教学")
+
+func run_mode_description() -> String:
+	return {
+		"teaching":"三夜入门 · 保留基础击杀奖励",
+		"siege":"四夜标准 · 破城体与蚀塔体更集中",
+		"echo":"四夜标准 · 噬灯蛾与疾行体交错"
+	}.get(run_mode,"三夜入门 · 保留基础击杀奖励")
+
+func select_run_mode(index: int) -> bool:
+	if phase!="draft" or not opening_night_pending or run_mode_locked:return false
+	var options: Array[String]=["teaching","siege","echo"]
+	if index<0 or index>=options.size():return false
+	run_mode=options[index]
+	notify("本局模式：%s · 选择核心后锁定" % run_mode_title(),3)
+	return true
 
 func contract_goal() -> Vector3:
 	if contracts.status!="active":return Vector3.INF
@@ -1080,7 +1111,9 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	specializations.forget_enemy(creature)
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase
-	var scrap_gain:=8 if combat_phase=="night" else 5
+	var scrap_gain: int=5
+	if combat_phase=="night":
+		scrap_gain=8 if run_mode=="teaching" else wave_rewards.defeat(creature)
 	scrap+=scrap_gain
 	essence+=12
 	if player_attack_resolving and _source==hero:
@@ -1140,6 +1173,7 @@ func choose_card(index: int) -> bool:
 	if phase!="draft":return false
 	var card:=run.choose(index)
 	if card.is_empty():return false
+	if opening_night_pending:run_mode_locked=true
 	var old_max:=hero.max_hp
 	hero.max_hp=850+float(run.stats.health)
 	hero.hp=minf(hero.max_hp,hero.hp+maxf(0,hero.max_hp-old_max))
@@ -1703,7 +1737,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().reload_current_scene()
 			return
 		if phase=="draft":
-			if event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
+			if opening_night_pending and event.keycode in [KEY_7,KEY_8,KEY_9]:
+				select_run_mode(event.keycode-KEY_7)
+			elif event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
 		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
