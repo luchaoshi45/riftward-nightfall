@@ -21,7 +21,7 @@ func _ready() -> void:
 
 func _ui_font_names() -> Array[String]:
 	match OS.get_name():
-		"macOS": return ["Hiragino Sans", "Arial Unicode MS"]
+		"macOS": return ["Hiragino Sans GB", "Heiti SC", "Arial Unicode MS"]
 		"Windows": return ["Microsoft YaHei UI", "Microsoft YaHei"]
 		_: return ["Noto Sans CJK SC", "DejaVu Sans"]
 
@@ -53,7 +53,7 @@ func _draw() -> void:
 	draw_combat_floats()
 	box(Rect2(24,22,405,160),panel,Color("6c654f"))
 	label("余烬哨站",Vector2(45,57),27,ink)
-	label("最后的灯火  /  THE LAST LIGHT",Vector2(46,80),13,amber,true)
+	label("最后的灯火  /  THE LAST LIGHT",Vector2(46,80),13,amber)
 	var display_night: bool=game.phase=="night" or (game.phase=="draft" and game.return_phase=="night") or (game.phase=="paused" and game.paused_from=="night")
 	var phase_name:="第 %d 夜 · 守卫" % game.day_number if display_night else "第 %d 日 · 搜寻" % game.day_number
 	label(phase_name,Vector2(46,114),19,red if display_night else amber)
