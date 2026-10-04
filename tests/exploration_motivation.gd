@@ -31,6 +31,7 @@ func run() -> void:
 	assert(affinity.memory>=8 and not motivation.affinity_active(),"A matched contract affinity pays once and is consumed")
 	var no_repeat: Dictionary=motivation.record("ember_bloom",Vector3(12,0,0),"day")
 	assert(no_repeat.memory==0,"Consumed contract affinity must not repeat on later discoveries")
+	assert(motivation.route_summary().contains("路线完成 4/4"),"Run recap must report all four discovered route types")
 	print("EXPLORATION_MOTIVATION_OK route streak, full set, deep/night risk, light network and recap")
 	owner.queue_free();motivation.queue_free()
 	await process_frame

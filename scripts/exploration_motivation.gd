@@ -198,3 +198,14 @@ func route_text() -> String:
 
 func run_summary() -> String:
 	return "本局探索 %d 次 · 最长连段 %d · 深处 %d · 夜行 %d" % [run_discoveries, best_streak, deep_discoveries, night_discoveries]
+
+func route_summary() -> String:
+	var names := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
+	var completed: Array[String] = []
+	var missing: Array[String] = []
+	for kind: String in ROUTE_KINDS:
+		if run_kinds.has(kind): completed.append(String(names[kind]))
+		else: missing.append(String(names[kind]))
+	var text := "路线完成 %d/4 · 已发现：%s" % [completed.size(), "、".join(completed) if not completed.is_empty() else "暂无"]
+	if not missing.is_empty(): text += " · 下局可追：%s" % "、".join(missing)
+	return text

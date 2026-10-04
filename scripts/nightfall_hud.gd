@@ -423,7 +423,8 @@ func draw_result() -> void:
 	label(home.response,Vector2(425,553),15,ink)
 	if game.exploration:
 		label(game.exploration.run_summary(),Vector2(425,585),14,Color("a6d9c6"))
-	label("按 Enter 重新开始一局",Vector2(611,654),18,muted)
+		label(game.exploration.route_summary(),Vector2(425,610),13,Color("d6bf87"))
+	label("按 Enter 重新开始一局",Vector2(611,675),18,muted)
 
 func _gui_input(event: InputEvent) -> void:
 	if game.phase in ["day","night"] and game.run.pending>0 and event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
