@@ -2048,7 +2048,7 @@ func cast(slot: int, feedback: bool = false) -> bool:
 					creature.hurt(78+float(run.stats.spell)*.65,hero)
 		2:
 			var origin:=hero.position
-			var requested_target:=hero.position+direction*6.0
+			var requested_target:=hero.position+direction*dash_distance()
 			# Dash uses the same visual clearance corridor as keyboard/click
 			# movement. Without this resolution, a diagonal E from the raised
 			# ramp or courtyard can place the hero's cape inside a retaining wall,
@@ -2075,6 +2075,9 @@ func cast(slot: int, feedback: bool = false) -> bool:
 			BattleVisuals.burst(effects,hero.position,2.0,Color("7acfae"),.6)
 			skill_lights.emit_skill(4,hero.position,direction)
 	return true
+
+func dash_distance() -> float:
+	return 6.0+float(run.count("stride"))*.8
 
 func homecoming_summary() -> Dictionary:
 	var people := clampi(survivors_rescued,0,2)
