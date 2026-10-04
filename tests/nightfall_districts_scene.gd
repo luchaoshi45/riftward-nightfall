@@ -1,6 +1,5 @@
 extends SceneTree
 
-const Districts = preload("res://scripts/outpost_districts.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -24,8 +23,7 @@ func run() -> void:
 	await process_frame
 	assert(game.choose_card(0))
 	game.set_process(false)
-	var districts: Node3D = Districts.new()
-	districts.setup(game)
+	var districts: Node3D = game.districts
 	game.phase = "day"
 	game.scrap = 400
 	for index in range(districts.plots.size()):

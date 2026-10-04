@@ -39,6 +39,7 @@ var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
+var districts=preload("res://scripts/outpost_districts.gd").new()
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var mana := 300.0
@@ -141,6 +142,7 @@ func _ready() -> void:
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
 	add_child(contracts);contracts.setup(self,run.seed_value)
+	districts.setup(self)
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
 	pickup_sound=make_pickup_sound()
@@ -195,7 +197,7 @@ func simulate(delta: float) -> void:
 	update_focus(delta)
 	for i in cooldowns.size():cooldowns[i]=maxf(0,cooldowns[i]-delta)
 	mana=minf(max_mana,mana+delta*(8.0+float(run.stats.mana_regen)))
-	hero.hp=minf(hero.max_hp,hero.hp+(2.0+float(run.stats.regen))*delta)
+	hero.hp=minf(hero.max_hp,hero.hp+(2.0+float(run.stats.regen)+districts.guard_regen(hero.position))*delta)
 	if run.school_count(2)>=6:
 		guardian_timer-=delta
 		if guardian_timer<=0:
@@ -1067,14 +1069,27 @@ func repair_tower() -> bool:
 	if index<0:return false
 	var pad: Dictionary=world.tower_pads[index]
 	if pad.level<=0 or pad.hp>=pad.max_hp:return false
-	if scrap<20:
-		notify("修复防御塔需要 20 零件",2)
+	var cost: int=districts.repair_cost(20)
+	if scrap<cost:
+		notify("修复防御塔需要 %d 零件" % cost,2)
 		return false
-	scrap-=20
+	scrap-=cost
 	pad.hp=minf(pad.max_hp,float(pad.hp)+100.0)
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=pad.hp<pad.max_hp*.6
 	BattleVisuals.burst(effects,pad.position+Vector3(0,1.0,0),1.8,Color("82d4b9"),.35)
 	notify("防御塔已修复 · 耐久 %d/%d" % [ceili(pad.hp),ceili(pad.max_hp)],2)
+	return true
+
+func build_district(kind: String) -> bool:
+	var result: Dictionary=districts.choose(districts.nearest(),kind)
+	if not result.ok:notify(result.reason,2);return false
+	notify("兵营建成 · 灯下恢复增强" if kind=="barracks" else "工坊建成 · 塔建设与维修减费",3)
+	return true
+
+func upgrade_district() -> bool:
+	var result: Dictionary=districts.upgrade(districts.nearest())
+	if not result.ok:notify(result.reason,2);return false
+	notify("城区升至二级 · 收益增强",3)
 	return true
 
 func near_gate_controls() -> bool:
@@ -1244,12 +1259,12 @@ func interaction_prompt() -> String:
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:
 		var level: int=world.tower_pads[pad_index].level
-		if level==0:return "F  建造自动防御塔 · 消耗 %d 零件" % TOWER_COSTS[0]
+		if level==0:return "F  建造自动防御塔 · 消耗 %d 零件" % districts.tower_cost(TOWER_COSTS[0])
 		var mode_label: String="破城优先" if world.tower_pads[pad_index].mode=="breaker" else "最近目标"
 		var durability: String="%d/%d" % [ceili(world.tower_pads[pad_index].hp),ceili(world.tower_pads[pad_index].max_hp)]
-		var repair_hint: String=" · H 修复20" if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
+		var repair_hint: String=" · H 修复%d" % districts.repair_cost(20) if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
 		if level>=3:return "塔耐久 %s%s · G %s · 满级" % [durability,repair_hint,mode_label]
-		return "塔耐久 %s · F 升级%d%s · G %s" % [durability,TOWER_COSTS[level],repair_hint,mode_label]
+		return "塔耐久 %s · F 升级%d%s · G %s" % [durability,districts.tower_cost(TOWER_COSTS[level]),repair_hint,mode_label]
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
 	return ""
 
@@ -1298,8 +1313,9 @@ func interact() -> bool:
 	if pad_index>=0:
 		var pad: Dictionary=world.tower_pads[pad_index]
 		var level: int=pad.level
-		if level<3 and scrap>=TOWER_COSTS[level]:
-			scrap-=TOWER_COSTS[level]
+		var tower_cost: int=districts.tower_cost(TOWER_COSTS[mini(level,2)])
+		if level<3 and scrap>=tower_cost:
+			scrap-=tower_cost
 			if level==0:
 				pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
 				if not is_instance_valid(pad.damage_ring):pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
@@ -1312,7 +1328,7 @@ func interact() -> bool:
 			BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
 			notify("自动防御塔 %s · 等级 %d" % ["建成" if level==0 else "升级",pad.level])
 			return true
-		if level<3:notify("零件不足 · 需要 %d" % TOWER_COSTS[level],2)
+		if level<3:notify("零件不足 · 需要 %d" % tower_cost,2)
 		return false
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
 		scrap-=beacon_repair_cost()
@@ -1473,6 +1489,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
 		match event.keycode:
+			KEY_1:build_district("barracks")
+			KEY_2:build_district("workshop")
+			KEY_3:upgrade_district()
 			KEY_P:follow_contract()
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")

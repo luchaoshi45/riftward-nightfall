@@ -97,6 +97,14 @@ func _draw() -> void:
 		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
 		label(game.notice,Vector2(720-width*.5,224),19,ink)
 	var prompt: String=game.interaction_prompt()
+	var district_index: int=game.districts.nearest()
+	if district_index>=0 and game.phase=="day":
+		var district: Dictionary=game.districts.snapshots()[district_index]
+		box(Rect2(435,553,570,94),panel,Color("648779"))
+		label("城区 · "+district.title,Vector2(457,582),18,amber)
+		label("1 兵营 / 2 工坊 · 建造60零件" if district.level==0 else ("3 升至二级 · 80零件" if district.level==1 else "二级 · 本局不能更换方向"),Vector2(457,609),15,ink)
+		var benefit: String="据点恢复 +%d生命/秒" % (district.level*3) if district.kind=="barracks" else district.benefit
+		label("兵营：据点恢复    工坊：塔建造与维修折扣" if district.level==0 else benefit,Vector2(457,634),13,Color("a3d7bd"))
 	var pad_index: int=game.nearest_tower_pad()
 	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"]:
 		var pad: Dictionary=game.world.tower_pads[pad_index]
