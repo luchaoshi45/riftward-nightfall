@@ -21,12 +21,12 @@ func run() -> void:
 	game.phase="day"
 	game.exploration.reset_run()
 	game.exploration.begin_day()
-	game.exploration.record("ember_bloom",game.hero.position,"day")
-	game.exploration.record("memory_crystal",game.hero.position,"day")
-	game.exploration.record("supply_cache",game.hero.position,"day")
+	var route: Array[String]=game.exploration.route_order.duplicate()
+	for index in 3:game.exploration.record(route[index],game.hero.position,"day")
+	var remaining_kind: String=route[3]
 	var waylight: Dictionary={}
 	for item: Dictionary in game.discoveries.items:
-		if item.kind!="waylight":continue
+		if item.kind!=remaining_kind:continue
 		if waylight.is_empty():waylight=item
 		else:game.discoveries.begin_cooling(item,60.0)
 	check(not waylight.is_empty(),"A production waylight must remain for the raised-terrain route probe")
@@ -39,7 +39,7 @@ func run() -> void:
 	game.move_goal=game.hero.position
 	game.discoveries.motivation_route_queries=0
 	var first: Dictionary=game.discoveries.motivation_target()
-	check(first.get("kind","")=="waylight","The raised-terrain probe must choose the reachable waylight")
+	check(first.get("kind","")==remaining_kind,"The raised-terrain probe must choose the reachable next route type")
 	var first_queries: int=game.discoveries.motivation_route_queries
 	check(first_queries>0,"The probe must exercise the real A* route around the raised wall")
 	for frame in 120:

@@ -38,12 +38,12 @@ func run() -> void:
 	assert(game.phase=="day")
 	game.exploration.reset_run()
 	game.exploration.begin_day()
-	game.exploration.record("ember_bloom",game.hero.position,"day")
-	game.exploration.record("memory_crystal",game.hero.position,"day")
-	game.exploration.record("supply_cache",game.hero.position,"day")
+	var route: Array[String]=game.exploration.route_order.duplicate()
+	for index in 3:game.exploration.record(route[index],game.hero.position,"day")
+	var remaining_kind: String=route[3]
 	var waylight: Dictionary={}
 	for item: Dictionary in game.discoveries.items:
-		if item.kind!="waylight":continue
+		if item.kind!=remaining_kind:continue
 		if waylight.is_empty():waylight=item
 		else:game.discoveries.begin_cooling(item,60.0)
 	assert(not waylight.is_empty())
@@ -54,7 +54,7 @@ func run() -> void:
 	waylight.state="ready"
 	game.hero.position=Vector3(0,5,3.1)
 	var target: Dictionary=game.discoveries.motivation_target()
-	assert(int(target.index)>=0 and target.kind=="waylight")
+	assert(int(target.index)>=0 and target.kind==remaining_kind)
 	assert(float(target.distance)>game.hero.position.distance_to(waylight_point),"Motivation distance must use the reachable route around the raised wall")
 	game.update_exploration_guidance()
 	assert(is_instance_valid(game.motivation_marker),"The next exploration type must receive a world marker")

@@ -7,6 +7,9 @@ const DEEP_RADIUS := 42.0
 const ROUTE_KINDS := ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]
 
 var game: Node3D
+var route_seed := 0
+var route_day := 1
+var route_order: Array[String] = []
 var day_kinds: Dictionary = {}
 var run_kinds: Dictionary = {}
 var last_kind := ""
@@ -28,11 +31,13 @@ var event_history: Array[String] = []
 var affinity_kinds: Array[String] = []
 var affinity_time := 0.0
 
-func setup(owner_game: Node3D) -> void:
+func setup(owner_game: Node3D, seed_value: int = 0) -> void:
 	game = owner_game
+	route_seed = seed_value
 	reset_run()
 
 func reset_run() -> void:
+	set_route_order(1)
 	day_kinds.clear()
 	run_kinds.clear()
 	last_kind = ""
@@ -54,7 +59,8 @@ func reset_run() -> void:
 	affinity_kinds.clear()
 	affinity_time = 0.0
 
-func begin_day() -> void:
+func begin_day(day_id: int = 1) -> void:
+	set_route_order(day_id)
 	day_kinds.clear()
 	last_kind = ""
 	streak = 0
@@ -65,6 +71,32 @@ func begin_day() -> void:
 	affinity_kinds.clear()
 	affinity_time = 0.0
 	last_event = "新的白昼路线：换一种发现类型，连段奖励会更高"
+
+func set_route_order(day_id: int) -> void:
+	var previous_order: Array[String]=route_order.duplicate()
+	route_day = maxi(1, day_id)
+	route_order = route_template()
+	# A zero seed is reserved for standalone module tests and keeps the
+	# historical order. Production runs pass RunBuild.seed_value, so the same
+	# seed/day pair always recreates the same route while another run can ask
+	# for a different next discovery without changing rewards.
+	if route_seed == 0:return
+	var route_rng := RandomNumberGenerator.new()
+	route_rng.seed = abs(route_seed ^ (route_day * 10007 + 7919))
+	for index in range(route_order.size()-1, 0, -1):
+		var swap_index:=route_rng.randi_range(0, index)
+		var swap_kind: String=route_order[index]
+		route_order[index]=route_order[swap_index]
+		route_order[swap_index]=swap_kind
+	if route_day>1 and route_order==previous_order:
+		var last_kind: String=route_order.pop_back()
+		route_order.push_front(last_kind)
+
+func route_template() -> Array[String]:
+	var result: Array[String] = []
+	for kind: String in ROUTE_KINDS:
+		result.append(kind)
+	return result
 
 func begin_night() -> void:
 	last_kind = ""
@@ -178,14 +210,14 @@ func _has_full_set() -> bool:
 	return true
 
 func next_kind() -> String:
-	for kind: String in ROUTE_KINDS:
+	for kind: String in route_order:
 		if not day_kinds.has(kind):
 			return kind
 	return ""
 
 func route_text() -> String:
 	var collected := 0
-	for kind: String in ROUTE_KINDS:
+	for kind: String in route_order:
 		if day_kinds.has(kind):
 			collected += 1
 	var next := next_kind()
@@ -203,7 +235,7 @@ func route_summary() -> String:
 	var names := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
 	var completed: Array[String] = []
 	var missing: Array[String] = []
-	for kind: String in ROUTE_KINDS:
+	for kind: String in route_order:
 		if run_kinds.has(kind): completed.append(String(names[kind]))
 		else: missing.append(String(names[kind]))
 	var text := "路线完成 %d/4 · 已发现：%s" % [completed.size(), "、".join(completed) if not completed.is_empty() else "暂无"]

@@ -171,7 +171,7 @@ func _ready() -> void:
 	squads=SquadScript.new();add_child(squads);squads.setup(self,true)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
-	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self)
+	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self,run.seed_value)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	districts.setup(self)
 	squads.set_health_multiplier(districts.squad_health_multiplier())
@@ -481,7 +481,7 @@ func begin_day() -> void:
 	world.set_night(false)
 	expeditions.on_day()
 	if squads:squads.on_day()
-	if exploration:exploration.begin_day()
+	if exploration:exploration.begin_day(day_number)
 	contracts.on_day()
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
