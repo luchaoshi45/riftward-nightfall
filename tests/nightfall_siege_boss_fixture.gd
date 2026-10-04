@@ -85,7 +85,7 @@ func run() -> void:
 	assert(siege.snapshot().phase == "approach")
 	assert(siege.advance(4.0) and siege.snapshot().phase == "windup")
 	var locked: Vector3 = siege.snapshot().position
-	assert(locked == game.hero.position)
+	assert(locked == Vector3(0, 5, 0)) # 核心更近；随后锁点保持不动。
 	game.hero.position = Vector3(10, 5, 1.5)
 	var soldier: BattleUnit = game.squads.squads[0].members[0]
 	var outside: BattleUnit = game.squads.squads[0].members[1]
@@ -116,6 +116,16 @@ func run() -> void:
 	game.hero.position = Vector3(40, 5, 40)
 	assert(not siege.advance(8.0))
 	assert(siege.snapshot().phase == "approach")
+	# 盾卫将巨兽拦在坡道时，首领仍可锁定近处小队，不能站着失效。
+	soldier.position = Vector3(0, 5, 13.4)
+	assert(siege.advance(0.1))
+	assert(siege.snapshot().position == soldier.position)
+	shield_hp = soldier.hp
+	assert(siege.advance(2.4))
+	assert(is_equal_approx(shield_hp - soldier.hp, 56.0))
+	assert(game.beacon_hp == 1130.0)
+	soldier.position = Vector3(20, 5, 20)
+	assert(not siege.advance(8.0))
 	# 增援只能两批，从spawn_creature的远端南门出生，不复活后重复触发。
 	boss.hp = 1600.0
 	assert(not siege.advance(0.1) and game.adds.size() == 3)

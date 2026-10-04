@@ -132,15 +132,24 @@ func _core_point() -> Vector3:
 	return point
 
 func _reachable(point: Vector3) -> bool:
-	return boss.position.distance_to(point) <= SLAM_RADIUS and (not game.has_method("can_traverse") or bool(game.call("can_traverse", boss.position, point)))
+	return absf(boss.position.y - point.y) <= 1.2 and boss.position.distance_to(point) <= SLAM_RADIUS and (not game.has_method("can_traverse") or bool(game.call("can_traverse", boss.position, point)))
 
 func _local_target() -> Dictionary:
+	var candidates: Array[Vector3] = [_core_point()]
 	var hero: BattleUnit = game.get("hero") as BattleUnit
-	if _living(hero) and _reachable(hero.position):
-		return {"position": hero.position}
-	var core: Vector3 = _core_point()
-	if _reachable(core):
-		return {"position": core}
+	if _living(hero):
+		candidates.append(hero.position)
+	for soldier in _squad_fighters():
+		candidates.append(soldier.position)
+	var selected: Dictionary = {}
+	var distance: float = INF
+	for point in candidates:
+		var separation: float = boss.position.distance_to(point)
+		if _reachable(point) and separation < distance:
+			selected = {"position": point}
+			distance = separation
+	if not selected.is_empty():
+		return selected
 	# 在坡道外不把远处灯塔当作无限射程目标；继续走正常南门路线。
 	return {}
 
@@ -184,13 +193,9 @@ func _apply_slam() -> void:
 	var hero: BattleUnit = game.get("hero") as BattleUnit
 	if _living(hero):
 		fighters.append(hero)
-	var squad_controller: Node = game.get("squads") as Node
-	if is_instance_valid(squad_controller):
-		var groups: Array = squad_controller.get("squads")
-		for group: Dictionary in groups:
-			for soldier: BattleUnit in group.members:
-				if _living(soldier) and not soldier in fighters:
-					fighters.append(soldier)
+	for soldier in _squad_fighters():
+		if not soldier in fighters:
+			fighters.append(soldier)
 	BattleVisuals.burst(_visual_root, _locked_point, SLAM_RADIUS, Color("ed8256"), 0.32)
 	for fighter in fighters:
 		if _living(fighter) and fighter.position.distance_to(_locked_point) <= SLAM_RADIUS:
@@ -205,12 +210,26 @@ func _apply_slam() -> void:
 		if remaining <= 0.0 and game.has_method("end_defeat"):
 			game.call("end_defeat", "灯噬巨兽击碎灯塔 · 哨站失守")
 
+func _squad_fighters() -> Array[BattleUnit]:
+	var fighters: Array[BattleUnit] = []
+	var squad_controller: Node = game.get("squads") as Node
+	if not is_instance_valid(squad_controller):
+		return fighters
+	var groups: Variant = squad_controller.get("squads")
+	if not groups is Array:
+		return fighters
+	for group: Dictionary in groups:
+		for soldier: BattleUnit in group.members:
+			if _living(soldier):
+				fighters.append(soldier)
+	return fighters
+
 func _spawn_reinforcements() -> void:
 	if not game.has_method("spawn_creature"):
 		return
 	for threshold in [2.0 / 3.0, 1.0 / 3.0]:
 		var step: int = 1 if threshold > 0.5 else 2
-		if _adds_spawned >= step or boss.hp / boss.max_hp >= threshold:
+		if _adds_spawned >= step or boss.hp / boss.max_hp > threshold:
 			continue
 		_adds_spawned = step
 		for index in range(3):
