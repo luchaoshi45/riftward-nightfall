@@ -29,6 +29,15 @@ const GATE_TRAP_COST := 45
 const GATE_TRAP_MAX := 3
 const BARRICADE_COST := 65
 const BARRICADE_MAX := 520.0
+const COUNTERMEASURE_OPTIONS := [
+	{"id":"light_guard", "title":"灯火整备", "summary":"首35秒噬灯压制降低60%", "threat":"light_eater"},
+	{"id":"gate_reinforce", "title":"南门工事", "summary":"免费部署+260耐久路障", "threat":"breaker"},
+	{"id":"tower_barrage", "title":"塔火力整备", "summary":"首28秒防御塔伤害提高35%", "threat":"sapper"},
+]
+const COUNTERMEASURE_LIGHT_SECONDS := 35.0
+const COUNTERMEASURE_TOWER_SECONDS := 28.0
+const COUNTERMEASURE_TOWER_MULTIPLIER := 1.35
+const COUNTERMEASURE_GATE_BONUS := 260.0
 const FOCUS_DURATION := 8.0
 const FOCUS_COOLDOWN := 22.0
 const COSTS := [35.0,45.0,30.0,85.0,0.0]
@@ -55,6 +64,11 @@ var run_mode: String="teaching"
 var run_mode_locked := false
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
+var countermeasure_selected := -1
+var countermeasure_active := ""
+var countermeasure_consumed := false
+var countermeasure_light_time := 0.0
+var countermeasure_tower_time := 0.0
 var wave_rewards=WaveRewardsScript.new()
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
@@ -236,6 +250,9 @@ func simulate(delta: float) -> void:
 	cores.advance(delta)
 	specializations.advance(delta)
 	phase_time-=delta
+	if phase=="night":
+		countermeasure_light_time=maxf(0.0,countermeasure_light_time-delta)
+		countermeasure_tower_time=maxf(0.0,countermeasure_tower_time-delta)
 	update_combat_chains(delta)
 	update_focus(delta)
 	for i in cooldowns.size():cooldowns[i]=maxf(0,cooldowns[i]-delta)
@@ -285,6 +302,8 @@ func simulate(delta: float) -> void:
 				eater.tick(delta)
 				for lamp_index in world.gate_lights.size():
 					world.gate_light_drain[lamp_index]=maxf(world.gate_light_drain[lamp_index],eater.drain_at(world.gate_lights[lamp_index].global_position))
+	if countermeasure_light_time>0.0:
+		for lamp_index in world.gate_light_drain.size():world.gate_light_drain[lamp_index]*=.4
 	var gate_drain:=maxf(world.gate_light_drain[0],world.gate_light_drain[1])
 	if gate_drain>.48 and not light_eater_warning_issued:
 		light_eater_warning_issued=true
@@ -336,7 +355,9 @@ func start_night() -> void:
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
-	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
+		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+	activate_countermeasure()
 	wave_rewards.reset()
 	active_wave_reward_id=-1
 	final_clearance_active=false
@@ -483,11 +504,104 @@ func begin_day() -> void:
 	if squads:squads.on_day()
 	if exploration:exploration.begin_day(day_number)
 	contracts.on_day()
+	prepare_next_night_plan(true)
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
 		"林舟：启动发电机会惊醒潜伏体，先准备好再接通。",
 		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
 	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
+
+func prepare_next_night_plan(reset_countermeasure: bool = false) -> void:
+	# The day forecast and the next night share this exact saved plan. Rebuilding
+	# it after a nest is sealed only changes the public count reduction; the seed,
+	# theme and specialist roles remain deterministic and visible to the player.
+	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+	if reset_countermeasure:
+		countermeasure_selected=-1
+		countermeasure_active=""
+		countermeasure_consumed=false
+		countermeasure_light_time=0.0
+		countermeasure_tower_time=0.0
+
+func countermeasure_count() -> int:
+	return COUNTERMEASURE_OPTIONS.size()
+
+func countermeasure_title(index: int) -> String:
+	if index<0 or index>=COUNTERMEASURE_OPTIONS.size():return "未选择"
+	return String(COUNTERMEASURE_OPTIONS[index].title)
+
+func countermeasure_summary(index: int) -> String:
+	if index<0 or index>=COUNTERMEASURE_OPTIONS.size():return "白昼不选择则不获得额外加成"
+	return String(COUNTERMEASURE_OPTIONS[index].summary)
+
+func forecast_primary_threat_id() -> String:
+	var counts: Dictionary={}
+	for entry: Dictionary in night_plan:
+		for role in entry.roles:
+			var role_name:=String(role)
+			if role_name=="basic":continue
+			counts[role_name]=int(counts.get(role_name,0))+1
+		if bool(entry.get("boss_entry",false)):
+			counts["breaker"]=int(counts.get("breaker",0))+1
+	var selected: String=""
+	var best:=0
+	for role in ["light_eater","sapper","breaker","runner"]:
+		var amount:=int(counts.get(role,0))
+		if amount>best:
+			best=amount;selected=role
+	return selected
+
+func forecast_primary_threat() -> String:
+	return {"light_eater":"噬灯蛾", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+
+func forecast_specialist_count() -> int:
+	var total:=0
+	for entry: Dictionary in night_plan:
+		for role in entry.roles:
+			if String(role)!="basic":total+=1
+		if bool(entry.get("boss_entry",false)):total+=1
+	return total
+
+func countermeasure_recommended(index: int) -> bool:
+	if index<0 or index>=COUNTERMEASURE_OPTIONS.size():return false
+	var primary:=forecast_primary_threat_id()
+	# The three orders cover all public specialist identities. Fast enemies use
+	# the gate order because its free buffer buys the same recovery window as a
+	# direct speed counter; a basic-only plan recommends tower fire by default.
+	var recommended_index:=2
+	match primary:
+		"light_eater":recommended_index=0
+		"breaker","runner":recommended_index=1
+		"sapper":recommended_index=2
+	return index==recommended_index
+
+func select_countermeasure(index: int) -> bool:
+	if phase!="day" or index<0 or index>=COUNTERMEASURE_OPTIONS.size() or night_plan.is_empty():return false
+	countermeasure_selected=index
+	notify("已选战前反制：%s · 天黑前可更换" % countermeasure_title(index),3)
+	return true
+
+func activate_countermeasure() -> void:
+	if countermeasure_consumed:return
+	countermeasure_consumed=true
+	countermeasure_active=""
+	countermeasure_light_time=0.0
+	countermeasure_tower_time=0.0
+	if countermeasure_selected<0 or countermeasure_selected>=COUNTERMEASURE_OPTIONS.size():return
+	var id:=String(COUNTERMEASURE_OPTIONS[countermeasure_selected].id)
+	countermeasure_active=id
+	match id:
+		"light_guard":
+			countermeasure_light_time=COUNTERMEASURE_LIGHT_SECONDS
+		"gate_reinforce":
+			if gate_barricade_hp<=0.0:
+				gate_barricade_hp=BARRICADE_MAX+COUNTERMEASURE_GATE_BONUS
+				gate_barricade.visible=true;gate_barricade_ring.visible=true
+				gate_barricade_ring.material_override.albedo_color=Color("e2a665")
+				BattleVisuals.burst(effects,gate_barricade.position,2.7,Color("e2a665"),.45)
+		"tower_barrage":
+			countermeasure_tower_time=COUNTERMEASURE_TOWER_SECONDS
+	notify("战前反制生效 · %s" % countermeasure_title(countermeasure_selected),4)
 
 func max_nights() -> int:
 	return 3 if run_mode=="teaching" else 4
@@ -1322,6 +1436,7 @@ func update_towers(delta: float) -> void:
 		tower.look_at(Vector3(selected.position.x,tower.position.y,selected.position.z),Vector3.UP)
 		var impact:=selected.position
 		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
+		if countermeasure_tower_time>0.0:damage*=COUNTERMEASURE_TOWER_MULTIPLIER
 		BattleVisuals.tower_shot(effects,pad.position+Vector3(0,2.1,0),impact+Vector3(0,1,0),pad.level)
 		specializations.resolve_shot(pad,selected,enemies,damage,hero)
 		if specializations.branch(pad)=="control":BattleVisuals.burst(effects,impact,3.2,Color("8bbfcf"),.25)
@@ -1980,8 +2095,10 @@ func interact_nest(index: int=-1) -> bool:
 	create_tween().tween_property(nest.light,"light_energy",0.0,.4)
 	create_tween().tween_property(nest.sealed_light,"light_energy",.8,.6)
 	scrap+=90
+	if phase=="day":
+		prepare_next_night_plan(false)
 	BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
-	notify("夜巢已封闭 · +90 零件，今夜来袭减弱",4)
+	notify("夜巢已封闭 · +90 零件，下一夜预告已按公开规则减少普通随从" if phase=="day" else "夜巢已封闭 · +90 零件，今夜来袭减弱",4)
 	return true
 
 func interact() -> bool:
@@ -2268,6 +2385,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				notify("委托已开始 · 方案已锁定",2)
 			else:
 				notify("当前没有可切换的委托方案",2)
+			return
+		if phase=="day" and event.keycode in [KEY_7,KEY_8,KEY_9]:
+			var countermeasure_index: int=int(event.keycode)-KEY_7
+			if not select_countermeasure(countermeasure_index):
+				notify("当前没有可用的下一夜反制选择",2)
 			return
 		match event.keycode:
 			KEY_1:build_district("barracks")

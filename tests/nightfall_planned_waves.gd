@@ -42,7 +42,8 @@ func run() -> void:
 	verify_wave(game.night_plan[0]);assert(game.night_plan[0].roles.has("light_eater"))
 	var count: int=game.night_plan[0].count
 	for nest in game.world.nests:nest.cleansed=true
-	game.start_night();assert(game.night_plan[0].count==count-6)
+	game.prepare_next_night_plan(false);assert(game.night_plan[0].count==count-6)
+	clear_enemies();game.wave_index=0;game.spawn_night_wave()
 	verify_wave(game.night_plan[0])
 	await game.prepare_shutdown();game.queue_free()
 	for i in 4:await process_frame

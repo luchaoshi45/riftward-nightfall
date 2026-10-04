@@ -101,6 +101,7 @@ func _draw() -> void:
 		var summary: String=contract.progress_text() if contract.status in ["bonus_offer","bonus_active","returning"] else contract.offer_summary(contract.selected_offer)
 		label(summary,Vector2(477,110),13,amber)
 		label("4 立即返家 · 5 贪一笔追加补给" if contract.status=="bonus_offer" else ("追加目标完成后返回灯塔" if contract.status=="bonus_active" else ("4/5/6 切换方案 · 完成第一项后锁定" if not contract.progress_started else "委托已开始 · 方案已锁定")),Vector2(477,130),12,Color("a3c7b7"))
+	if game.phase=="day":draw_day_forecast()
 	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)
 	label("%d / %d" % [int(game.beacon_hp),int(game.BEACON_MAX)],Vector2(1261,55),16,amber)
@@ -264,6 +265,28 @@ func draw_boss_panel(snapshot: Dictionary) -> void:
 		_:
 			detail="正在接近 · 增援 %d / 6" % int(snapshot.get("adds",0))
 	label(detail,Vector2(477,113),14,Color("82ced2") if phase_name in ["windup","exposed"] else muted)
+
+func draw_day_forecast() -> void:
+	var top: float=164.0 if game.contracts.status!="idle" else 24.0
+	var rect:=Rect2(457,top,570,142)
+	box(rect,panel,Color("63745f"))
+	if game.night_plan.is_empty():
+		label("下一夜威胁情报 · 等待计划生成",Vector2(477,top+31),18,amber)
+		return
+	var first: Dictionary=game.night_plan[0]
+	label("下一夜威胁情报 · 第 %d 夜" % game.day_number,Vector2(477,top+29),18,Color("a3d7bd"))
+	label("主威胁：%s · %d 波 · 特殊威胁约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()],Vector2(477,top+53),14,ink)
+	label("首波 %s · %s" % [String(first.title),String(first.advice)],Vector2(477,top+74),12,muted)
+	for index in game.countermeasure_count():
+		var option_x:=471.0+float(index)*185.0
+		var selected: bool=game.countermeasure_selected==index
+		var recommended: bool=game.countermeasure_recommended(index)
+		var outline:=Color("e8bc70") if selected else (Color("82c9be") if recommended else Color("4b625d"))
+		box(Rect2(option_x,top+87,176,43),Color(.10,.15,.14,.96) if selected else Color(.045,.075,.073,.92),outline)
+		var marker: String=" · 已选" if selected else (" · 推荐" if recommended else "")
+		label("%d  %s%s" % [index+7,game.countermeasure_title(index),marker],Vector2(option_x+9,top+106),12,amber if selected or recommended else ink)
+		label(game.countermeasure_summary(index),Vector2(option_x+9,top+123),10,muted)
+	label("7/8/9 选择反制 · 天黑前可更换 · 留家布防也不会获得隐藏加成",Vector2(477,top+139),10,Color("a3c7b7"))
 
 func draw_combat_rewards() -> void:
 	if game.phase!="day" and game.phase!="night":return
