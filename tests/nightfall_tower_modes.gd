@@ -18,6 +18,8 @@ func run() -> void:
 	game.scrap=60
 	assert(game.interact())
 	assert(pad.level==1)
+	for other: Dictionary in game.world.tower_pads:
+		if other!=pad:other.cooldown=10000.0
 	var close_enemy: BattleUnit=game.spawn_creature(false)
 	var breaker: BattleUnit=game.spawn_creature(false)
 	close_enemy.position=pad.position+Vector3(3,0,0)

@@ -26,9 +26,10 @@ func run() -> void:
 	game.world.set_process(false)
 	game.camera.position=game.hero.position+Vector3(0,25,29)
 	game.hud.queue_redraw()
-	await create_timer(.2).timeout
-	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://build/beacon-alarm.png")
+	if DisplayServer.get_name()!="headless":
+		await create_timer(.2).timeout
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png("res://build/beacon-alarm.png")
 	game.record_beacon_hit(12.0)
 	assert(game.beacon_alarm_damage==first_damage+12.0)
 	game.update_beacon_alarm(3.1)

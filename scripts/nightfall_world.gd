@@ -134,6 +134,22 @@ func build() -> void:
 		tower_light.shadow_enabled=false
 		add_child(tower_light)
 		tower_pads.append({"node":pad,"position":point,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
+	# Core expansion plots: four additional buildable positions inside the
+	# raised outpost ring. The original eight pads stay in the same order so
+	# opening defenses and existing saves/tests keep their layout.
+	for i in range(4):
+		var angle := TAU*i/4.0
+		var point := Vector3(cos(angle)*4.8,0,sin(angle)*4.8)
+		point.y=terrain_height(point)
+		var pad := place_scene(pad_scene,point,0.82,angle)
+		var tower_light:=OmniLight3D.new()
+		tower_light.position=point+Vector3(0,2.0,0)
+		tower_light.light_color=Color("83d7c5")
+		tower_light.omni_range=9
+		tower_light.light_energy=0.0
+		tower_light.shadow_enabled=false
+		add_child(tower_light)
+		tower_pads.append({"node":pad,"position":point,"zone":"core","turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
 	var salvage_scene := load("res://assets/models/salvage_crate.glb") as PackedScene
 	for i in range(36):
 		var angle := TAU*i/36.0+.23

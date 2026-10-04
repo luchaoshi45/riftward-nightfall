@@ -499,33 +499,39 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	var move_speed: float=creature.speed*specializations.movement_multiplier(creature)
 	var threat: String=creature.get_meta("threat","")
 	var day_hunter: bool=phase=="day" and creature.get_meta("day_hunter",false)
-	var pursuing_hero: bool=(creature.position.distance_to(hero.position)<4.0 or day_hunter) and hero.alive and threat!="breaker" and threat!="sapper"
-	var target_pad: int=-1
-	if phase=="night" and threat=="sapper":target_pad=south_tower_target(creature.position)
-	var attacking_barricade: bool=phase=="night" and gate_barricade_hp>0 and not pursuing_hero and target_pad<0 and creature.position.z>gate_barricade.position.z-.3 and creature.position.z<=19.5 and absf(creature.position.x)<2.8
-	if creature.attack_queued and (creature.attack_target_hero!=pursuing_hero or creature.attack_target_pad!=target_pad or creature.attack_target_barricade!=attacking_barricade):
+	var selected: Dictionary=choose_enemy_target(creature)
+	if day_hunter and hero.alive:
+		selected={"kind":"hero","index":-1,"position":hero.position}
+	var target_kind: String=String(selected.get("kind","beacon"))
+	var target_pad: int=int(selected.get("index",-1)) if target_kind=="tower" else -1
+	var target_token: int=int(selected.get("token",-1))
+	var pursuing_hero: bool=target_kind=="hero"
+	var attacking_barricade: bool=target_kind=="barricade"
+	var selected_position: Vector3=selected.position
+	if creature.attack_queued and (String(creature.get_meta("attack_target_kind",""))!=target_kind or int(creature.get_meta("attack_target_index",-1))!=target_pad or int(creature.get_meta("attack_target_token",-1))!=target_token):
 		creature.attack_queued=false
 		creature.attack_windup=0
 	if phase=="day" and not pursuing_hero:
 		creature.moving=false
 		return
 	var lane: float=creature.get_meta("gate_lane",0.0)
-	var target:=hero.position if pursuing_hero else Vector3(0,NightfallWorld.FORT_HEIGHT,0)
-	if phase=="night" and not pursuing_hero and creature.position.z>19.5:
+	var target: Vector3=selected_position
+	var outer_sapper: bool=threat=="sapper" and target_kind=="tower" and String(world.tower_pads[target_pad].get("zone","outer"))!="core"
+	if phase=="night" and not pursuing_hero and target_kind=="barricade":
+		target=selected_position
+	elif phase=="night" and not pursuing_hero and outer_sapper and creature.position.z>19.5:
+		target=Vector3(signf(selected_position.x)*5.3,0,19.0)
+	elif phase=="night" and not pursuing_hero and target_kind=="tower" and creature.position.z<=19.5:
+		target=selected_position
+	elif phase=="night" and not pursuing_hero and creature.position.z>19.5:
 		target=Vector3(lane,0,19.0)
 	elif phase=="night" and not pursuing_hero and creature.position.z>5.1:
 		target=Vector3(lane,NightfallWorld.FORT_HEIGHT,4.4)
-	if phase=="night" and not pursuing_hero and threat=="sapper":
-		if target_pad>=0:
-			var pad_position: Vector3=world.tower_pads[target_pad].position
-			if creature.position.z>19.5:target=Vector3(signf(pad_position.x)*5.3,0,19.0)
-			else:target=pad_position
-		elif absf(creature.position.x)>3.7 and creature.position.z<19.5 and creature.position.z>7.5:
-			target=Vector3(signf(creature.position.x)*5.3,0,20.0)
-	if attacking_barricade:target=gate_barricade.position
+	var final_target: bool=target.distance_to(selected_position)<.2
 	var distance:=creature.position.distance_to(target)
-	var attacking_tower: bool=target_pad>=0 and target==world.tower_pads[target_pad].position
-	var reach:=creature.attack_range if pursuing_hero or target.z==0 or attacking_tower or attacking_barricade else .2
+	var attacking_tower: bool=target_kind=="tower" and final_target
+	var attacking_unit: bool=target_kind=="squad" and final_target
+	var reach:=creature.attack_range if pursuing_hero or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else .2
 	if distance>reach or (day_hunter and not can_traverse(creature.position,target)):
 		creature.attack_queued=false
 		creature.attack_windup=0
@@ -562,7 +568,13 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 				damage_tower(target_pad,creature.damage)
 			elif attacking_barricade:
 				damage_gate_barricade(creature.damage)
-			elif not pursuing_hero and target.z==0:
+			elif attacking_unit:
+				var victim:=selected.get("unit") as BattleUnit
+				if is_instance_valid(victim) and victim.alive:
+					victim.hurt(creature.damage,creature)
+					BattleVisuals.sparks(effects,victim.position+Vector3.UP,Color("ef9d76"),5)
+					BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
+			elif target_kind=="beacon" and final_target:
 				var previous_hp:=beacon_hp
 				beacon_hp=maxf(0,beacon_hp-creature.damage)
 				record_beacon_hit(previous_hp-beacon_hp)
@@ -577,8 +589,54 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			creature.attack_target_hero=pursuing_hero
 			creature.attack_target_pad=target_pad
 			creature.attack_target_barricade=attacking_barricade
+			creature.set_meta("attack_target_kind",target_kind)
+			creature.set_meta("attack_target_index",target_pad)
+			creature.set_meta("attack_target_token",target_token)
 			creature.windup_duration=.22 if creature.get_meta("threat","")=="runner" else (.55 if creature.get_meta("threat","")=="breaker" else .34)
 			creature.attack_windup=creature.windup_duration
+
+func choose_enemy_target(creature: BattleUnit) -> Dictionary:
+	# Night defenders share one target selector: the closest living hero,
+	# squad member, constructed tower, barricade, or beacon. Shield squads
+	# intercept before this function runs, so they remain the first line when
+	# ordered to hold; ranged members remain valid targets when exposed.
+	var beacon_position:=Vector3(0,NightfallWorld.FORT_HEIGHT,0)
+	var selected: Dictionary={"kind":"beacon","index":-1,"position":beacon_position}
+	var best:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(beacon_position.x,beacon_position.z))
+	if creature.get_meta("threat","")=="breaker" and gate_barricade_hp>0.0 and creature.position.z<=19.5:
+		var gate_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(gate_barricade.position.x,gate_barricade.position.z))
+		if gate_distance<6.0:
+			return {"kind":"barricade","index":-1,"position":gate_barricade.position}
+	if phase=="night" and hero.alive:
+		var hero_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(hero.position.x,hero.position.z))
+		if hero_distance<best:
+			best=hero_distance;selected={"kind":"hero","index":-1,"position":hero.position}
+	if is_instance_valid(squads):
+		for squad: Dictionary in squads.squads:
+			for member: BattleUnit in squad.members:
+				if not is_instance_valid(member) or not member.alive:continue
+				var member_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(member.position.x,member.position.z))
+				if member_distance<best:
+					best=member_distance
+					selected={"kind":"squad","index":-1,"token":member.get_instance_id(),"unit":member,"position":member.position}
+	for i in world.tower_pads.size():
+		var pad: Dictionary=world.tower_pads[i]
+		if int(pad.level)<=0 or float(pad.hp)<=0.0:continue
+		var pad_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(pad.position.x,pad.position.z))
+		if pad_distance<best:
+			best=pad_distance;selected={"kind":"tower","index":i,"position":pad.position}
+	if gate_barricade_hp>0.0:
+		var barricade_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(gate_barricade.position.x,gate_barricade.position.z))
+		if barricade_distance<best:
+			best=barricade_distance;selected={"kind":"barricade","index":-1,"position":gate_barricade.position}
+	if threat_is_tower_hunter(creature):
+		var tower_index:=south_tower_target(creature.position)
+		if tower_index>=0:
+			selected={"kind":"tower","index":tower_index,"position":world.tower_pads[tower_index].position}
+	return selected
+
+func threat_is_tower_hunter(creature: BattleUnit) -> bool:
+	return creature.get_meta("threat","")=="sapper"
 
 func day_hunter_waypoint(creature: BattleUnit, destination: Vector3) -> Vector3:
 	# Expedition pursuers follow the same gate geometry as the player.
@@ -619,7 +677,7 @@ func build_day_hunter_route(creature: BattleUnit, destination: Vector3) -> void:
 func south_tower_target(from: Vector3) -> int:
 	var selected:=-1
 	var nearest:=INF
-	for i in [1,2]:
+	for i in world.tower_pads.size():
 		var pad: Dictionary=world.tower_pads[i]
 		if pad.level<=0 or pad.hp<=0:continue
 		var distance: float=from.distance_squared_to(pad.position)
@@ -1343,18 +1401,19 @@ func interaction_prompt() -> String:
 	if nest_index>=0:
 		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 零件，减轻夜袭"
 	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 零件"
-	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
-		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
-	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:
 		var level: int=world.tower_pads[pad_index].level
-		if level==0:return "F  建造自动防御塔 · 消耗 %d 零件" % districts.tower_cost(TOWER_COSTS[0])
+		var zone_label: String="核心防线 · " if String(world.tower_pads[pad_index].get("zone","outer"))=="core" else ""
+		if level==0:return "F  %s建造自动防御塔 · 消耗 %d 零件" % [zone_label,districts.tower_cost(TOWER_COSTS[0])]
 		var mode_label: String="破城优先" if world.tower_pads[pad_index].mode=="breaker" else "最近目标"
 		var durability: String="%d/%d" % [ceili(world.tower_pads[pad_index].hp),ceili(world.tower_pads[pad_index].max_hp)]
 		var repair_hint: String=" · H 修复%d" % districts.repair_cost(20) if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
-		if level>=3:return "塔耐久 %s%s · G %s · 满级" % [durability,repair_hint,mode_label]
-		return "塔耐久 %s · F 升级%d%s · G %s" % [durability,districts.tower_cost(TOWER_COSTS[level]),repair_hint,mode_label]
+		if level>=3:return "%s塔耐久 %s%s · G %s · 满级" % [zone_label,durability,repair_hint,mode_label]
+		return "%s塔耐久 %s · F 升级%d%s · G %s" % [zone_label,durability,districts.tower_cost(TOWER_COSTS[level]),repair_hint,mode_label]
+	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
+		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
+	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
 	if near_squad_controls() and squads:
 		var squad_state: Dictionary=squads.snapshot()

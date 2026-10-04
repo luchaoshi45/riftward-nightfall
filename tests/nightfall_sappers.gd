@@ -37,10 +37,11 @@ func run() -> void:
 	assert(pad.hp<280.0 and pad.level==1)
 	game.damage_tower(1,130.0)
 	assert(pad.damage_ring.visible)
-	await frames(3)
-	await RenderingServer.frame_post_draw
-	var shot: Image=root.get_texture().get_image()
-	shot.save_png("res://tests/nightfall_sappers.png")
+	if DisplayServer.get_name()!="headless":
+		await frames(3)
+		await RenderingServer.frame_post_draw
+		var shot: Image=root.get_texture().get_image()
+		shot.save_png("res://tests/nightfall_sappers.png")
 	var damaged_hp: float=pad.hp
 	var old_scrap: int=game.scrap
 	var repair_key:=InputEventKey.new()
@@ -49,9 +50,10 @@ func run() -> void:
 	game._unhandled_input(repair_key)
 	assert(pad.hp==minf(pad.max_hp,damaged_hp+100.0))
 	assert(game.scrap==old_scrap-20 and not pad.damage_ring.visible)
-	await frames(2)
-	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://tests/nightfall_tower_repair.png")
+	if DisplayServer.get_name()!="headless":
+		await frames(2)
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png("res://tests/nightfall_tower_repair.png")
 	game.damage_tower(1,50.0)
 	game.scrap=0
 	var insufficient_hp: float=pad.hp

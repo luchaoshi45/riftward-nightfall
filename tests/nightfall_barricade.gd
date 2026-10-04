@@ -37,9 +37,10 @@ func run() -> void:
 	assert(game.gate_barricade_hp<old_hp and game.beacon_hp==game.BEACON_MAX)
 	game.damage_gate_barricade(350.0)
 	assert(game.gate_barricade_ring.material_override.albedo_color==Color("d35f54"))
-	await frames(2)
-	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://tests/nightfall_barricade.png")
+	if DisplayServer.get_name()!="headless":
+		await frames(2)
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png("res://tests/nightfall_barricade.png")
 	game.damage_gate_barricade(1000.0)
 	assert(game.gate_barricade_hp==0.0 and not game.gate_barricade.visible)
 	var old_z: float=creature.position.z

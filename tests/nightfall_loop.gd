@@ -24,7 +24,7 @@ func run() -> void:
 	game.spawn_nest_guards()
 	assert(game.phase=="day")
 	assert(game.world.salvage.size()==36)
-	assert(game.world.tower_pads.size()==8)
+	assert(game.world.tower_pads.size()==12)
 	assert(game.outpost_walkable(Vector3(115,0,95)))
 	assert(not game.outpost_walkable(Vector3(127,0,0)))
 	assert(not game.outpost_walkable(Vector3(0,0,-7.3)))
@@ -85,9 +85,14 @@ func run() -> void:
 	game.phase_time=.01
 	game.simulate(.03)
 	assert(game.phase=="night")
+	# Isolate the gate-ingress assertion from the constructed-defense targeting
+	# behavior exercised above: with no living towers, a wave must reach the
+	# south entrance before selecting the beacon.
+	for i in game.world.tower_pads.size():
+		if game.world.tower_pads[i].level>0:game.damage_tower(i,100000.0)
 	var route_test: BattleUnit=game.spawn_creature(true)
 	route_test.position=Vector3(8,0,22)
-	game.hero.position=Vector3(0,5.0,3.5)
+	game.hero.position=Vector3(80,5.0,80)
 	for step in range(80):game.update_creature(route_test,.1)
 	assert(route_test.position.z<7.3 and absf(route_test.position.x)<2.65,"Night wave must enter through south gate")
 	game.hero.position=Vector3(0,5.0,3.5)

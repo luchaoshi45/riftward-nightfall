@@ -271,7 +271,7 @@ func draw_music_credits() -> void:
 func draw_minimap() -> void:
 	var map_rect:=Rect2(1161,195,254,252)
 	box(map_rect,Color(.018,.034,.041,.88),Color("66624d"))
-	label("防御塔 %d/8  ·  通信塔 %d/8" % [game.tower_count(),game.relay_count()],Vector2(1174,218),13,ink)
+	label("防御塔 %d/%d  ·  通信塔 %d/8" % [game.tower_count(),game.world.tower_pads.size(),game.relay_count()],Vector2(1174,218),13,ink)
 	var center:=Vector2(1288,319)
 	var scale:=.86
 	draw_rect(Rect2(center-Vector2(108,89),Vector2(216,178)),Color(.075,.085,.079,.84))
@@ -302,7 +302,8 @@ func draw_minimap() -> void:
 			draw_arc(center+Vector2(p.x,p.z)*scale,7.0,0,TAU,12,Color("73384b"),1.2)
 	for pad in game.world.tower_pads:
 		var p: Vector3=pad.position
-		draw_circle(center+Vector2(p.x,p.z)*scale,3.2,Color("ed945b") if pad.level>0 and pad.mode=="breaker" else (amber if pad.level>0 else Color("697473")))
+		var pad_color: Color=Color("78d1c2") if String(pad.get("zone","outer"))=="core" else amber
+		draw_circle(center+Vector2(p.x,p.z)*scale,3.2,Color("ed945b") if pad.level>0 and pad.mode=="breaker" else (pad_color if pad.level>0 else Color("697473")))
 	if game.expeditions:
 		for site in game.expeditions.generators:
 			var p: Vector3=site.position
