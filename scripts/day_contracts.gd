@@ -6,12 +6,18 @@ const TITLES := {"salvage":"废墟补给", "generator":"能源交接", "escort":
 const REWARD_SCRAP := 30
 const REWARD_MEMORY := 8
 const EARLY_RETURN_SECONDS := 15.0
+const OFFER_RISK_SECONDS := [0.0, 8.0, 16.0]
+const OFFER_NAMES := ["稳妥路线", "加码路线", "孤注路线"]
 var game: Node3D
 var run_seed := 0
 var day_id := -1
 var kind := ""
 var status := "idle"
 var targets: Array[Dictionary] = []
+var offers: Array[Dictionary] = []
+var selected_offer := 0
+var progress_started := false
+var selected_reward := {"scrap": REWARD_SCRAP, "memory": REWARD_MEMORY, "risk_seconds": 0.0}
 var done: Dictionary = {}
 var pending_reward: Dictionary = {}
 var last_text := ""
@@ -27,8 +33,12 @@ func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	status = "idle"
 	kind = ""
 	targets.clear()
+	offers.clear()
+	selected_offer=0
+	progress_started=false
 	done.clear()
 	pending_reward.clear()
+	selected_reward={"scrap":REWARD_SCRAP,"memory":REWARD_MEMORY,"risk_seconds":0.0}
 	last_text = ""
 
 func candidates() -> Array[Dictionary]:
@@ -55,6 +65,18 @@ func candidates() -> Array[Dictionary]:
 func flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x-b.x, a.z-b.z).length()
 
+func seeded_order(values: Array, rng: RandomNumberGenerator) -> Array:
+	# Array.shuffle() uses the process-global RNG. Keep offers replayable for a
+	# run seed by drawing without replacement from the local RNG. Drawing from
+	# the front-sized pool also preserves the previous single-contract first
+	# draw, so old seeded runs keep their opening route.
+	var remaining: Array = values.duplicate()
+	var result: Array = []
+	while not remaining.is_empty():
+		var pick := rng.randi_range(0, remaining.size() - 1)
+		result.append(remaining.pop_at(pick))
+	return result
+
 func reachable_range(point: Vector3) -> bool:
 	return flat_distance(point, Vector3.ZERO) >= 16.0 and flat_distance(point, Vector3.ZERO) <= 45.0 and game.outpost_walkable(point)
 
@@ -64,30 +86,65 @@ func on_day() -> void:
 	day_id = int(game.day_number)
 	done.clear()
 	targets.clear()
+	offers.clear()
+	selected_offer=0
+	progress_started=false
 	pending_reward.clear()
 	kind = ""
 	var options := candidates()
 	if options.is_empty():
 		status = "unavailable"
 	else:
-		# Choose the category first: many salvage pairs must not drown out other types.
+		# Offer up to three distinct routes. The first keeps the old safe reward so
+		# existing runs remain predictable; later offers pay for taking a longer route.
 		var categories: Array[String] = []
 		for option in options:
 			if not categories.has(option.kind): categories.append(option.kind)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = run_seed + day_id * 7919
-		kind = categories[rng.randi_range(0, categories.size()-1)]
-		var matching: Array[Dictionary] = []
-		for option in options:
-			if option.kind == kind: matching.append(option)
-		var chosen: Dictionary = matching[rng.randi_range(0, matching.size()-1)]
-		for target: Dictionary in chosen.targets: targets.append(target)
+		var shuffled := seeded_order(categories, rng)
+		for offer_index in mini(3,shuffled.size()):
+			var offer_kind: String=shuffled[offer_index]
+			var matching: Array[Dictionary] = []
+			for option in options:
+				if option.kind == offer_kind: matching.append(option)
+			var chosen: Dictionary = matching[rng.randi_range(0, matching.size()-1)]
+			var offer: Dictionary=chosen.duplicate(true)
+			offer["risk"] = offer_index
+			offer["risk_seconds"] = OFFER_RISK_SECONDS[offer_index]
+			offer["name"] = OFFER_NAMES[offer_index]
+			offer["scrap"] = REWARD_SCRAP+offer_index*20
+			offer["memory"] = REWARD_MEMORY+offer_index*4
+			offers.append(offer)
+		_select_offer(0)
 		status = "active"
 	emit_progress()
 
 func on_night() -> void:
 	if status == "active": status = "expired"
 	emit_progress()
+
+func choose_offer(index: int) -> bool:
+	if game.phase!="day" or status!="active" or progress_started:return false
+	if index<0 or index>=offers.size():return false
+	_select_offer(index)
+	emit_progress()
+	return true
+
+func offer_summary(index: int) -> String:
+	if index < 0 or index >= offers.size(): return ""
+	var offer: Dictionary = offers[index]
+	var risk_seconds := int(offer.get("risk_seconds", 0.0))
+	var risk_text := "无额外截止" if risk_seconds <= 0 else "提前%d秒截止" % risk_seconds
+	return "%s · +%d零件/+%d记忆 · %s" % [String(offer.get("name", "方案%d" % (index + 1))), int(offer.get("scrap", REWARD_SCRAP)), int(offer.get("memory", REWARD_MEMORY)), risk_text]
+
+func _select_offer(index: int) -> void:
+	selected_offer=index
+	var offer: Dictionary=offers[index]
+	kind=String(offer.kind)
+	targets.clear()
+	for target: Dictionary in offer.targets:targets.append(target)
+	selected_reward={"scrap":int(offer.scrap),"memory":int(offer.memory),"risk_seconds":float(offer.get("risk_seconds", 0.0))}
 
 func tick(_delta: float) -> void:
 	if not is_instance_valid(game): return
@@ -96,6 +153,13 @@ func tick(_delta: float) -> void:
 		on_night()
 		return
 	if status != "active": return
+	var risk_seconds := float(selected_reward.get("risk_seconds", 0.0))
+	if risk_seconds <= 0.0 and selected_offer < offers.size():
+		risk_seconds = float(offers[selected_offer].get("risk_seconds", 0.0))
+	if done.size() < targets.size() and risk_seconds > 0.0 and game.phase_time <= risk_seconds:
+		status = "expired"
+		emit_progress()
+		return
 	for target in targets:
 		var source: Dictionary = target.source
 		var completed := false
@@ -105,10 +169,11 @@ func tick(_delta: float) -> void:
 			"escort": completed = source.state == "delivered"
 			"nest": completed = source.cleansed
 		if completed: done[int(target.index)] = true
+	if not done.is_empty():progress_started=true
 	if done.size() == targets.size() and returned_home():
 		status = "completed"
 		var early: bool = game.phase_time >= EARLY_RETURN_SECONDS
-		pending_reward = {"id":"day_contract_%d" % day_id, "day":day_id, "kind":kind, "scrap":REWARD_SCRAP + (10 if early else 0), "memory":REWARD_MEMORY, "early_return":early}
+		pending_reward = {"id":"day_contract_%d" % day_id, "day":day_id, "kind":kind, "scrap":int(selected_reward.scrap) + (10 if early else 0), "memory":int(selected_reward.memory), "early_return":early}
 	emit_progress()
 
 func returned_home() -> bool:
@@ -142,7 +207,9 @@ func progress_text() -> String:
 			instruction += " · 充能%d%%，清除来袭" % roundi(float(source.progress)/12.0*100.0)
 		elif kind == "escort" and source.state == "escort":
 			instruction += " · 哨兵跟随中"
-	return "可选 · %s %d/%d · %s · 日落前交回 +30零件/+8记忆，提前15秒再+10零件" % [TITLES[kind], done.size(), targets.size(), instruction]
+	var reward_text: String=offer_summary(selected_offer)
+	var switch_hint := " · 4/5/6 可换方案" if not progress_started and offers.size()>1 else (" · 方案已锁定" if progress_started else "")
+	return "可选 · 方案%d/%d · %s %d/%d · %s · %s · 日落前交回，提前15秒再+10零件%s" % [selected_offer+1,offers.size(),TITLES[kind], done.size(), targets.size(), instruction, reward_text, switch_hint]
 
 func emit_progress() -> void:
 	var value := progress_text()
