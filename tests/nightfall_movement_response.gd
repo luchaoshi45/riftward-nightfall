@@ -154,6 +154,28 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_RAISED_RAMP_SLIDE_OK")
 
+	# A slower render cadence must still advance smoothly up the raised ramp.
+	# The controller uses short terrain substeps so one long frame cannot
+	# reject the whole move when it reaches the ramp's wall corner.
+	reset_hero(Vector3(0, 0, 18.8), Vector3.FORWARD)
+	await key(KEY_Z, true)
+	var low_fps_min_step:=INF
+	var low_fps_zero_frames:=0
+	var low_fps_previous: Vector3=game.hero.position
+	for frame in 75:
+		game.simulate(1.0/30.0)
+		var low_fps_step: float=flat_distance(low_fps_previous,game.hero.position)
+		low_fps_min_step=minf(low_fps_min_step,low_fps_step)
+		if low_fps_step<.20:low_fps_zero_frames+=1
+		check(absf(game.hero.position.y-game.outpost_height(game.hero.position))<.001,
+			"Low-FPS raised-ramp movement must stay on the terrain profile")
+		low_fps_previous=game.hero.position
+	check(low_fps_min_step>.24,"Low-FPS raised-ramp movement must not lose a frame to corner collision")
+	check(low_fps_zero_frames<=1,"Low-FPS raised-ramp movement may not stall for consecutive frames")
+	await key(KEY_Z, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_RAMP_LOW_FPS_OK min_step=",low_fps_min_step)
+
 	# Actual right-click input retains its autonomous route after the user has
 	# released movement keys, and must enter by the only southern gateway.
 	reset_hero(Vector3(10, 0, 25))

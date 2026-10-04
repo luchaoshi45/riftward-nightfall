@@ -8,6 +8,7 @@ const ExplorationMotivationScript = preload("res://scripts/exploration_motivatio
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
+const HERO_MOVE_SUBSTEP := 0.08
 const WAVES_PER_NIGHT := 5
 const BEACON_MAX := 1200.0
 const TOWER_COSTS := [60,50,75]
@@ -772,9 +773,25 @@ func move_hero(delta: float) -> void:
 	var to_goal:=target-hero.position
 	to_goal.y=0
 	if to_goal.length()>.11:
-		var move:=to_goal.normalized()*minf(to_goal.length(),hero.speed*delta)
-		var next:=hero.position+move
-		if move_hero_position(next):
+		var direction:=to_goal.normalized()
+		var remaining:=minf(to_goal.length(),hero.speed*delta)
+		var moved_any:=false
+		# Split a long frame into short terrain steps. At a low or uneven
+		# render cadence one large step could cross the raised ramp's wall
+		# corner, making the controller reject the whole frame and feel sticky.
+		# The substeps keep the same total distance while preserving the
+		# existing wall-slide projection in move_hero_position().
+		while remaining>.0001:
+			var step_distance:=minf(remaining,HERO_MOVE_SUBSTEP)
+			var before:=hero.position
+			if not move_hero_position(before+direction*step_distance):break
+			var travelled: float=Vector2(before.x-hero.position.x,before.z-hero.position.z).length()
+			if travelled<step_distance*.999:
+				moved_any=travelled>.000001
+				break
+			moved_any=true
+			remaining-=step_distance
+		if moved_any:
 			hero.moving=true
 			hero.face(hero.position+to_goal.normalized(),delta)
 		else:
