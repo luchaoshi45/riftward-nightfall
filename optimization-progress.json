@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 42,
-  "latest_version": "0.8.32",
-  "latest_improvement": "高地侧墙点击修正、远景装饰迟滞裁剪与防御塔威胁优先模式",
-  "verification": "Godot 4.7.2 高地侧墙点击、输入合帧、移动响应、地形引导、塔威胁优先、塔模式、集火和主循环回归通过；Forward+移动基线完成远景装饰裁剪后复测，保留Mac实机性能边界，Windows成品仍为0.8.25"
+  "completed": 43,
+  "latest_version": "0.8.33",
+  "latest_improvement": "高地坡口与外侧墙边移动步长平滑",
+  "verification": "Godot 4.7.2 生产场景回归通过：坡口斜向进入庭院不再出现米级跳步，外侧高地右键绕门路线无连续零位移，低帧率、高地输入、点击取点、地形引导和主循环通过；Windows成品仍为0.8.25"
 }

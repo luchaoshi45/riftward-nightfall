@@ -989,9 +989,23 @@ func move_hero_position(next: Vector3) -> bool:
 	var requested_distance:=requested.length()
 	var unclamped_next:=next
 	next=hero_safe_destination(next)
-	var ramp_motion:=hero_ramp_motion(origin.z,unclamped_next.z)
+	var ramp_motion:=hero_ramp_motion(origin,unclamped_next)
 	var platform_x_clamped:=not is_equal_approx(next.x,unclamped_next.x)
 	var platform_z_clamped:=not is_equal_approx(next.z,unclamped_next.z)
+	# hero_safe_destination() can move a point to the far side of a retaining
+	# wall so the final destination is walkable. That correction must never be
+	# mistaken for requested movement: keep the candidate inside this frame's
+	# original substep and let the component/corner fallback resolve the wall.
+	var safe_delta:=Vector2(next.x-origin.x,next.z-origin.z)
+	if requested_distance>.0001 and safe_delta.length()>requested_distance+.0001:
+		# Preserve the direction of the safety correction (for example, easing
+		# inward from the ramp side wall) while limiting its length to this
+		# frame. Replacing it with the raw input vector would undo the visual
+		# clearance and push the mesh back into the retaining wall.
+		var safe_direction:=safe_delta.normalized()
+		next=Vector3(origin.x+safe_direction.x*requested_distance,origin.y,origin.z+safe_direction.y*requested_distance)
+		platform_x_clamped=not is_equal_approx(next.x,unclamped_next.x)
+		platform_z_clamped=not is_equal_approx(next.z,unclamped_next.z)
 	if not ramp_motion:
 		# A platform-wall clamp must never pull the hero backwards when the
 		# current frame is already at the safe edge. Keep that axis at the
@@ -1071,7 +1085,12 @@ func move_hero_position(next: Vector3) -> bool:
 		# though the ramp is immediately beyond it. Move inward first, then
 		# continue downhill as one short step so the player does not have to
 		# release the sideways key to enter the ramp.
-		var corner_escape:=raised_ramp_corner_escape(origin,delta,step_distance)
+		# `next` has already passed through hero_safe_destination(), which may
+		# move a point across the whole retaining-wall clearance band.  That
+		# correction is only a safety boundary, not a request to travel that
+		# distance in one frame.  Keep the corner escape bounded by the original
+		# substep so entering the courtyard cannot produce a visible jump.
+		var corner_escape:=raised_ramp_corner_escape(origin,delta,requested_distance)
 		if corner_escape.x<INF:
 			corner_escape.y=outpost_height(corner_escape)
 			hero.position=corner_escape
@@ -1123,8 +1142,12 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 			point.z=maxf(point.z,-HERO_FORT_SAFE_EDGE)
 	return point
 
-func hero_ramp_motion(origin_z: float, target_z: float) -> bool:
-	return (origin_z>HERO_RAMP_SAFE_START_Z-.75 and origin_z<18.6) or (target_z>HERO_RAMP_SAFE_START_Z-.75 and target_z<18.6)
+func hero_ramp_motion(origin: Vector3, target: Vector3) -> bool:
+	# The same z band also contains the outer ground beside the ramp.  Treating
+	# every point in that band as ramp motion makes a diagonal approach to the
+	# raised courtyard wall skip the normal tangent slide and lose most of a
+	# frame.  Only the walkable ramp corridor needs ramp-specific projection.
+	return ((origin.z>HERO_RAMP_SAFE_START_Z-.75 and origin.z<18.6) or (target.z>HERO_RAMP_SAFE_START_Z-.75 and target.z<18.6)) and (absf(origin.x)<3.9 or absf(target.x)<3.9)
 
 func hero_ramp_side_limit(z: float) -> float:
 	# Bring the visual clearance in over the raised platform lip. A hard

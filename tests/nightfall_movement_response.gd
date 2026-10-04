@@ -332,6 +332,32 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_RAISED_RAMP_LIP_OK")
 
+	# Approaching the courtyard from either side of the ramp must remain a
+	# bounded substep. The retaining-wall safety clamp used to move z directly
+	# to the 6.16 m clearance edge, producing a visible metre-sized hop on the
+	# second frame of this diagonal input.
+	for side in [-1.0, 1.0]:
+		reset_hero(Vector3(2.45 * side, 0, 7.55), Vector3(side, 0, -1).normalized())
+		var inward_keys := [KEY_D, KEY_Z] if side > 0 else [KEY_A, KEY_Z]
+		for code in inward_keys: await key(code, true)
+		var inward_previous: Vector3 = game.hero.position
+		var inward_max_step := 0.0
+		for frame in 24:
+			game.simulate(STEP)
+			var inward_step := flat_distance(inward_previous, game.hero.position)
+			inward_max_step = maxf(inward_max_step, inward_step)
+			check(inward_step > .05, "Ramp-to-courtyard diagonal entry must keep advancing on side %.0f" % side)
+			check(inward_step <= measured_speed * STEP + .012,
+				"Ramp-to-courtyard entry must not jump across the retaining-wall clearance on side %.0f" % side)
+			check(game.outpost_walkable(game.hero.position),
+				"Ramp-to-courtyard diagonal entry must stay on walkable terrain on side %.0f" % side)
+			inward_previous = game.hero.position
+		check(game.hero.position.z < 6.0,
+			"Ramp-to-courtyard diagonal entry must reach the lower courtyard edge on side %.0f" % side)
+		for code in inward_keys: await key(code, false)
+		game.simulate(STEP)
+		print("MOVEMENT_RAISED_RAMP_TO_COURTYARD_OK side=", side, " max_step=", inward_max_step)
+
 	# A slower render cadence must still advance smoothly up the raised ramp.
 	# The controller uses short terrain substeps so one long frame cannot
 	# reject the whole move when it reaches the ramp's wall corner.
@@ -407,6 +433,38 @@ func run() -> void:
 	await key(KEY_D, false)
 	game.simulate(STEP)
 	print("MOVEMENT_REAL_RIGHT_CLICK_SOUTH_GATE_OK")
+
+	# A route requested from the outer high-ground edge must use the same gate
+	# detour as a real click. This guards against reintroducing the old wall
+	# tangent oscillation when the requested line runs almost parallel to the
+	# retaining wall.
+	for side in [-1.0, 1.0]:
+		var outer_start := Vector3(5.9 * side, 0, 8.2)
+		reset_hero(outer_start)
+		var outer_goal := Vector3(5.7 * side, 0, -1.8)
+		game.plan_hero_path(outer_goal)
+		check(game.hero_path.size() >= 4,
+			"Outer high-ground route must detour through the gate on side %.0f" % side)
+		var outer_previous: Vector3 = game.hero.position
+		var outer_zero_frames := 0
+		var outer_max_step := 0.0
+		for frame in 360:
+			game.simulate(STEP)
+			var outer_step := flat_distance(outer_previous, game.hero.position)
+			outer_max_step = maxf(outer_max_step, outer_step)
+			if outer_step < .0001: outer_zero_frames += 1
+			else: outer_zero_frames = 0
+			check(game.can_traverse(outer_previous, game.hero.position),
+				"Outer high-ground route must not cross the retaining wall on side %.0f" % side)
+			check(outer_step < .18,
+				"Outer high-ground route must keep each movement step bounded on side %.0f" % side)
+			outer_previous = game.hero.position
+			if game.hero_path.is_empty(): break
+		check(game.hero_path.is_empty() and game.hero.position.distance_to(game.move_goal) < .25,
+			"Outer high-ground route must reach its target through the gate on side %.0f" % side)
+		check(outer_zero_frames <= 1,
+			"Outer high-ground route must not stall at the retaining wall on side %.0f" % side)
+		print("MOVEMENT_OUTER_HIGH_GROUND_ROUTE_OK side=", side, " max_step=", outer_max_step)
 
 	# A click on the north retaining wall can resolve to a point just inside the
 	# visual clearance band. The route must snap that endpoint to the reachable
