@@ -89,23 +89,31 @@ func interaction_prompt() -> String:
 	if camp_index>=0:return "F 接回%s · 日落前经南门返家" % camps[camp_index].scout_name
 	return ""
 
+func start_generator(index: int) -> bool:
+	if game.phase!="day" or index<0 or index>=generators.size():return false
+	var site: Dictionary=generators[index]
+	if site.state!="ready":return false
+	site.state="active";site.progress=0.0
+	site.ring.visible=true;site.lamp.light_energy=1.6
+	site.guards=spawn_ambush(site.position,3)
+	game.notify("发电机声响惊醒潜伏体 · 守住灯圈 12 秒并清除袭击",5)
+	return true
+
+func start_camp(index: int) -> bool:
+	if game.phase!="day" or index<0 or index>=camps.size():return false
+	var camp: Dictionary=camps[index]
+	if camp.state!="waiting":return false
+	camp.state="escort";camp.trail=[game.hero.position]
+	camp.guards=spawn_ambush(camp.position,2)
+	camp.label.text=camp.scout_name+"跟随中 · 返回灯塔"
+	game.notify(camp.recruit_line,5)
+	return true
+
 func interact() -> bool:
 	var index:=nearest_generator()
-	if index>=0:
-		var site: Dictionary=generators[index]
-		site.state="active";site.progress=0.0
-		site.ring.visible=true;site.lamp.light_energy=1.6
-		site.guards=spawn_ambush(site.position,3)
-		game.notify("发电机声响惊醒潜伏体 · 守住灯圈 12 秒并清除袭击",5)
-		return true
+	if index>=0:return start_generator(index)
 	index=nearest_camp()
-	if index>=0:
-		var camp: Dictionary=camps[index]
-		camp.state="escort";camp.trail=[game.hero.position]
-		camp.guards=spawn_ambush(camp.position,2)
-		camp.label.text=camp.scout_name+"跟随中 · 返回灯塔"
-		game.notify(camp.recruit_line,5)
-		return true
+	if index>=0:return start_camp(index)
 	return false
 
 func spawn_ambush(center: Vector3, count: int) -> Array[BattleUnit]:

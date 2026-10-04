@@ -157,6 +157,43 @@ func _select_offer(index: int) -> void:
 	for target: Dictionary in offer.targets:targets.append(target)
 	selected_reward={"scrap":int(offer.scrap),"memory":int(offer.memory),"risk_seconds":float(offer.get("risk_seconds", 0.0))}
 
+func active_target_interaction() -> Dictionary:
+	# The controller uses this read-only view before ordinary F actions. Keep
+	# the authoritative source dictionary so a nearby discovery or animal
+	# cannot steal the interaction for the marked contract target.
+	if not is_instance_valid(game) or game.phase!="day" or status!="active":return {}
+	if targets.is_empty() or done.size()>=targets.size():return {}
+	for target: Dictionary in targets:
+		var index:=int(target.get("index",-1))
+		if done.has(index):continue
+		var source: Dictionary=target.source
+		if target_finished(source):continue
+		var distance:=flat_distance(game.hero.position,target.position)
+		var range:=target_interaction_range(source)
+		if distance>range:continue
+		return {"kind":kind,"index":index,"source":source,"position":target.position,"state":String(source.get("state","")),"distance":distance}
+	return {}
+
+func target_finished(source: Dictionary) -> bool:
+	match kind:
+		"salvage":return bool(source.get("collected",false))
+		"generator","escort":return String(source.get("state","")) in ["complete","delivered"]
+		"nest":return bool(source.get("cleansed",false))
+	return false
+
+func target_interaction_range(source: Dictionary) -> float:
+	match kind:
+		"salvage":return 2.4
+		"generator":return 5.0 if String(source.get("state",""))=="active" else 3.4
+		"escort":return 3.4
+		"nest":return 3.6
+	return 0.0
+
+func mark_target_started() -> void:
+	if status!="active":return
+	progress_started=true
+	emit_progress()
+
 func tick(_delta: float) -> void:
 	if not is_instance_valid(game): return
 	if game.phase in ["paused", "draft"]: return

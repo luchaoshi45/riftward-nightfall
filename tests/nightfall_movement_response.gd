@@ -156,12 +156,63 @@ func run() -> void:
 	await key(KEY_S, true)
 	var ramp_start: Vector3=game.hero.position
 	for frame in 45: game.simulate(STEP)
-	check(game.hero.position.x<2.61 and game.hero.position.z>ramp_start.z+2.0, "Raised-ramp diagonal movement must slide along the side wall")
+	check(game.hero.position.x<2.25 and game.hero.position.z>ramp_start.z+2.0, "Raised-ramp diagonal movement must keep the hero mesh clear of the side wall while sliding")
 	check(flat_distance(game.hero.position,ramp_start)>5.7, "Raised-ramp wall sliding must preserve near-full movement speed")
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
+	reset_hero(Vector3(-2.45, 0, 10.5), Vector3(-1, 0, 1).normalized())
+	await key(KEY_A, true)
+	await key(KEY_S, true)
+	var left_ramp_start: Vector3=game.hero.position
+	for frame in 45: game.simulate(STEP)
+	check(game.hero.position.x>-2.25 and game.hero.position.z>left_ramp_start.z+2.0,
+		"Mirrored raised-ramp movement must keep the hero mesh clear of the west side wall")
+	check(flat_distance(game.hero.position,left_ramp_start)>5.7,
+		"Mirrored raised-ramp wall sliding must preserve near-full movement speed")
+	await key(KEY_A, false)
+	await key(KEY_S, false)
+	game.simulate(STEP)
 	print("MOVEMENT_RAISED_RAMP_SLIDE_OK")
+
+	# Entering the ramp straight on must ease the visual clearance in over
+	# several frames instead of snapping sideways at the platform lip.
+	reset_hero(Vector3(2.45, 0, 7.55), Vector3.FORWARD)
+	await key(KEY_S, true)
+	var lip_previous: Vector3 = game.hero.position
+	var lip_min_step := INF
+	var lip_max_side_step := 0.0
+	for frame in 24:
+		game.simulate(STEP)
+		var lip_step: Vector3 = game.hero.position-lip_previous
+		lip_min_step=minf(lip_min_step,flat_distance(lip_previous,game.hero.position))
+		lip_max_side_step=maxf(lip_max_side_step,absf(lip_step.x))
+		check(flat_distance(lip_previous,game.hero.position)>.05,
+			"Straight raised-ramp entry must keep advancing every frame")
+		lip_previous=game.hero.position
+	check(game.hero.position.z>10.0 and game.hero.position.x<2.25,
+		"Straight raised-ramp entry must reach the safe centre corridor")
+	check(lip_max_side_step<.10,
+		"Raised-ramp lip clearance must ease in without a sideways snap")
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_RAMP_LIP_SMOOTH_OK min_step=",lip_min_step," max_side_step=",lip_max_side_step)
+
+	# Once the hero leaves the ramp, the visual clearance must release so
+	# horizontal movement on the outer ground is not still constrained by it.
+	reset_hero(Vector3(2.2, 0, 18.45), Vector3(1, 0, 1).normalized())
+	await key(KEY_D, true)
+	await key(KEY_S, true)
+	var ramp_exit_start: Vector3 = game.hero.position
+	for frame in 24: game.simulate(STEP)
+	check(game.hero.position.z>20.5 and game.hero.position.x>3.2,
+		"Leaving the raised ramp must release the side clearance on outer ground")
+	check(flat_distance(game.hero.position,ramp_exit_start)>3.0,
+		"Leaving the raised ramp must preserve diagonal movement")
+	await key(KEY_D, false)
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_RAMP_EXIT_OK")
 
 	# At the elevated platform lip, the side wall and retaining wall form an
 	# L-shaped corner. Holding the diagonal toward the ramp must ease inward

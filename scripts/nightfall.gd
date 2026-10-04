@@ -9,6 +9,12 @@ const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
 const HERO_MOVE_SUBSTEP := 0.08
+# The hero mesh is wider than its selection ring. Keep its centre slightly
+# inside the raised ramp side walls so the cape and shoulders do not scrape the
+# retaining geometry while the input still slides at full speed.
+const HERO_RAMP_SIDE_CLEARANCE := 0.42
+const HERO_RAMP_SAFE_START_Z := 7.45
+const HERO_RAMP_SAFE_FULL_Z := 8.35
 const WAVES_PER_NIGHT := 5
 const BEACON_MAX := 1200.0
 const TOWER_COSTS := [60,50,75]
@@ -810,6 +816,21 @@ func move_hero_position(next: Vector3) -> bool:
 	# wall. Try both component orders first so a corner keeps its diagonal
 	# progress, then project the full step onto a free axis for a true slide.
 	var origin:=hero.position
+	var requested:=Vector2(next.x-origin.x,next.z-origin.z)
+	var requested_distance:=requested.length()
+	var unclamped_next:=next
+	next=hero_safe_destination(next)
+	if requested_distance>.0001 and not is_equal_approx(next.x,unclamped_next.x):
+		# Re-centering at the ramp edge must not turn a diagonal input into a
+		# visibly slower crawl. Preserve the requested step on the downhill
+		# tangent while applying the same inward correction in this frame.
+		# Use the tighter limit of the two ends. This keeps a downhill move
+		# inside the safe centre corridor instead of letting it jump back toward
+		# the wall as soon as it leaves the sloped section.
+		var limit:=minf(hero_ramp_side_limit(origin.z),hero_ramp_side_limit(unclamped_next.z))
+		var projected:=Vector3(clampf(origin.x,-limit,limit),origin.y,
+			origin.z+signf(requested.y)*requested_distance)
+		if can_traverse(origin,projected):next=projected
 	if can_traverse(origin,next):
 		next.y=outpost_height(next)
 		hero.position=next
@@ -871,6 +892,27 @@ func move_hero_position(next: Vector3) -> bool:
 	best.y=outpost_height(best)
 	hero.position=best
 	return true
+
+func hero_safe_destination(point: Vector3) -> Vector3:
+	# The raised south ramp is only 5.2 m wide between its side walls. The
+	# imported hero has a broader visual footprint than the gameplay ring, so a
+	# centre position at x=±2.6 visibly intersects the wall and feels sticky.
+	# Apply a small centre-only margin while crossing the sloped section; the
+	# physical walkable map remains unchanged for enemies, escorts and clicks.
+	if point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6:
+		var limit:=hero_ramp_side_limit(point.z)
+		point.x=clampf(point.x,-limit,limit)
+	return point
+
+func hero_ramp_side_limit(z: float) -> float:
+	# Bring the visual clearance in over the raised platform lip. A hard
+	# threshold at z=8 made the first frame on the ramp pull the hero sideways.
+	# Smoothstep keeps the correction below one visible movement step while
+	# retaining the full 0.42 m margin on the actual sloped section.
+	if z<=HERO_RAMP_SAFE_START_Z or z>=18.6:return 2.65
+	var blend:=clampf((z-HERO_RAMP_SAFE_START_Z)/(HERO_RAMP_SAFE_FULL_Z-HERO_RAMP_SAFE_START_Z),0.0,1.0)
+	blend=blend*blend*(3.0-2.0*blend)
+	return lerpf(2.65,2.65-HERO_RAMP_SIDE_CLEARANCE,blend)
 
 func raised_ramp_corner_escape(origin: Vector3, delta: Vector3, step_distance: float) -> Vector3:
 	if step_distance<=.0001 or delta.z<=.0001:return Vector3.INF
@@ -1531,8 +1573,25 @@ func gate_pressure() -> int:
 		if is_instance_valid(creature) and creature.alive and creature.position.z<22.0 and creature.position.z>0:count+=1
 	return count
 
+func contract_interaction_prompt(action: Dictionary) -> String:
+	var source: Dictionary=action.source
+	match contracts.kind:
+		"salvage":return "F 采集委托废料 · +%d 物资" % int(source.amount)
+		"generator":
+			if String(source.state)=="ready":return "F 启动指定发电机 · 守住灯区 12 秒"
+			var ratio:=clampf(float(source.progress)/12.0,0.0,1.0)
+			return "委托能源交接 · 充能 %d%% · %s" % [roundi(ratio*100.0),"清除来袭" if expeditions.guards_alive(source) else "守住灯区"]
+		"escort":
+			if String(source.state)=="waiting":return "F 接回指定哨兵 · 日落前经南门返家"
+			return "委托护送 · %s跟随中 · 返回灯塔" % String(source.scout_name)
+		"nest":
+			return "委托封巢 · 先清除夜巢守卫" if nest_guarded(source.position) else "F 封闭指定夜巢 · +90 零件"
+	return ""
+
 func interaction_prompt() -> String:
 	if phase!="day" and phase!="night":return ""
+	var contract_action:=contracts.active_target_interaction()
+	if not contract_action.is_empty():return contract_interaction_prompt(contract_action)
 	var expedition_prompt:=expeditions.interaction_prompt()
 	if expedition_prompt!="":return expedition_prompt
 	var discovery_prompt: String=discoveries.interaction_prompt()
@@ -1544,6 +1603,8 @@ func interaction_prompt() -> String:
 	var nest_index:=nearest_nest()
 	if nest_index>=0:
 		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 零件，减轻夜袭"
+	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
+		return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
 	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 零件"
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:
@@ -1558,7 +1619,6 @@ func interaction_prompt() -> String:
 	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
 		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
 	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
-	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
 	if near_squad_controls() and squads:
 		var squad_state: Dictionary=squads.snapshot()
 		if int(squad_state.count)<=0:
@@ -1577,39 +1637,83 @@ func _squads_all_holding(snapshot: Dictionary) -> bool:
 		if String(row.order)!="hold":return false
 	return true
 
+func interact_contract_target(action: Dictionary) -> bool:
+	var index:=int(action.index)
+	match contracts.kind:
+		"salvage":
+			var collected:=collect_salvage(index)
+			if collected:contracts.mark_target_started()
+			return collected
+		"generator":
+			if String(action.state)=="ready":
+				var started:=expeditions.start_generator(index)
+				if started:contracts.mark_target_started()
+				return started
+			# Consume F while the marked site is charging; never start a nearby
+			# unrelated action or restart the same generator.
+			return true
+		"escort":
+			if String(action.state)=="waiting":
+				var started:=expeditions.start_camp(index)
+				if started:contracts.mark_target_started()
+				return started
+			return true
+		"nest":
+			var sealed:=interact_nest(index)
+			if sealed:contracts.mark_target_started()
+			return sealed
+	return false
+
+func collect_salvage(index: int=-1) -> bool:
+	if index<0:index=nearest_salvage()
+	if index<0 or index>=world.salvage.size() or world.salvage[index].collected:return false
+	world.salvage[index].collected=true
+	world.salvage[index].respawn=SALVAGE_REFRESH
+	(world.salvage[index].node as Node3D).visible=false
+	var amount: int=world.salvage[index].amount
+	grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3,0.0,0.0,"salvage")
+	return true
+
+func interact_nest(index: int=-1) -> bool:
+	if index<0:index=nearest_nest()
+	if index<0 or index>=world.nests.size():return false
+	var nest: Dictionary=world.nests[index]
+	if nest.cleansed:return false
+	if nest_guarded(nest.position):
+		notify("先清除夜巢周围的守卫",2)
+		return false
+	nest.cleansed=true
+	var active_nest: Node3D=nest.node
+	var seal: Node3D=nest.sealed_node
+	seal.visible=true
+	var collapse:=create_tween()
+	collapse.tween_property(active_nest,"scale",Vector3.ONE*.02,.42).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	collapse.tween_callback(active_nest.hide)
+	var reveal:=create_tween()
+	reveal.tween_property(seal,"scale",Vector3.ONE,.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	create_tween().tween_property(nest.light,"light_energy",0.0,.4)
+	create_tween().tween_property(nest.sealed_light,"light_energy",.8,.6)
+	scrap+=90
+	BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
+	notify("夜巢已封闭 · +90 零件，今夜来袭减弱",4)
+	return true
+
 func interact() -> bool:
 	if phase!="day" and phase!="night":return false
+	var contract_action:=contracts.active_target_interaction()
+	if not contract_action.is_empty():return interact_contract_target(contract_action)
 	if expeditions.interaction_prompt()!="":return expeditions.interact()
 	if discoveries.interaction_prompt()!="":return discoveries.interact()
 	if wildlife.interaction_prompt()!="":return wildlife.interact()
 	var index:=nearest_salvage()
-	if index>=0:
-		world.salvage[index].collected=true
-		world.salvage[index].respawn=SALVAGE_REFRESH
-		(world.salvage[index].node as Node3D).visible=false
-		var amount: int=world.salvage[index].amount
-		grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3,0.0,0.0,"salvage")
-		return true
+	if index>=0:return collect_salvage(index)
 	var nest_index:=nearest_nest()
-	if nest_index>=0:
-		var nest: Dictionary=world.nests[nest_index]
-		if nest_guarded(nest.position):
-			notify("先清除夜巢周围的守卫",2)
-			return false
-		nest.cleansed=true
-		var active_nest: Node3D=nest.node
-		var seal: Node3D=nest.sealed_node
-		seal.visible=true
-		var collapse:=create_tween()
-		collapse.tween_property(active_nest,"scale",Vector3.ONE*.02,.42).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-		collapse.tween_callback(active_nest.hide)
-		var reveal:=create_tween()
-		reveal.tween_property(seal,"scale",Vector3.ONE,.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		create_tween().tween_property(nest.light,"light_energy",0.0,.4)
-		create_tween().tween_property(nest.sealed_light,"light_energy",.8,.6)
-		scrap+=90
-		BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
-		notify("夜巢已封闭 · +90 零件，今夜来袭减弱",4)
+	if nest_index>=0:return interact_nest(nest_index)
+	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
+		scrap-=beacon_repair_cost()
+		beacon_hp=minf(BEACON_MAX,beacon_hp+150)
+		BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),3.5,Color("ffb861"),.45)
+		notify("灯塔外壳已修复 · +150 耐久")
 		return true
 	var relay_index:=nearest_relay()
 	if relay_index>=0:
@@ -1639,12 +1743,6 @@ func interact() -> bool:
 			return true
 		if level<3:notify("零件不足 · 需要 %d" % tower_cost,2)
 		return false
-	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
-		scrap-=beacon_repair_cost()
-		beacon_hp=minf(BEACON_MAX,beacon_hp+150)
-		BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),3.5,Color("ffb861"),.45)
-		notify("灯塔外壳已修复 · +150 耐久")
-		return true
 	return false
 
 func skill_status(slot: int) -> String:
