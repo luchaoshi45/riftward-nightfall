@@ -175,6 +175,37 @@ func run() -> void:
 	game.simulate(STEP)
 	print("MOVEMENT_RAISED_RAMP_SLIDE_OK")
 
+	# The raised courtyard's east/west and north retaining walls need the same
+	# visual clearance as the ramp. A diagonal move along the east wall should
+	# keep advancing on the courtyard plane instead of scraping the wall edge.
+	reset_hero(Vector3(6.0, 0, -4.0), Vector3(1, 0, 1).normalized())
+	await key(KEY_D, true)
+	await key(KEY_S, true)
+	var courtyard_wall_start: Vector3 = game.hero.position
+	for frame in 45: game.simulate(STEP)
+	check(game.hero.position.x < game.HERO_FORT_SAFE_EDGE + .03,
+		"Raised courtyard movement must keep the hero mesh clear of the east retaining wall")
+	check(game.hero.position.z > courtyard_wall_start.z + 2.0,
+		"Raised courtyard wall sliding must preserve forward travel")
+	check(flat_distance(game.hero.position,courtyard_wall_start) > 5.7,
+		"Raised courtyard wall sliding must preserve near-full movement speed")
+	await key(KEY_D, false)
+	await key(KEY_S, false)
+	game.simulate(STEP)
+	reset_hero(Vector3(-4.0, 0, -6.0), Vector3(1, 0, -1).normalized())
+	await key(KEY_D, true)
+	await key(KEY_Z, true)
+	var north_wall_start: Vector3 = game.hero.position
+	for frame in 45: game.simulate(STEP)
+	check(game.hero.position.z > -game.HERO_FORT_SAFE_EDGE - .03,
+		"Raised courtyard movement must keep the hero mesh clear of the north retaining wall")
+	check(game.hero.position.x > north_wall_start.x + 2.0,
+		"Raised courtyard north-wall sliding must preserve lateral travel")
+	await key(KEY_D, false)
+	await key(KEY_Z, false)
+	game.simulate(STEP)
+	print("MOVEMENT_RAISED_COURTYARD_WALLS_OK")
+
 	# Entering the ramp straight on must ease the visual clearance in over
 	# several frames instead of snapping sideways at the platform lip.
 	reset_hero(Vector3(2.45, 0, 7.55), Vector3.FORWARD)

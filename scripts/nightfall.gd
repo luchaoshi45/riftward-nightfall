@@ -15,6 +15,11 @@ const HERO_MOVE_SUBSTEP := 0.08
 const HERO_RAMP_SIDE_CLEARANCE := 0.42
 const HERO_RAMP_SAFE_START_Z := 7.45
 const HERO_RAMP_SAFE_FULL_Z := 8.35
+# Keep the hero's visual footprint away from the raised courtyard retaining
+# walls as well as the south ramp walls. The gameplay wall remains at 6.5 m;
+# this centre-only margin prevents the cape and shoulders from scraping it.
+const HERO_FORT_WALL_CLEARANCE := 0.34
+const HERO_FORT_SAFE_EDGE := 6.5 - HERO_FORT_WALL_CLEARANCE
 const WAVES_PER_NIGHT := 5
 const BEACON_MAX := 1200.0
 const TOWER_COSTS := [60,50,75]
@@ -820,7 +825,33 @@ func move_hero_position(next: Vector3) -> bool:
 	var requested_distance:=requested.length()
 	var unclamped_next:=next
 	next=hero_safe_destination(next)
-	if requested_distance>.0001 and not is_equal_approx(next.x,unclamped_next.x):
+	var ramp_motion:=hero_ramp_motion(origin.z,unclamped_next.z)
+	var platform_x_clamped:=not is_equal_approx(next.x,unclamped_next.x)
+	var platform_z_clamped:=not is_equal_approx(next.z,unclamped_next.z)
+	if not ramp_motion:
+		# A platform-wall clamp must never pull the hero backwards when the
+		# current frame is already at the safe edge. Keep that axis at the
+		# current position and let the other component slide along the wall.
+		# Without this guard, entering the south/north wall band alternates
+		# between 6.16 and 6.5 m and feels like a terrain snag.
+		# Once the centre has entered the small visual-clearance band, however,
+		# the correction is intentional: it moves the centre back into the safe
+		# corridor so the cape can clear the retaining wall. Without this
+		# exception the north wall leaves the hero parked at z=-6.495 forever.
+		var x_clearance_correction:=not is_equal_approx(next.x,unclamped_next.x) and absf(origin.x)>HERO_FORT_SAFE_EDGE
+		var z_clearance_correction:=not is_equal_approx(next.z,unclamped_next.z) and absf(origin.z)>HERO_FORT_SAFE_EDGE
+		if requested.x*(next.x-origin.x)<-.0001 and not x_clearance_correction:next.x=origin.x
+		if requested.y*(next.z-origin.z)<-.0001 and not z_clearance_correction:next.z=origin.z
+		# Preserve the full normalized input step on the free tangent. Without
+		# this projection, the clamped diagonal vector is shorter by sqrt(1/2)
+		# and the hero visibly slows while sliding beside a high-ground wall.
+		if requested_distance>.0001 and platform_x_clamped and absf(requested.y)>.0001 and not platform_z_clamped:
+			var tangent_z:=Vector3(origin.x,origin.y,origin.z+signf(requested.y)*requested_distance)
+			if can_traverse(origin,tangent_z):next=tangent_z
+		elif requested_distance>.0001 and platform_z_clamped and absf(requested.x)>.0001 and not platform_x_clamped:
+			var tangent_x:=Vector3(origin.x+signf(requested.x)*requested_distance,origin.y,origin.z)
+			if can_traverse(origin,tangent_x):next=tangent_x
+	if ramp_motion and requested_distance>.0001 and not is_equal_approx(next.x,unclamped_next.x):
 		# Re-centering at the ramp edge must not turn a diagonal input into a
 		# visibly slower crawl. Preserve the requested step on the downhill
 		# tangent while applying the same inward correction in this frame.
@@ -902,7 +933,24 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 	if point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6:
 		var limit:=hero_ramp_side_limit(point.z)
 		point.x=clampf(point.x,-limit,limit)
+	# The raised courtyard has three solid retaining walls. Apply the same
+	# centre-only clearance there, but leave the central south gate open so the
+	# player can transition onto the ramp without a second hard stop. The two
+	# passes handle a diagonal step that first enters the south wall band and
+	# then reaches an east/west wall corner in the same frame.
+	for _pass in 2:
+		if absf(point.z)<6.5:
+			point.x=clampf(point.x,-HERO_FORT_SAFE_EDGE,HERO_FORT_SAFE_EDGE)
+		if absf(point.x)<2.65 and point.z>HERO_FORT_SAFE_EDGE and point.z<8.1:
+			continue
+		if absf(point.x)<6.5 and point.z>=HERO_FORT_SAFE_EDGE and point.z<8.1:
+			point.z=minf(point.z,HERO_FORT_SAFE_EDGE)
+		if absf(point.x)<6.5 and point.z>=-8.1 and point.z<=-HERO_FORT_SAFE_EDGE:
+			point.z=maxf(point.z,-HERO_FORT_SAFE_EDGE)
 	return point
+
+func hero_ramp_motion(origin_z: float, target_z: float) -> bool:
+	return (origin_z>HERO_RAMP_SAFE_START_Z-.75 and origin_z<18.6) or (target_z>HERO_RAMP_SAFE_START_Z-.75 and target_z<18.6)
 
 func hero_ramp_side_limit(z: float) -> float:
 	# Bring the visual clearance in over the raised platform lip. A hard
@@ -1030,7 +1078,11 @@ func segment_crosses_wall(origin: Vector2, direction: Vector2, block: Rect2) -> 
 			var first: float=(low-origin[axis])/direction[axis]
 			var last: float=(high-origin[axis])/direction[axis]
 			enter=maxf(enter,minf(first,last));leave=minf(leave,maxf(first,last))
-			if enter>=leave:return false
+			# Reject an intersection interval that lies entirely before or after
+			# this movement segment. The previous check only compared the two
+			# slab values, so a diagonal step beside the south gate could be
+			# mistaken for crossing a side wall and freeze at the raised lip.
+			if enter>=leave or leave<=0.0 or enter>=1.0:return false
 	return leave>0 and enter<1
 
 func update_towers(delta: float) -> void:
