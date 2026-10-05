@@ -55,7 +55,7 @@ func run() -> void:
 	for offer_index in module.offers.size():
 		var left: Dictionary = module.offers[offer_index]
 		var right: Dictionary = replay.offers[offer_index]
-		assert(left.kind == right.kind and left.targets[0].index == right.targets[0].index and left.scrap == right.scrap and left.memory == right.memory,
+		assert(left.kind == right.kind and left.targets[0].index == right.targets[0].index and left.scrap == right.scrap and not left.has("memory") and not right.has("memory"),
 			"Same run seed must reproduce each contract offer, reward and target")
 	if module.offers.size() > 1:
 		var first_kind := module.kind
@@ -154,7 +154,7 @@ func run() -> void:
 		assert(module.status == "completed")
 		var after_action_scrap: int = game.scrap
 		var reward := module.take_reward_request()
-		assert(reward.scrap == (30 if category == "generator" else 40) and reward.memory == 8 and reward.day == 2)
+		assert(reward.scrap == (38 if category == "generator" else 48) and not reward.has("memory") and reward.day == 2)
 		assert(game.scrap == after_action_scrap, "Module must request, never silently apply rewards")
 		assert(game.scrap >= original_scrap)
 		for repeat in 3:
@@ -213,7 +213,7 @@ func run() -> void:
 	var bonus_reward:=bonus_test.take_reward_request()
 	assert(bonus_test.status == "completed" and bool(bonus_reward.get("bonus",false)))
 	assert(bonus_reward.scrap == int(bonus_test.selected_reward.scrap)+10+int(bonus.scrap))
-	assert(bonus_reward.memory == int(bonus_test.selected_reward.memory)+int(bonus.memory))
+	assert(not bonus_reward.has("memory") and not bonus.has("memory"))
 	bonus_test.queue_free()
 	module.setup(game, 9)
 	module.on_day()

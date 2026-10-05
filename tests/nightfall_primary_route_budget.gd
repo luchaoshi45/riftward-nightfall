@@ -134,7 +134,7 @@ func read_state() -> Dictionary:
 		sources.append({"state": source.get("state", ""), "progress": source.get("progress", 0.0),
 			"collected": source.get("collected", false), "cleansed": source.get("cleansed", false), "respawn": source.get("respawn", 0.0)})
 	return {"done": game.contracts.done.duplicate(true), "sources": sources, "status": game.contracts.status,
-		"offer": game.contracts.selected_offer, "kind": game.contracts.kind, "scrap": game.scrap, "memory": game.essence,
+		"offer": game.contracts.selected_offer, "kind": game.contracts.kind, "scrap": game.scrap,
 		"pending": game.contracts.pending_reward.duplicate(true), "clock": game.phase_time}
 
 func assert_text_width(value: Dictionary, offer_index: int = -1) -> void:

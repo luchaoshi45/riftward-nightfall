@@ -1,11 +1,11 @@
 class_name RunBuild
 extends RefCounted
-## Run-local deterministic drafting. No equipment, paid pulls or permanent power.
+## Run-local deterministic drafting. Upgrades share the construction scrap budget.
 const SCHOOLS := ["强袭", "秘术", "守御"]
 const COLORS := [Color("e4ac67"),Color("79c9ef"),Color("7ac7ad")]
 const RARITIES := ["基础", "稀有", "传奇"]
 const OPENING_SOURCE := "守夜者的第一段记忆"
-const MEMORY_COSTS := [200, 450, 750, 1100, 1500, 2000]
+const MEMORY_COSTS := [120, 180, 260, 360, 500, 680]
 const CORE_CARDS := [
 	{"id":"core_storm","name":"雷斩 · 第三剑","school":0,"rarity":0,"cap":1,"desc":"第三次有效普攻向附近最多两敌跳电，\n造成 30% 攻击伤害。\n保持走位普攻，清理南门杂兵。","stat":"core_storm","value":1.0,"core":true},
 	{"id":"core_flame","name":"灯焰 · 灼印","school":1,"rarity":0,"cap":1,"desc":"Q 留下持续 4 秒的灼印；\nR 消耗灼印，额外造成 60 伤害。\n先斩光标记，再灯焰引爆。","stat":"core_flame","value":1.0,"core":true},
@@ -93,6 +93,12 @@ func register_memory_upgrade() -> int:
 	var paid_cost: int = memory_cost()
 	memory_level += 1
 	return paid_cost
+
+func has_available_upgrade() -> bool:
+	# Affordability and previews must not draw cards or consume the seeded stream.
+	for card: Dictionary in CARDS:
+		if count(card.id) < int(card.cap):return true
+	return false
 
 func school_count(school: int) -> int:
 	var total:=0

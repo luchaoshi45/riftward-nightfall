@@ -1,6 +1,6 @@
 class_name WildDiscoveries
 extends Node3D
-## Short excursions: choose recovery, memory, supplies, or a temporary safe light.
+## Short excursions: choose recovery, supplies, or a temporary safe light.
 const ITEM_COUNT := 18
 const Layout := preload("res://scripts/outpost_layout.gd")
 const USE_RADIUS := 3.2
@@ -14,7 +14,7 @@ const MIN_SPACING := 4.8
 const MOTIVATION_REFRESH_SECONDS := 0.28
 const MOTIVATION_CELL_SIZE := 2.0
 const KINDS := ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]
-const TITLES := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"遗落补给箱", "waylight":"引路灯碑"}
+const TITLES := {"ember_bloom":"余烬花", "memory_crystal":"余烬晶簇", "supply_cache":"遗落补给箱", "waylight":"引路灯碑"}
 const COLORS := {"ember_bloom":Color("ffb26b"), "memory_crystal":Color("82c8ff"), "supply_cache":Color("e4b47a"), "waylight":Color("94ead3")}
 
 var game: Node3D
@@ -169,8 +169,8 @@ func interaction_prompt() -> String:
 	if index<0:return ""
 	match items[index].kind:
 		"ember_bloom":return "F 采集余烬花 · +12 零件，恢复 70 生命"
-		"memory_crystal":return "F 吸收记忆晶簇 · +12 记忆，恢复 45 法力"
-		"supply_cache":return "F 开启补给箱 · 守住 3 秒，+40 零件、+6 记忆"
+		"memory_crystal":return "F 采集余烬晶簇 · +12 零件，恢复 45 法力"
+		"supply_cache":return "F 开启补给箱 · 守住 3 秒，+46 零件"
 		"waylight":return "F 点亮引路灯碑 · 30 秒护盾灯区"
 	return ""
 
@@ -199,15 +199,15 @@ func interact_index(index: int) -> bool:
 			item.state="active";item.remaining=WAYLIGHT_SECONDS;item.feedback_time=1.6
 			item.field.visible=true
 			_refresh_motivation_lights()
-			game.grant_exploration_reward("引路灯碑点亮",item.position,0,0,0.0,0.0,"waylight")
+			game.grant_exploration_reward("引路灯碑点亮",item.position,0,0.0,0.0,"waylight")
 			apply_waylight(item)
 			update_lights()
 		"ember_bloom":
 			begin_cooling(item,rng.randf_range(45,65))
-			game.grant_exploration_reward("余烬花",item.position,12,0,70.0,0.0,"ember_bloom")
+			game.grant_exploration_reward("余烬花",item.position,12,70.0,0.0,"ember_bloom")
 		"memory_crystal":
 			begin_cooling(item,rng.randf_range(45,65))
-			game.grant_exploration_reward("记忆晶簇",item.position,0,12,0.0,45.0,"memory_crystal")
+			game.grant_exploration_reward("余烬晶簇",item.position,12,0.0,45.0,"memory_crystal")
 	return true
 
 func begin_cooling(item: Dictionary, seconds: float) -> void:
@@ -251,7 +251,7 @@ func tick(delta: float) -> void:
 					item.progress=minf(CHANNEL_SECONDS,float(item.progress)+delta)
 					if item.progress>=CHANNEL_SECONDS:
 						begin_cooling(item,rng.randf_range(45,65))
-						game.grant_exploration_reward("遗落补给箱",item.position,40,6,0.0,0.0,"supply_cache")
+						game.grant_exploration_reward("遗落补给箱",item.position,46,0.0,0.0,"supply_cache")
 			"active":
 				item.remaining=maxf(0.0,float(item.remaining)-delta)
 				if item.remaining<=0:begin_cooling(item,50.0)

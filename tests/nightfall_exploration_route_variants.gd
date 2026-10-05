@@ -38,11 +38,11 @@ func run() -> void:
 	first.reset_run();first.begin_day(1)
 	for index in 3:
 		var partial: Dictionary=first.record(first.route_order[index],Vector3.ZERO,"day")
-		check(not first.full_set_claimed and partial.scrap<40,"The full-set reward must wait for all four route types")
+		check(not first.full_set_claimed and partial.scrap<52 and not partial.has("memory"),"The full-set reward must wait for all four route types")
 	var completed: Dictionary=first.record(first.route_order[3],Vector3.ZERO,"day")
-	check(first.full_set_claimed and completed.scrap==40 and completed.memory==12,"Any seeded route order must award the full set once")
+	check(first.full_set_claimed and completed.scrap==52 and not completed.has("memory"),"Any seeded route order must award the full set once")
 	var repeat: Dictionary=first.record(first.route_order[0],Vector3.ZERO,"day")
-	check(repeat.scrap<40 and repeat.memory<12,"Repeating a route type must not replay the full-set reward")
+	check(repeat.scrap<52 and not repeat.has("memory"),"Repeating a route type must not replay the full-set reward")
 
 	# Production wiring passes the real RunBuild seed and P guidance follows the
 	# current route order rather than the constant declaration order.

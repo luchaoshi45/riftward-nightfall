@@ -558,8 +558,9 @@ func draw_squads() -> void:
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
 	if int(memory.pending)>0:
-		return "V / 点击铭刻%d张 · 下张差%d记忆" % [int(memory.pending),int(memory.shortfall)]
-	return "下一张强化还差 %d 记忆" % int(memory.shortfall)
+		return "V / 点击领取%d张 · 下张%d零件" % [int(memory.pending),int(memory.cost)]
+	if not bool(memory.available):return "当前强化已全部铭刻"
+	return "V 铭刻%d零件 · 还差%d" % [int(memory.cost),int(memory.shortfall)]
 
 func growth_lines(snapshot: Dictionary) -> Array[String]:
 	var tower: Dictionary=snapshot.tower
@@ -593,7 +594,7 @@ func draw_exploration_rewards() -> void:
 	var collected: int=game.exploration_count%5
 	for i in 5:
 		draw_circle(Vector2(49+i*20,272),4.5,Color("e8bc70") if i<collected else Color("3f5b55"))
-	label("%d/5 · +35零件 +20记忆" % collected,Vector2(151,277),12,amber)
+	label("%d/5 · +55零件" % collected,Vector2(151,277),12,amber)
 	label("荧光互动点 %d · 采集后会刷新" % ready,Vector2(43,298),11,muted)
 	if game.exploration:
 		label(game.exploration.route_text(),Vector2(43,317),11,amber if game.exploration.streak>1 else Color("a3c7b7"))
@@ -649,7 +650,7 @@ func draw_draft() -> void:
 		var lines:=String(card.desc).split("\n")
 		for j in range(lines.size()):label(lines[j],rect.position+Vector2(23,168+j*29),15,muted)
 		label("按 %d / 点击 铭刻" % (i+1),rect.position+Vector2(22,330),16,amber)
-	label("世界已暂停 · 开局/黎明选卡，战斗记忆按 V 铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
+	label("世界已暂停 · 开局/黎明赠卡，V 消耗零件铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
 
 func draw_result() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.005,.012,.020,.71))
@@ -723,7 +724,7 @@ func _gui_input(event: InputEvent) -> void:
 				for index in CleanHud.TAB_IDS.size():
 					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
 			if game.phase in ["day","night"]:
-				if MEMORY_BUTTON_RECT.has_point(point) and game.run.pending>0:game.request_upgrade();accept_event();return
+				if MEMORY_BUTTON_RECT.has_point(point):game.request_upgrade();accept_event();return
 				if game.construction.active:
 					for index in 3:
 						if construction_kind_rect(index).has_point(point):game.construction.select_kind(["tower","barracks","workshop"][index]);accept_event();return

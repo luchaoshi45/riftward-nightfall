@@ -116,7 +116,7 @@ func nearest() -> int:
 func interaction_prompt() -> String:
 	var index:=nearest()
 	if index<0:return ""
-	return "F 抚触荧角鹿 · 恢复生命，获得 90 护盾与记忆" if animals[index].kind=="stag" else "F 与苔背甲虫交换 · 20 零件换法力、生命与记忆"
+	return "F 抚触荧角鹿 · +6 零件，恢复生命与 90 护盾" if animals[index].kind=="stag" else "F 与苔背甲虫交换 · 花费 20 零件，获得恢复与 8 零件"
 
 func interact() -> bool:
 	var index:=nearest()
@@ -125,17 +125,17 @@ func interact() -> bool:
 	if animal.kind=="beetle" and game.scrap<BEETLE_COST:
 		game.notify("甲虫需要 20 零件 · 当前材料不足",2)
 		return true
-	# Consume the encounter before reward callbacks can open a draft.
+	# Consume the encounter before reward callbacks can trigger another action.
 	animal.state="leaving";animal.timer=3.0;animal.refresh=REFRESH_SECONDS
 	animal.label.visible=false
 	if animal.kind=="stag":
 		game.hero.shield=maxf(game.hero.shield,90.0)
 		game.hero.shield_time=maxf(game.hero.shield_time,10.0)
-		game.grant_exploration_reward("荧角鹿的祝福 · 90 护盾",animal.position,0,6,60,0,"wildlife_stag")
+		game.grant_exploration_reward("荧角鹿的祝福 · 90 护盾",animal.position,6,60,0,"wildlife_stag")
 		BattleVisuals.burst(game.effects,animal.position,2.8,Color("75d4eb"),.65)
 	else:
 		game.scrap-=BEETLE_COST
-		game.grant_exploration_reward("苔背甲虫交换",animal.position,0,8,40,80,"wildlife_beetle")
+		game.grant_exploration_reward("苔背甲虫交换",animal.position,8,40,80,"wildlife_beetle")
 		BattleVisuals.burst(game.effects,animal.position,2.3,Color("d2d083"),.65)
 	return true
 

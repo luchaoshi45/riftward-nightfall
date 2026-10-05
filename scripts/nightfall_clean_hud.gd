@@ -113,7 +113,7 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.label("零件 %d" % int(game.scrap),Vector2(1097,45),18,ui.ink)
 	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1246,44),14,ui.red if threatened else ui.amber)
 	ui.progress(Rect2(1097,56,302,5),float(game.beacon_hp)/float(game.BEACON_MAX),ui.red if threatened else ui.amber)
-	ui.label("记忆 %d/%d" % [int(game.essence),game.run.memory_cost()],Vector2(1097,79),14,ui.muted)
+	ui.label("铭刻 %d零件" % game.run.memory_cost(),Vector2(1097,79),14,ui.muted)
 	if threatened:ui.label("受击 -%d" % ceili(float(game.beacon_alarm_damage)),Vector2(1286,79),13,ui.red)
 	elif int(game.run.pending)>0:ui.label("可铭刻 %d 张" % int(game.run.pending),Vector2(1286,79),13,GREEN)
 
@@ -132,10 +132,14 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		ui.label(names[index],Vector2(x+11,834),14,ui.ink)
 		ui.label(status,Vector2(x+11,858),13,tint)
 	var pending:=int(game.run.pending)
-	ui.box(MEMORY_RECT,Color(.034,.069,.060,.94),ui.amber if pending>0 else Color("527568"))
-	ui.label("V 铭刻",Vector2(1125,828),16,ui.amber if pending>0 else ui.muted)
-	var memory_text:="可选%d张" % pending if pending>0 else "还差%d记忆" % maxi(0,game.run.memory_cost()-int(game.essence))
-	_paragraph(ui,memory_text,Vector2(1117,853),86,13,GREEN if pending>0 else ui.muted,18,2)
+	var available: bool=game.run.has_available_upgrade()
+	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
+	var ready: bool=pending>0 or affordable
+	ui.box(MEMORY_RECT,Color(.034,.069,.060,.94),ui.amber if ready else Color("527568"))
+	ui.label("V 铭刻",Vector2(1125,828),16,ui.amber if ready else ui.muted)
+	var memory_text:="可选%d张" % pending if pending>0 else ("%d零件" % game.run.memory_cost() if affordable else "差%d零件" % maxi(0,game.run.memory_cost()-int(game.scrap)))
+	if pending<=0 and not available:memory_text="强化已满"
+	_paragraph(ui,memory_text,Vector2(1117,853),86,13,GREEN if ready else ui.muted,18,2)
 
 static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var open:=String(ui.get("detail_tab")) in TAB_IDS
@@ -165,7 +169,7 @@ static func _draw_active_tags(ui: Control, game: Node3D) -> void:
 	var labels: Array[String]=[]
 	if int(exploration.streak)>0 and float(exploration.streak_time)>0.0:
 		labels.append("换类%d连 · %.0f秒" % [int(exploration.streak),ceilf(float(exploration.streak_time))])
-	if exploration.affinity_active():labels.append("共鸣 +8记忆 · %.0f秒" % ceilf(float(exploration.affinity_time)))
+	if exploration.affinity_active():labels.append("共鸣 +8零件 · %.0f秒" % ceilf(float(exploration.affinity_time)))
 	if labels.is_empty():return
 	var text:=" · ".join(labels)
 	var font: Font=ui.get("font") as Font
@@ -223,7 +227,7 @@ static func _draw_contract(ui: Control, game: Node3D) -> void:
 			ui.box(Rect2(TEXT_X-8,y-16,TEXT_WIDTH+16,87),fill,GREEN if selected else Color("45584c"))
 			var name: String=contract.TITLES.get(String(offer.kind),String(offer.kind))
 			ui.label("%d %s · %s" % [4+index,name,String(choice.tag)],Vector2(TEXT_X,y+3),16,tint)
-			ui.label("+%d零件 / +%d记忆 · %s" % [int(offer.scrap),int(offer.memory),String(offer.name)],Vector2(TEXT_X,y+26),15,ui.amber)
+			ui.label("+%d零件 · %s" % [int(offer.scrap),String(offer.name)],Vector2(TEXT_X,y+26),15,ui.amber)
 			var risk:="无额外追猎" if int(offer.risk_hunters)==0 else "额外追猎%d · 提前%d秒截止" % [int(offer.risk_hunters),int(offer.risk_seconds)]
 			ui.label(risk,Vector2(TEXT_X,y+47),14,ui.muted)
 			_paragraph(ui,String(choice.reason),Vector2(TEXT_X,y+67),TEXT_WIDTH,14,tint,20,1)
@@ -233,14 +237,14 @@ static func _draw_contract(ui: Control, game: Node3D) -> void:
 	elif status in ["bonus_offer","bonus_active","returning"]:
 		var budget:=_dictionary_property(ui,"contract_return_budget")
 		var reward: Dictionary=contract.selected_reward
-		y=_paragraph(ui,"主委托保底 +%d零件 / +%d记忆" % [int(reward.scrap),int(reward.memory)],Vector2(TEXT_X,y+8),TEXT_WIDTH,16,ui.amber,23)
+		y=_paragraph(ui,"主委托保底 +%d零件" % int(reward.scrap),Vector2(TEXT_X,y+8),TEXT_WIDTH,16,ui.amber,23)
 		var bonus: Dictionary=contract.bonus_target
 		if bonus.is_empty():bonus=budget.get("candidate",{})
 		if status=="bonus_offer":
 			y=_paragraph(ui,"4 立即返家 · 保留时间整备防线",Vector2(TEXT_X,y+18),TEXT_WIDTH,16,GREEN,23)
 			if not bonus.is_empty():
 				var title: String=contract.BONUS_TITLES.get(String(bonus.kind),"追加补给")
-				y=_paragraph(ui,"5 追加%s · +%d零件 / +%d记忆" % [title,int(bonus.scrap),int(bonus.memory)],Vector2(TEXT_X,y+14),TEXT_WIDTH,16,ui.amber,23)
+				y=_paragraph(ui,"5 追加%s · +%d零件" % [title,int(bonus.scrap)],Vector2(TEXT_X,y+14),TEXT_WIDTH,16,ui.amber,23)
 			else:y=_paragraph(ui,"暂时没有可达追加补给 · 可直接返家",Vector2(TEXT_X,y+14),TEXT_WIDTH,15,ui.muted,22)
 		elif status=="bonus_active":
 			y=_paragraph(ui,"P 前往追加目标 · F 采集后再 P 返家",Vector2(TEXT_X,y+18),TEXT_WIDTH,16,GREEN,23)
@@ -260,7 +264,7 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 	if not is_instance_valid(game.exploration):return
 	var exploration: Node=game.exploration
 	var y:=_paragraph(ui,exploration.route_text(),Vector2(TEXT_X,183),TEXT_WIDTH,18,GREEN,24)
-	y=_paragraph(ui,"探索%d次 · 里程碑%d · %d/5：+35零件 +20记忆" % [game.exploration_count,game.exploration_milestones,game.exploration_count%5],Vector2(TEXT_X,y+4),TEXT_WIDTH,14,ui.amber,20)
+	y=_paragraph(ui,"探索%d次 · 里程碑%d · %d/5：+55零件" % [game.exploration_count,game.exploration_milestones,game.exploration_count%5],Vector2(TEXT_X,y+4),TEXT_WIDTH,14,ui.amber,20)
 	y=_paragraph(ui,exploration.collection_reward_text(),Vector2(TEXT_X,y+6),TEXT_WIDTH,14,ui.ink,20)
 	y=_paragraph(ui,exploration.streak_text()+" · "+exploration.streak_reward_text(),Vector2(TEXT_X,y+6),TEXT_WIDTH,15,ui.amber,21)
 	var affinity: String=exploration.affinity_text()
@@ -268,7 +272,7 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 	var buffs: Array[String]=[]
 	if float(exploration.speed_time)>0.0:
 		buffs.append("加速+%.1f米/秒 · %.0f秒" % [float(exploration.speed_bonus),ceilf(float(exploration.speed_time))])
-	if exploration.network_active():buffs.append("灯网共鸣 · 灯碑外额外+2记忆")
+	if exploration.network_active():buffs.append("灯网共鸣 · 灯碑外额外+2零件")
 	if not buffs.is_empty():y=_paragraph(ui," · ".join(buffs),Vector2(TEXT_X,y+4),TEXT_WIDTH,15,BLUE,21)
 	y=_paragraph(ui,"P 前往共鸣/发现 · 白昼主委托优先",Vector2(TEXT_X,y+6),TEXT_WIDTH,14,ui.muted,20)
 	y=_paragraph(ui,"最近收益",Vector2(TEXT_X,y+8),TEXT_WIDTH,16,GREEN,23)
@@ -308,7 +312,7 @@ static func _draw_help(ui: Control) -> void:
 		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
 		"部队：U 盾卫 / I 弩手 / N 工程员；每座兵营独立队列。",
 		"指挥：点选/框选，Shift 追加，Tab 全选；右键移动/攻击，O 驻守或召回。",
-		"整备：白昼L 付费补员；V 主动铭刻；Esc 先取消建设或部队选择，再暂停。",
+		"整备：白昼L 付费补员；V 用零件铭刻。Esc先收起详情/地图，再取消建设或部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",
 	]

@@ -279,28 +279,24 @@ func check_actual_delivery(dusk: bool) -> void:
 	check(game.contracts.bonus_done and game.contracts.status=="returning", "A genuinely opened extra cache must change P guidance to home")
 	check(game.scrap>=before_open_scrap+40, "The real cache must retain its ordinary field supply reward")
 	var before_reward: int=game.scrap
-	var before_memory: int=game.essence
 	var primary_scrap: int=game.contracts.selected_reward.scrap
-	var primary_memory: int=game.contracts.selected_reward.memory
 	var extra_scrap: int=game.contracts.bonus_target.scrap
-	var extra_memory: int=game.contracts.bonus_target.memory
 	if dusk:
 		game.phase_time=0.01
 		game.simulate(0.02)
 		check(game.phase=="night" and game.contracts.status=="completed", "Actual dusk must preserve the completed primary contract")
-		check(game.scrap==before_reward+primary_scrap and game.essence==before_memory+primary_memory, "Dusk must pay only the primary guarantee: an opened extra cache outside home earns no extra contract reward")
+		check(game.scrap==before_reward+primary_scrap, "Dusk must pay only the primary guarantee: an opened extra cache outside home earns no extra contract reward")
 	else:
 		if not travel(HOME):await close_game();return
 		var actual: float=initial_clock-game.phase_time
 		check(absf(actual-predicted)<=maxf(1.5,predicted*0.25), "Without combat, conservative path ETA must predict the actual P/F/gate return: %.2fs estimated, %.2fs actual" % [predicted,actual])
 		check(game.contracts.status=="completed" and game.contracts.pending_reward.is_empty(), "Only genuine raised-ground home arrival may consume the extra payout")
-		check(game.scrap==before_reward+primary_scrap+10+extra_scrap and game.essence==before_memory+primary_memory+extra_memory, "Early genuine delivery must pay primary, early return, and selected extra reward once")
+		check(game.scrap==before_reward+primary_scrap+10+extra_scrap, "Early genuine delivery must pay primary, early return, and selected extra reward once")
 		var returned:=budget()
 		check(is_zero_approx(float(returned.get("action_seconds",-1.0))), "A delivered extra cache must not keep an opening delay")
 	var paid_scrap: int=game.scrap
-	var paid_memory: int=game.essence
 	for _repeat in 20:game.update_day_contracts(0.05);game.settle_contract_reward()
-	check(game.scrap==paid_scrap and game.essence==paid_memory, "Repeated production updates may never duplicate primary or extra payouts")
+	check(game.scrap==paid_scrap, "Repeated production updates may never duplicate primary or extra payouts")
 	await close_game()
 
 func run() -> void:

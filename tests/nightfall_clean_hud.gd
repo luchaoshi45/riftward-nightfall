@@ -124,7 +124,7 @@ func orders() -> Dictionary:
 
 func finances() -> Dictionary:
 	var queues: Dictionary = game.squads.training_queues.duplicate(true)
-	return {"scrap": game.scrap, "memory": game.essence, "pending": game.run.pending,
+	return {"scrap": game.scrap, "pending": game.run.pending,
 		"owned": game.run.owned.duplicate(true), "queues": queues,
 		"countermeasure": game.countermeasure_selected, "phase": game.phase}
 
@@ -279,10 +279,10 @@ func rich_exploration_page() -> void:
 	game.hero.hp -= 120.0
 	game.mana -= 100.0
 	game.exploration.arm_contract_affinity(["ember_bloom"])
-	game.grant_exploration_reward("余烬花",point,25,9,18,24,"ember_bloom")
-	game.grant_exploration_reward("记忆晶簇",point,35,12,15,22,"memory_crystal")
-	game.grant_exploration_reward("补给箱",point,60,18,25,32,"supply_cache")
-	game.grant_exploration_reward("灯碑",point,40,16,22,30,"waylight")
+	game.grant_exploration_reward("余烬花",point,34,18,24,"ember_bloom")
+	game.grant_exploration_reward("余烬晶簇",point,47,15,22,"memory_crystal")
+	game.grant_exploration_reward("补给箱",point,78,25,32,"supply_cache")
+	game.grant_exploration_reward("灯碑",point,56,22,30,"waylight")
 	game.exploration.arm_contract_affinity(game.exploration.ROUTE_KINDS)
 	check(game.exploration.affinity_active() and game.exploration.network_active()
 		and game.exploration.speed_bonus_value() > 0.0 and game.reward_toasts.size() == 4,
@@ -306,7 +306,7 @@ func check_live_data() -> void:
 	check(not game.exploration.route_text().is_empty() and not game.exploration.collection_reward_text().is_empty(),
 		"Exploration details must retain the actual seeded route and collection reward")
 	var growth: Dictionary = game.growth_snapshot()
-	check(int(growth.memory.cost) == game.run.memory_cost() and int(growth.memory.balance) == game.essence
+	check(int(growth.memory.cost) == game.run.memory_cost() and int(growth.memory.balance) == game.scrap
 		and not game.hud.growth_memory_text(growth).is_empty() and game.hud.growth_lines(growth).size() == 3,
 		"Defense details must retain real balances, paid memory cost and the current free-build/upgrade recommendation")
 	var army: Dictionary = game.squads.snapshot()

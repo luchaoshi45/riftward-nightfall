@@ -66,13 +66,13 @@ func run() -> void:
 	if not check(not events.interact() and game.scrap==before_scrap,"A harvested flower must not award twice"):return
 	game.hero.position=crystal.position;game.move_goal=game.hero.position
 	game.mana=game.max_mana-120.0
-	var before_memory: int=game.essence
+	before_scrap=game.scrap
 	var before_mana: float=game.mana
-	if not check(game.interact(),"A memory crystal must be usable in the first night"):return
-	if not check(crystal.state=="cooling" and game.essence>=before_memory+12 and is_equal_approx(game.mana,before_mana+45.0),"A crystal must award its base memory and mana once, plus any active route bonus"):return
-	before_memory=game.essence
+	if not check(game.interact(),"An ember crystal must be usable in the first night"):return
+	if not check(crystal.state=="cooling" and game.scrap>=before_scrap+12 and is_equal_approx(game.mana,before_mana+45.0),"A crystal must award its base scrap and mana once, plus any active route bonus"):return
+	before_scrap=game.scrap
 	events.tick(0.0);events.interact()
-	if not check(game.essence==before_memory,"Consumed crystal interaction must not duplicate memory"):return
+	if not check(game.scrap==before_scrap,"Consumed crystal interaction must not duplicate scrap"):return
 	game.hero.position=cache.position;game.move_goal=game.hero.position
 	before_scrap=game.scrap
 	if not check(game.interact() and cache.state=="channel","A supply cache must begin a three-second opening"):return
@@ -90,12 +90,12 @@ func run() -> void:
 	game.hero.position=cache.position;game.move_goal=game.hero.position
 	events.interact();events.tick(2.9)
 	if not check(cache.state=="channel" and game.scrap==before_scrap,"Opening progress must remain incomplete before three seconds"):return
-	before_memory=game.essence
+	before_scrap=game.scrap
 	events.tick(.1)
-	if not check(cache.state=="cooling" and game.scrap>=before_scrap+40 and game.essence>=before_memory+6,"A completed cache must award its base supplies exactly once, plus any active route bonus"):return
-	before_scrap=game.scrap;before_memory=game.essence
+	if not check(cache.state=="cooling" and game.scrap>=before_scrap+46,"A completed cache must award its base supplies exactly once, plus any active route bonus"):return
+	before_scrap=game.scrap
 	events.tick(0.0);events.interact()
-	if not check(game.scrap==before_scrap and game.essence==before_memory,"Completed caches must never award duplicate supplies"):return
+	if not check(game.scrap==before_scrap,"Completed caches must never award duplicate supplies"):return
 	game.hero.position=light.position;game.move_goal=game.hero.position
 	game.hero.shield=0.0;game.hero.shield_time=0.0
 	if not check(game.interact() and light.state=="active" and light.remaining==30.0,"F must ignite a waylight for thirty seconds"):return
@@ -141,7 +141,7 @@ func run() -> void:
 	for kind: String in WildDiscoveries.KINDS:
 		var item:=find_item(events,kind)
 		if not item.is_empty():await capture(game,item.position,"wild-"+kind)
-	print("NIGHTFALL_WILD_DISCOVERIES_OK 18 reachable sites, recovery/memory/cache rewards, cancelled opening, frozen timers, rotating refresh, shield field, 6-light budget")
+	print("NIGHTFALL_WILD_DISCOVERIES_OK 18 reachable sites, recovery/scrap/cache rewards, cancelled opening, frozen timers, rotating refresh, shield field, 6-light budget")
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame

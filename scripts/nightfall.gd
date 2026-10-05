@@ -77,7 +77,6 @@ var beacon_alarm_damage := 0.0
 var scrap := 90
 var kills := 0
 var attack_count := 0
-var essence := 0
 var day_start_pending: bool=false
 var run_mode: String="teaching"
 var run_mode_locked := false
@@ -754,16 +753,15 @@ func update_exploration_guidance() -> void:
 func settle_contract_reward() -> void:
 	var reward: Dictionary=contracts.take_reward_request()
 	if not reward.is_empty():
-		scrap+=int(reward.scrap);essence+=int(reward.memory)
+		scrap+=int(reward.scrap)
 		if exploration and reward.has("affinity"):
 			exploration.arm_contract_affinity(reward.affinity)
-		collect_memory_upgrades()
-		var reward_detail: String="+%d零件 · +%d记忆" % [reward.scrap,reward.memory]
+		var reward_detail: String="+%d零件" % int(reward.scrap)
 		if bool(reward.get("bonus",false)):reward_detail+=" · 追加补给已兑现"
 		elif bool(reward.get("early_return",false)):reward_detail+=" · 提前返家奖励"
 		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":reward_detail,"time":3.5,"color":Color("e8bc76")})
 		while reward_toasts.size()>4:reward_toasts.remove_at(0)
-		notify("委托已交回 · +%d零件 +%d记忆" % [reward.scrap,reward.memory],3)
+		notify("委托已交回 · +%d零件" % int(reward.scrap),3)
 
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
@@ -1794,39 +1792,43 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	if combat_phase=="night":
 		scrap_gain=8 if run_mode=="teaching" else wave_rewards.defeat(creature)
 	scrap+=scrap_gain
-	essence+=12
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
 		kill_chain_time=6.0
-		if combat:combat.kill(creature.position,scrap_gain,12)
+		if combat:combat.kill(creature.position,scrap_gain)
 		var thresholds: Array[int]=[3,6,10]
 		var milestone_index:=thresholds.find(kill_chain)
 		if milestone_index>=0:
-			var extra_scrap: int=[5,8,12][milestone_index]
-			var extra_memory: int=[4,6,10][milestone_index]
-			scrap+=extra_scrap;essence+=extra_memory
+			var extra_scrap: int=[9,14,22][milestone_index]
+			scrap+=extra_scrap
 			combat_milestone_title="%d 连斩 · %s" % [kill_chain,["余烬初燃","灯火燎原","长夜破晓"][milestone_index]]
-			combat_milestone_detail="额外 +%d 零件  ·  +%d 记忆" % [extra_scrap,extra_memory]
+			combat_milestone_detail="额外 +%d 零件" % extra_scrap
 			combat_milestone_time=2.2
-			if combat:combat.milestone(kill_chain,extra_scrap,extra_memory)
+			if combat:combat.milestone(kill_chain,extra_scrap)
 	if deaths:
 		var source_position:=_source.global_position if is_instance_valid(_source) else creature.global_position-Vector3.FORWARD
 		deaths.spawn(creature,source_position)
 	else:BattleVisuals.burst(effects,creature.position,.9,Color("b37661"),.38)
 	creature.visible=false
 	creature.queue_free()
-	collect_memory_upgrades()
-
-func collect_memory_upgrades() -> void:
-	while essence>=run.memory_cost():
-		essence-=run.register_memory_upgrade()
-		run.grant("战斗记忆 · 第%d次铭刻" % run.memory_level)
 
 func growth_snapshot() -> Dictionary:
 	return GrowthGuidanceScript.snapshot(self)
 
 func request_upgrade() -> bool:
-	if phase not in ["day","night"] or run.pending<=0:return false
+	if phase not in ["day","night"]:return false
+	if run.pending<=0:
+		if not run.has_available_upgrade():
+			notify("当前强化已全部铭刻",2)
+			return false
+		var cost: int=run.memory_cost()
+		if scrap<cost:
+			notify("铭刻需要%d零件 · 还差%d" % [cost,cost-scrap],2)
+			return false
+		run.grant("零件铭刻 · 第%d次强化" % (run.memory_level+1))
+		# Only commit the shared payment after a real legal offer exists.
+		if not run.draft():return false
+		scrap-=run.register_memory_upgrade()
 	open_draft()
 	return phase=="draft"
 
@@ -2167,7 +2169,7 @@ func gate_pressure() -> int:
 func contract_interaction_prompt(action: Dictionary) -> String:
 	var source: Dictionary=action.source
 	if String(action.get("kind",""))=="bonus_discovery":
-		return "F 带回追加%s · 返回灯塔领取 +%d 零件/+%d 记忆" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0)),int(contracts.bonus_target.get("memory",0))]
+		return "F 带回追加%s · 返回灯塔领取 +%d 零件" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0))]
 	match contracts.kind:
 		"salvage":return "F 采集委托废料 · +%d 物资" % int(source.amount)
 		"generator":
@@ -2264,7 +2266,7 @@ func collect_salvage(index: int=-1) -> bool:
 	world.salvage[index].respawn=SALVAGE_REFRESH
 	(world.salvage[index].node as Node3D).visible=false
 	var amount: int=world.salvage[index].amount
-	grant_exploration_reward("废墟搜集",world.salvage[index].position,amount,3,0.0,0.0,"salvage")
+	grant_exploration_reward("废墟搜集",world.salvage[index].position,amount+3,0.0,0.0,"salvage")
 	return true
 
 func interact_nest(index: int=-1) -> bool:
@@ -2756,18 +2758,18 @@ func update_salvage_refresh(delta: float) -> void:
 		if item.respawn>0:continue
 		item.collected=false;item.node.visible=true
 
-func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, memory_gain: int, hp_gain: float=0.0, mana_gain: float=0.0, category: String="") -> void:
+func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, hp_gain: float=0.0, mana_gain: float=0.0, category: String="") -> void:
 	contracts.on_action()
 	if phase!="day" and phase!="night":return
-	var route: Dictionary={"scrap":0,"memory":0,"event":""}
+	var route: Dictionary={"scrap":0,"event":""}
 	if exploration:
 		route=exploration.record(category if not category.is_empty() else title,point,phase)
-		scrap_gain+=int(route.scrap);memory_gain+=int(route.memory)
+		scrap_gain+=int(route.scrap)
 	exploration_count+=1
 	var milestone:=exploration_count%5==0
 	if milestone:
 		exploration_milestones+=1
-		scrap_gain+=35;memory_gain+=20
+		scrap_gain+=55
 	scrap+=maxi(0,scrap_gain)
 	var actual_hp:=minf(maxf(0.0,hp_gain),hero.max_hp-hero.hp)
 	var actual_mana:=minf(maxf(0.0,mana_gain),max_mana-mana)
@@ -2775,7 +2777,6 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 	mana+=actual_mana
 	var gains: Array[String]=[]
 	if scrap_gain>0:gains.append("零件 +%d" % scrap_gain)
-	if memory_gain>0:gains.append("记忆 +%d" % memory_gain)
 	if actual_hp>0:gains.append("生命 +%d" % int(actual_hp))
 	if actual_mana>0:gains.append("法力 +%d" % int(actual_mana))
 	var detail: String="探索进度 +1" if gains.is_empty() else "  ·  ".join(gains)
@@ -2783,7 +2784,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 	reward_toasts.append({"title":"探索里程碑 · " + title if milestone else title,"detail":detail,"time":3.2,"color":color})
 	if reward_toasts.size()>3:reward_toasts.pop_front()
 	if not String(route.event).is_empty():
-		var route_detail: String="路线加成：+%d零件 +%d记忆" % [int(route.scrap),int(route.memory)]
+		var route_detail: String="路线加成：+%d零件" % int(route.scrap)
 		if float(route.get("speed_seconds",0.0))>0.0:route_detail+=" · 加速%.0f秒" % float(route.speed_seconds)
 		reward_toasts.append({"title":String(route.event),"detail":route_detail,"time":3.8,"color":Color("a6d9c6")})
 		while reward_toasts.size()>4:reward_toasts.pop_front()
@@ -2803,9 +2804,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 		effects.add_child(sound);sound.stream=pickup_sound;sound.volume_db=-15
 		sound.pitch_scale=1.15 if milestone else 1.0
 		sound.finished.connect(sound.queue_free);sound.play()
-	if milestone:notify("探索 %d 次 · 额外 +35 零件、+20 记忆" % exploration_count,3)
-	essence+=maxi(0,memory_gain)
-	collect_memory_upgrades()
+	if milestone:notify("探索 %d 次 · 额外 +55 零件" % exploration_count,3)
 
 func make_pickup_sound() -> AudioStreamWAV:
 	var stream:=AudioStreamWAV.new()

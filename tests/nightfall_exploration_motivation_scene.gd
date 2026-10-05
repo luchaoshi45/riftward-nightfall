@@ -21,15 +21,14 @@ func run() -> void:
 	game.set_process(false)
 	await press(KEY_1)
 	assert(game.phase=="night")
-	game.essence=0
-	game.grant_exploration_reward("路线花",game.hero.position,0,0,0.0,0.0,"ember_bloom")
-	game.grant_exploration_reward("路线晶簇",game.hero.position,0,0,0.0,0.0,"memory_crystal")
+	game.grant_exploration_reward("路线花",game.hero.position,0,0.0,0.0,"ember_bloom")
+	game.grant_exploration_reward("路线晶簇",game.hero.position,0,0.0,0.0,"memory_crystal")
 	assert(game.exploration.streak==2)
 	assert(game.exploration.speed_bonus_value()>.7)
 	game.exploration.set_waylight_count(2)
-	var before: int=game.essence
-	game.grant_exploration_reward("路线箱",game.hero.position,0,0,0.0,0.0,"supply_cache")
-	assert(game.essence>=before+6,"A three-step route grants its memory bonus")
+	var before: int=game.scrap
+	game.grant_exploration_reward("路线箱",game.hero.position,0,0.0,0.0,"supply_cache")
+	assert(game.scrap>=before+18,"A three-step route grants its single-currency bonus")
 	assert(game.exploration.route_text().contains("路线"))
 	# Production route guidance must choose a reachable next type rather than
 	# the nearest straight-line point. Put the only remaining waylight behind

@@ -4,8 +4,8 @@ extends SceneTree
 const POINT := Vector3(18, 0, 0)
 const FAR := Vector3(105, 0, 95)
 const BASE_REWARDS := {
-	"ember_bloom": Vector2i(12, 0), "memory_crystal": Vector2i(0, 12),
-	"supply_cache": Vector2i(40, 6), "waylight": Vector2i.ZERO
+	"ember_bloom": 12, "memory_crystal": 12,
+	"supply_cache": 46, "waylight": 0
 }
 var game: Node3D
 var failures: Array[String] = []
@@ -53,7 +53,6 @@ func reset_case() -> void:
 	game.exploration_count = 0
 	game.exploration_milestones = 0
 	game.scrap = 500
-	game.essence = 0
 	game.reward_toasts.clear()
 	game.hero.hp = game.hero.max_hp
 	game.hero.shield = 0.0
@@ -98,19 +97,17 @@ func check_timers(previous: Dictionary, title: String) -> void:
 	check(is_equal_approx(game.exploration.affinity_time, previous.affinity),
 		"%s must not consume an unmatched contract affinity" % title)
 
-func payout(previous_scrap: int, previous_memory: int, previous_count: int, base: Vector2i, extra: Vector2i, title: String) -> void:
-	var milestone := Vector2i(35, 20) if (previous_count + 1) % 5 == 0 else Vector2i.ZERO
+func payout(previous_scrap: int, previous_count: int, base: int, extra: int, title: String) -> void:
+	var milestone := 55 if (previous_count + 1) % 5 == 0 else 0
 	var expected := base + extra + milestone
-	check(game.scrap - previous_scrap == expected.x,
-		"%s scrap: expected %d, got %d" % [title, expected.x, game.scrap - previous_scrap])
-	check(game.essence - previous_memory == expected.y,
-		"%s memory: expected %d, got %d" % [title, expected.y, game.essence - previous_memory])
+	check(game.scrap - previous_scrap == expected,
+		"%s scrap: expected %d, got %d" % [title, expected, game.scrap - previous_scrap])
 	check(game.exploration_count == previous_count + 1,
 		"%s must record exactly one actual exploration" % title)
 	check(game.exploration_milestones == game.exploration_count / 5,
 		"%s must preserve the independent five-discovery milestone count" % title)
 
-func route(kind: String, extra := Vector2i.ZERO, title := "") -> void:
+func route(kind: String, extra := 0, title := "") -> void:
 	var item: Dictionary = {}
 	for candidate: Dictionary in game.discoveries.items:
 		if String(candidate.kind) == kind:
@@ -127,7 +124,6 @@ func route(kind: String, extra := Vector2i.ZERO, title := "") -> void:
 	game.discoveries.motivation_revision += 1
 	put_hero()
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	var before_count: int = game.exploration_count
 	await press(KEY_F)
 	if kind == "supply_cache":
@@ -137,13 +133,13 @@ func route(kind: String, extra := Vector2i.ZERO, title := "") -> void:
 	else:
 		check(item.state == ("active" if kind == "waylight" else "cooling"),
 			"Production F must consume the real %s discovery" % kind)
-	payout(before_scrap, before_memory, before_count, BASE_REWARDS[kind], extra, title if not title.is_empty() else kind)
+	payout(before_scrap, before_count, BASE_REWARDS[kind], extra, title if not title.is_empty() else kind)
 	# A lit lamp is a consumed route discovery, and must not shadow subsequent F.
 	if kind == "waylight": game.discoveries.begin_cooling(item, 9999.0)
 
 func ordinary(kind: String) -> void:
 	put_hero()
-	var base := Vector2i.ZERO
+	var base := 0
 	var cache: Dictionary = {}
 	var animal: Dictionary = {}
 	if kind == "salvage":
@@ -153,7 +149,7 @@ func ordinary(kind: String) -> void:
 		cache.position = POINT
 		cache.node.position = POINT
 		cache.node.visible = true
-		base = Vector2i(int(cache.amount), 3)
+		base = int(cache.amount) + 3
 	else:
 		for candidate: Dictionary in game.wildlife.animals:
 			if candidate.kind == kind:
@@ -168,10 +164,9 @@ func ordinary(kind: String) -> void:
 		animal.state = "idle"
 		animal.timer = 9999.0
 		animal.node.visible = true
-		base = Vector2i(0, 6) if kind == "stag" else Vector2i(-20, 8)
+		base = 6 if kind == "stag" else -12
 	var previous := timers()
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	var before_count: int = game.exploration_count
 	game.hero.hp = game.hero.max_hp - 100.0
 	game.mana = game.max_mana - 100.0
@@ -189,13 +184,12 @@ func ordinary(kind: String) -> void:
 		else:
 			check(is_equal_approx(game.mana, game.max_mana - 20.0),
 				"A real beetle exchange must retain its 80 mana recovery")
-	payout(before_scrap, before_memory, before_count, base, Vector2i.ZERO, "%s with chain %d" % [kind, previous.streak])
+	payout(before_scrap, before_count, base, 0, "%s with chain %d" % [kind, previous.streak])
 	check_timers(previous, kind)
 	before_scrap = game.scrap
-	before_memory = game.essence
 	before_count = game.exploration_count
 	await press(KEY_F)
-	check(game.scrap == before_scrap and game.essence == before_memory and game.exploration_count == before_count,
+	check(game.scrap == before_scrap and game.exploration_count == before_count,
 		"Repeated F on consumed %s must not replay any reward" % kind)
 	check_timers(previous, "repeated " + kind)
 	if not animal.is_empty():
@@ -207,8 +201,8 @@ func ordinary_rewards() -> void:
 		reset_case()
 		if length >= 2:
 			await route("ember_bloom")
-			await route("memory_crystal", Vector2i(0, 4))
-		if length == 3: await route("supply_cache", Vector2i(12, 6))
+			await route("memory_crystal", 4)
+		if length == 3: await route("supply_cache", 18)
 		game._process(5.0)
 		game.exploration.arm_contract_affinity(["waylight"])
 		await ordinary("salvage")
@@ -222,25 +216,25 @@ func ordinary_rewards() -> void:
 func slow_collection() -> void:
 	reset_case()
 	for kind: String in ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]:
-		await route(kind, Vector2i(40, 12) if kind == "waylight" else Vector2i.ZERO,
+		await route(kind, 52 if kind == "waylight" else 0,
 			"slow independent collection " + kind)
 		if kind != "waylight": game._process(23.0)
 	check(game.exploration.streak == 1 and game.exploration.full_set_claimed,
 		"Four slow discoveries must pay the once-only collection despite an expired chain")
-	check(game.scrap == 592 and game.essence == 30,
-		"Slow four-type collection must pay exactly 52/18 base plus 40/12 collection")
+	check(game.scrap == 622,
+		"Slow four-type collection must pay exactly 70 base plus 52 collection scrap")
 	await capture("full-set")
-	await route("waylight", Vector2i.ZERO, "same-day collection must not replay")
+	await route("waylight", 0, "same-day collection must not replay")
 	game.phase = "night"
 	game.exploration.begin_night()
-	await route("waylight", Vector2i(6, 3), "night keeps collection consumed and its own first-search bonus")
+	await route("waylight", 9, "night keeps collection consumed and its own first-search bonus")
 	check(game.exploration.full_set_claimed, "Beginning night must retain the paid collection flag")
 	game.phase = "day"
 	game.exploration.begin_day(2)
 	check(not game.exploration.full_set_claimed and game.exploration.next_kind() != "",
 		"Beginning the next day must start a fresh four-type collection")
 	for kind: String in ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]:
-		await route(kind, Vector2i(40, 12) if kind == "waylight" else Vector2i.ZERO,
+		await route(kind, 52 if kind == "waylight" else 0,
 			"next-day independent collection " + kind)
 		if kind != "waylight": game._process(23.0)
 	check(game.exploration.full_set_claimed, "A new day must allow its collection reward exactly once")
@@ -248,50 +242,49 @@ func slow_collection() -> void:
 func collection_stacking() -> void:
 	reset_case()
 	await route("ember_bloom")
-	await route("memory_crystal", Vector2i(0, 4))
-	await route("supply_cache", Vector2i(12, 6))
-	await route("waylight", Vector2i(40, 12))
-	check(game.scrap == 604 and game.essence == 40,
-		"Fast four-type route must retain exactly 52/18 base plus 52/22 route rewards")
+	await route("memory_crystal", 4)
+	await route("supply_cache", 18)
+	await route("waylight", 52)
+	check(game.scrap == 644,
+		"Fast four-type route must retain exactly 70 base plus 74 route reward scrap")
 	for ending_chain in [2, 3]:
 		reset_case()
 		await route("ember_bloom")
-		await route("memory_crystal", Vector2i(0, 4))
-		await route("supply_cache", Vector2i(12, 6))
+		await route("memory_crystal", 4)
+		await route("supply_cache", 18)
 		game._process(23.0)
 		await route("ember_bloom")
-		if ending_chain == 3: await route("memory_crystal", Vector2i(0, 4))
+		if ending_chain == 3: await route("memory_crystal", 4)
 		game.exploration.arm_contract_affinity(["waylight"])
-		var chain := Vector2i(0, 4) if ending_chain == 2 else Vector2i(12, 6)
-		await route("waylight", Vector2i(40, 12) + chain + Vector2i(0, 8),
+		var chain := 4 if ending_chain == 2 else 18
+		await route("waylight", 52 + chain + 8,
 			"collection + genuine chain %d + affinity" % ending_chain)
 		check(game.exploration.streak == ending_chain and game.exploration.full_set_claimed,
 			"Collection must stack with genuine chain %d without replacing it" % ending_chain)
 		check(not game.exploration.affinity_active(), "Matched affinity must be consumed once alongside collection")
-		await route("waylight", Vector2i.ZERO, "consumed collection and affinity must not replay")
+		await route("waylight", 0, "consumed collection and affinity must not replay")
 		check(game.exploration.streak == 1,
 			"Repeating the same route type must reset its chain without repaying chain rewards")
 
 func stacked_feedback() -> void:
 	reset_case()
 	await route("ember_bloom")
-	await route("waylight", Vector2i(0, 4))
-	await route("supply_cache", Vector2i(12, 6))
+	await route("waylight", 4)
+	await route("supply_cache", 18)
 	game._process(23.0)
 	game.phase = "night"
 	game.exploration.begin_night()
-	game.grant_exploration_reward("夜行续段", POINT, 0, 0, 0, 0, "ember_bloom")
+	game.grant_exploration_reward("夜行续段", POINT, 0, 0, 0, "ember_bloom")
 	game.exploration.set_waylight_count(2)
 	game.exploration.arm_contract_affinity(["memory_crystal"])
 	var previous_scrap: int = game.scrap
-	var previous_memory: int = game.essence
 	var previous_count: int = game.exploration_count
-	game.grant_exploration_reward("叠加奖励验证", Vector3(50, 0, 0), 0, 0, 0, 0, "memory_crystal")
-	payout(previous_scrap, previous_memory, previous_count, Vector2i.ZERO, Vector2i(54, 29), "six independent route bonuses")
+	game.grant_exploration_reward("叠加奖励验证", Vector3(50, 0, 0), 0, 0, 0, "memory_crystal")
+	payout(previous_scrap, previous_count, 0, 83, "six independent route bonuses")
 	var toast: Dictionary = game.reward_toasts.back()
 	for source: String in ["探索连段 2", "完整搜寻", "深入荒原", "夜行搜寻", "灯网共鸣", "委托共鸣"]:
 		check(String(toast.title).contains(source), "Stacked reward feedback must retain its %s source" % source)
-	check(String(toast.detail).contains("+54零件 +29记忆") and String(toast.detail).contains("加速18秒"), "The route toast must show the actual combined addition separately from the five-visit milestone")
+	check(String(toast.detail).contains("+83零件") and String(toast.detail).contains("加速18秒"), "The route toast must show the actual combined addition separately from the five-visit milestone")
 	var title_size: Vector2 = game.hud.font.get_multiline_string_size(String(toast.title), HORIZONTAL_ALIGNMENT_LEFT, 304, 13)
 	check(title_size.y <= game.hud.font.get_height(13)*2.0+.1, "All six actual reward sources must fit in two lines")
 	check(game.hud.font.get_string_size(String(toast.detail), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x <= 304.0, "The combined route payout must fit inside the actual HUD toast")
@@ -300,7 +293,7 @@ func stacked_feedback() -> void:
 func freeze_windows() -> void:
 	reset_case()
 	await route("ember_bloom")
-	await route("memory_crystal", Vector2i(0, 4))
+	await route("memory_crystal", 4)
 	check(is_equal_approx(game.exploration.streak_time, 22.0), "A genuine route must start the published 22-second window")
 	game.exploration.arm_contract_affinity(["waylight"])
 	await capture("affinity")
@@ -311,16 +304,15 @@ func freeze_windows() -> void:
 			await press(KEY_ESCAPE)
 			game.run.grant("生产冻结验证")
 			await press(KEY_V)
-			check(game.phase == "draft", "Actual V must open the queued production memory draft")
+			check(game.phase == "draft", "Actual V must open the queued production reinforcement draft")
 		var before := timers()
 		var clock: float = game.phase_time
 		var scrap: int = game.scrap
-		var memory: int = game.essence
 		var count: int = game.exploration_count
 		game._process(30.0)
 		await press(KEY_F)
-		game.grant_exploration_reward("冻结拒绝验证", POINT, 80, 80, 0, 0, "waylight")
-		check(game.phase_time == clock and game.scrap == scrap and game.essence == memory and game.exploration_count == count,
+		game.grant_exploration_reward("冻结拒绝验证", POINT, 160, 0, 0, "waylight")
+		check(game.phase_time == clock and game.scrap == scrap and game.exploration_count == count,
 			"%s must freeze the phase clock and reject exploration rewards" % phase_name)
 		check_timers(before, phase_name)
 	game.phase = "day"
@@ -339,7 +331,7 @@ func simulation_clock_order() -> void:
 	await route("ember_bloom")
 	# Completing a three-second real cache channel creates the second-link
 	# buff at the end of that frame. Its new timers must not lose those seconds.
-	await route("supply_cache", Vector2i(0, 4), "channel completion creates a fresh second-link acceleration")
+	await route("supply_cache", 4, "channel completion creates a fresh second-link acceleration")
 	check(is_equal_approx(game.exploration.speed_time, 18.0),
 		"Acceleration granted at the end of a real channel frame must retain all 18 seconds")
 	check(is_equal_approx(game.exploration.streak_time, 22.0),
@@ -400,7 +392,7 @@ func run() -> void:
 	await create_timer(.5).timeout
 	if failures.is_empty():
 		print("NIGHTFALL_EXPLORATION_REWARD_INTEGRITY_OK checks=", checks,
-			" real_F=supply/salvage/stag/beetle milestone=35/20 slow_collection=40/12 chain_affinity_stack pause_draft")
+			" real_F=supply/salvage/stag/beetle milestone=55 slow_collection=52 shared_scrap chain_affinity_stack pause_draft")
 		quit()
 	else:
 		print("NIGHTFALL_EXPLORATION_REWARD_INTEGRITY_FAILED checks=", checks, " failures=", failures.size())

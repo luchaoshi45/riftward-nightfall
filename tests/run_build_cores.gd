@@ -108,7 +108,7 @@ func run() -> void:
 		seeded_offers[str(ids(seeded.offer))] = true
 	check(seeded_offers.size() > 1, "Different run seeds vary later legal choices")
 	var memory = Build.new(7)
-	var costs: Array[int] = [200, 450, 750, 1100, 1500, 2000, 2600, 3380, 4394, 5713, 7427]
+	var costs: Array[int] = [120, 180, 260, 360, 500, 680, 884, 1150, 1495, 1944, 2528]
 	for level in range(costs.size()):
 		check(memory.memory_cost() == costs[level] and memory.memory_cost(level) == costs[level], "Next memory fee follows its independent sequence")
 		check(memory.register_memory_upgrade() == costs[level] and memory.memory_level == level + 1, "Exactly one registration advances exactly one paid fee")
@@ -119,6 +119,6 @@ func run() -> void:
 		memory.choose(0)
 		check(memory.memory_level == level + 1, "Choosing queued upgrades never charges another fee")
 	var fresh = Build.new(7)
-	check(fresh.memory_level == 0 and fresh.memory_cost() == 200 and fresh.core_id().is_empty(), "A new run resets behavior and memory progression")
+	check(fresh.memory_level == 0 and fresh.memory_cost() == 120 and fresh.core_id().is_empty(), "A new run resets behavior and inscription progression")
 	print("RUN_BUILD_CORES_OK checks=%d" % checks if failures == 0 else "RUN_BUILD_CORES_FAILED failures=%d" % failures)
 	quit(failures)

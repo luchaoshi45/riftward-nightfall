@@ -138,7 +138,7 @@ func state_snapshot() -> Dictionary:
 				"respawn": source.get("respawn", 0.0)})
 	return {"offer": game.contracts.selected_offer, "kind": game.contracts.kind,
 		"reward": game.contracts.selected_reward.duplicate(true), "sources": sources,
-		"scrap": game.scrap, "memory": game.essence, "hunters": hunters(),
+		"scrap": game.scrap, "hunters": hunters(),
 		"enemy_count": game.enemies.size(), "risk": game.contracts.risk_spawned,
 		"risk_count": game.contracts.risk_spawn_count, "done": game.contracts.done.duplicate(true),
 		"touched": game.contracts.offer_touched.duplicate(true), "notified": game.contracts.start_notified,
@@ -172,7 +172,7 @@ func assert_rejected(index: int, label: String, reason_terms: Array[String] = ["
 		check(after.sources[target_index].index == before.sources[target_index].index and
 			is_same(after.sources[target_index].source, before.sources[target_index].source),
 			"%s: rejection must retain the live source identity" % label)
-	check(after.scrap == before.scrap and after.memory == before.memory and after.done == before.done,
+	check(after.scrap == before.scrap and after.done == before.done,
 		"%s: rejected input must not pay, consume or claim progress" % label)
 	check(after.hunters == before.hunters and after.enemy_count == before.enemy_count and
 		after.risk == before.risk and after.risk_count == before.risk_count,

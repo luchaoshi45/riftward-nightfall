@@ -42,9 +42,10 @@ func run() -> void:
 	if not check(not stag.is_empty() and not beetle.is_empty(),"Both kinds should occur in every run"):return
 	game.hero.position=stag.position;game.move_goal=game.hero.position
 	game.hero.hp=400;game.hero.shield=0;game.hero.shield_time=0
-	game.exploration_count=0;game.essence=0
+	game.exploration_count=0
+	var stag_scrap: int=game.scrap
 	if not check("荧角鹿" in wildlife.interaction_prompt() and wildlife.interact(),"F should pet a nearby deer at night"):return
-	if not check(game.hero.hp==460 and game.hero.shield==90 and game.hero.shield_time==10 and game.essence==6 and game.exploration_count==1,"Petting must grant a meaningful health, shield and memory reward"):return
+	if not check(game.hero.hp==460 and game.hero.shield==90 and game.hero.shield_time==10 and game.scrap==stag_scrap+6 and game.exploration_count==1,"Petting must grant a meaningful health, shield and scrap reward"):return
 	if not check(not wildlife.interact() and game.exploration_count==1,"Repeated F may not consume the same encounter twice"):return
 	var old_stag_point: Vector3=stag.position
 	wildlife.tick(3.1)
@@ -57,14 +58,15 @@ func run() -> void:
 	game.phase="night";wildlife.tick(56.8)
 	if not check(stag.state=="cooldown","The respawn must take a complete 60 gameplay seconds"):return
 	wildlife.tick(.2)
-	if not check(stag.state=="idle" and stag.node.visible and stag.lamp.visible and stag.position.distance_to(old_stag_point)>=12,"Wildlife should renew in a different location"):return
+	if not check(stag.state=="idle" and stag.node.visible and stag.position.distance_to(old_stag_point)>=12,"Wildlife should renew in a different location"):return
+	if not check(stag.lamp.visible==(stag.position.distance_to(game.hero.position)<35.0),"A renewed wildlife light must follow the real nearby visibility budget"):return
 	if not check(game.exploration_count==1 and not wildlife.occupied(stag.position,stag.node),"Respawning does not award anything and keeps landmark clearance"):return
 	game.hero.position=beetle.position;game.move_goal=game.hero.position
 	game.scrap=19;game.mana=100;game.hero.hp=400
 	if not check(wildlife.interact() and beetle.state in ["idle","walk"] and game.scrap==19 and game.mana==100 and game.exploration_count==1,"A poor trade should show feedback without charging or consuming the beetle"):return
 	game.scrap=50
-	if not check(wildlife.interact() and game.scrap==30 and game.mana==180 and game.hero.hp==440 and game.essence==14 and game.exploration_count==2,"A beetle trade should charge exactly 20 supplies and grant recovery and memory"):return
-	if not check(not wildlife.interact() and game.scrap==30,"A completed beetle trade may not be repeated"):return
+	if not check(wildlife.interact() and game.scrap==38 and game.mana==180 and game.hero.hp==440 and game.exploration_count==2,"A beetle trade should charge 20 scrap and grant recovery plus eight scrap"):return
+	if not check(not wildlife.interact() and game.scrap==38,"A completed beetle trade may not be repeated"):return
 	wildlife.tick(60.01)
 	if not check(beetle.state=="idle" and beetle.node.visible,"Traded beetles should also refresh"):return
 	for animal in wildlife.animals:animal.timer=1000
@@ -99,6 +101,7 @@ func run() -> void:
 	game.queue_free()
 	await process_frame
 	await process_frame
+	await create_timer(.5).timeout
 	quit()
 
 func render_checks(game: Node3D, wildlife: NeutralWildlife) -> void:

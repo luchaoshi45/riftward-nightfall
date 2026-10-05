@@ -187,7 +187,7 @@ func damage_confirmed(point: Vector3, hp_loss: float, shield_loss: float, source
 	play_sound("hurt",-.5,.88)
 	duck_music(.18)
 
-func kill(point: Vector3, scrap_gain: int, memory_gain: int) -> void:
+func kill(point: Vector3, scrap_gain: int) -> void:
 	if not active():return
 	var reward_point:=point+Vector3(0,2.35,0)
 	var merged:=false
@@ -197,14 +197,14 @@ func kill(point: Vector3, scrap_gain: int, memory_gain: int) -> void:
 		if float(item.duration)-float(item.time)>.35:continue
 		if (item.point as Vector3).distance_to(reward_point)>3.0:continue
 		item.count=int(item.count)+1
-		item.scrap=int(item.scrap)+scrap_gain;item.memory=int(item.memory)+memory_gain
-		item.text=kill_reward_text(item.count,item.scrap,item.memory)
+		item.scrap=int(item.scrap)+scrap_gain
+		item.text=kill_reward_text(item.count,item.scrap)
 		item.time=item.duration;item.scale=minf(1.12,1.0+float(item.count-1)*.025)
 		merged=true;break
 	if not merged:
-		add_float(reward_point,kill_reward_text(1,scrap_gain,memory_gain),Color("91dfbf"),1.13,1.0)
+		add_float(reward_point,kill_reward_text(1,scrap_gain),Color("91dfbf"),1.13,1.0)
 		var item: Dictionary=floats.back()
-		item.kind="kill";item.count=1;item.scrap=scrap_gain;item.memory=memory_gain
+		item.kind="kill";item.count=1;item.scrap=scrap_gain
 	var root:=Node3D.new()
 	root.name="KillEmbers";add_child(root);root.global_position=point+Vector3(0,.55,0)
 	var mat:=glow_material(Color(.56,.90,.73,.87),1.4)
@@ -215,7 +215,7 @@ func kill(point: Vector3, scrap_gain: int, memory_gain: int) -> void:
 		play_sound("kill",-1.5,1.0);kill_sound_lock=.12
 		duck_music(.3)
 
-func milestone(kills: int, scrap_gain: int, memory_gain: int) -> void:
+func milestone(kills: int, scrap_gain: int) -> void:
 	if not active():return
 	var point:=Vector3.ZERO
 	if is_instance_valid(game.hero):point=game.hero.global_position
@@ -227,10 +227,9 @@ func milestone(kills: int, scrap_gain: int, memory_gain: int) -> void:
 	add_effect({"node":root,"kind":"milestone","time":0.0,"duration":.52,"materials":[mat],"parts":[],"ring":ring})
 	play_sound("milestone",1.0,1.0);duck_music(.55)
 
-func kill_reward_text(count: int, scrap_gain: int, memory_gain: int) -> String:
+func kill_reward_text(count: int, scrap_gain: int) -> String:
 	var text: String="击败×%d" % count
 	if scrap_gain>0:text+="  +%d 零件" % scrap_gain
-	if memory_gain>0:text+="  +%d 记忆" % memory_gain
 	return text
 
 func camera_offset() -> Vector3:

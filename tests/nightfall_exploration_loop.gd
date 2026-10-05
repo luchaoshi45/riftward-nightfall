@@ -27,10 +27,10 @@ func run() -> void:
 	game.hero.position=cache.position;game.move_goal=game.hero.position
 	var before: int=game.scrap
 	await press(KEY_F)
-	assert(cache.collected and game.scrap==before+cache.amount and game.exploration_count==1)
+	assert(cache.collected and game.scrap==before+cache.amount+3 and game.exploration_count==1)
 	assert(cache.respawn==game.SALVAGE_REFRESH and game.reward_toasts.size()==1)
 	await press(KEY_F)
-	assert(game.scrap==before+cache.amount and game.exploration_count==1,"Holding or repeating F must not grant twice")
+	assert(game.scrap==before+cache.amount+3 and game.exploration_count==1,"Holding or repeating F must not grant twice")
 	game.update_salvage_refresh(54)
 	assert(cache.collected)
 	await press(KEY_ESCAPE)
@@ -42,15 +42,15 @@ func run() -> void:
 	game.update_salvage_refresh(1)
 	assert(not cache.collected and cache.node.visible)
 	await press(KEY_F)
-	assert(game.exploration_count==2 and game.scrap==before+cache.amount*2)
+	assert(game.exploration_count==2 and game.scrap==before+(cache.amount+3)*2)
 	for i in 3:game.grant_exploration_reward("探索验证",game.hero.position,10,0)
 	assert(game.exploration_count==5 and game.exploration_milestones==1)
-	assert(game.scrap==before+cache.amount*2+30+35)
-	assert(game.essence==26 and game.reward_toasts.back().title.contains("里程碑"))
-	game.essence=game.run.memory_cost()-1
-	game.grant_exploration_reward("晶簇记忆",game.hero.position,0,8)
-	assert(game.phase=="night" and game.essence==7 and game.run.pending>0 and game.return_phase=="night")
-	assert(game.request_upgrade() and game.phase=="draft","A queued memory inscription must open its draft through the real upgrade action")
+	assert(game.scrap==before+(cache.amount+3)*2+30+55)
+	assert(game.run.pending==0 and game.reward_toasts.back().title.contains("里程碑"),"Exploration milestones add shared scrap without automatically queuing cards")
+	game.scrap=game.run.memory_cost()-8
+	game.grant_exploration_reward("零件铭刻补给",game.hero.position,8)
+	assert(game.phase=="night" and game.scrap==game.run.memory_cost() and game.run.pending==0)
+	assert(game.request_upgrade() and game.phase=="draft" and game.scrap==0,"The real V action must buy one legal inscription from the shared scrap balance")
 	game.simulate(5)
 	assert(game.phase_time==clock,"Reward card selection must freeze the night clock")
 	assert(game.choose_card(0) and game.phase=="night" and game.phase_time==clock)
@@ -68,20 +68,20 @@ func run() -> void:
 		var creature: BattleUnit=game.spawn_creature(true)
 		creature.position=game.hero.position+Vector3(1+i,0,0)
 		creature.hp=50
-	game.essence=game.run.memory_cost()-36;game.mana=game.max_mana;game.cooldowns[3]=0
+	game.scrap=game.run.memory_cost()-24;game.mana=game.max_mana;game.cooldowns[3]=0
 	before=game.scrap
-	assert(game.cast(3) and game.phase=="night" and game.run.pending>0)
-	assert(game.scrap==before+24 and game.essence==0,"R multi-kills must retain night rewards while queuing the next memory inscription")
-	assert(game.request_upgrade() and game.phase=="draft","A queued multi-kill memory inscription must open through the real upgrade action")
+	assert(game.cast(3) and game.phase=="night" and game.run.pending==0)
+	assert(game.scrap==before+24,"R multi-kills must retain the actual night scrap budget without automatic card purchases")
+	assert(game.request_upgrade() and game.phase=="draft" and game.scrap==0,"A funded multi-kill must allow one explicit shared-scrap inscription")
 	assert(game.choose_card(0) and game.phase=="night")
 	for item in game.discoveries.items:
 		if item.kind!="memory_crystal" or item.state!="ready":continue
 		game.hero.position=item.position;game.move_goal=game.hero.position
-		game.essence=game.run.memory_cost()-12
+		game.scrap=game.run.memory_cost()-12
 		var rerolls: int=game.run.rerolls
 		await press(KEY_F)
-		assert(game.phase=="night" and item.state=="cooling" and game.run.pending>0)
-		assert(game.request_upgrade() and game.phase=="draft","A memory crystal reaching the threshold must queue, then open through the upgrade action")
+		assert(game.phase=="night" and item.state=="cooling" and game.run.pending==0 and game.scrap>=game.run.memory_cost())
+		assert(game.request_upgrade() and game.phase=="draft","A real ember crystal must fund an explicitly purchased inscription")
 		await press(KEY_F)
 		assert(game.run.rerolls==rerolls,"A quick repeated gathering tap must not consume a card reroll")
 		break
@@ -92,15 +92,15 @@ func run() -> void:
 		if item.kind=="supply_cache" and item.state=="ready":charging=item;break
 	assert(not charging.is_empty())
 	game.hero.position=charging.position;game.move_goal=game.hero.position
-	game.essence=game.run.memory_cost()-6
+	game.scrap=game.run.memory_cost()-46
 	assert(game.interact() and charging.state=="channel")
 	charging.progress=2.9
 	var later: Dictionary=game.discoveries.items.back()
 	assert(charging!=later)
 	game.discoveries.begin_cooling(later,40)
 	game.discoveries.tick(.2)
-	assert(game.phase=="night" and game.run.pending>0,"A cache reward must queue an upgrade without interrupting the night")
-	assert(game.request_upgrade() and game.phase=="draft","A queued cache memory reward must open through the upgrade action")
+	assert(game.phase=="night" and game.run.pending==0 and game.scrap>=game.run.memory_cost(),"A cache reward must fund the shared balance without interrupting the night")
+	assert(game.request_upgrade() and game.phase=="draft","A funded cache reward must allow an explicit inscription")
 	var frozen_later_respawn: float=later.respawn
 	game.discoveries.tick(100.0)
 	assert(is_equal_approx(later.respawn,frozen_later_respawn),"A cache reward opening cards must freeze later refresh entries")

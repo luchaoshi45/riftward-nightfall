@@ -8,7 +8,7 @@ const WALL_SIDE := Vector3(Layout.FORT_TERRAIN_EDGE + .5, 0, Layout.WALL_CENTER 
 const FIELD := Vector3(18, 0, 0)
 const FAR := Vector3(105, 0, 95)
 const STEP := 1.0 / 60.0
-const LABELS := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
+const LABELS := {"ember_bloom":"余烬花", "memory_crystal":"余烬晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
 var game: Node3D
 var failures: Array[String] = []
 var checks := 0
@@ -64,7 +64,6 @@ func reset_case() -> void:
 	game.exploration.begin_day(2)
 	game.exploration_count = 0
 	game.exploration_milestones = 0
-	game.essence = 0
 	game.scrap = 500
 	game.reward_toasts.clear()
 	game.clear_exploration_marker()
@@ -172,21 +171,19 @@ func collection_affinity_action() -> void:
 	check_path(flower.position, "Completed collection P")
 	if not await travel(flower.position): return
 	var scrap: int = game.scrap
-	var memory: int = game.essence
 	var count: int = game.exploration_count
 	await press(KEY_F)
 	check(flower.state == "cooling" and not game.exploration.affinity_active(), "Real F must consume both the flower and its matching affinity once")
-	check(game.scrap - scrap == 47 and game.essence - memory == 28 and game.exploration_count == count + 1,
-		"Real F after collection must pay only 12 flower + 35 milestone scrap and 8 affinity + 20 milestone memory")
+	check(game.scrap - scrap == 75 and game.exploration_count == count + 1,
+		"Real F after collection must pay 12 flower + 55 milestone + 8 affinity scrap")
 	check(game.discoveries.motivation_target().is_empty(), "Affinity consumption must invalidate the still-fresh cache immediately")
 	game.update_exploration_guidance()
 	check(not is_instance_valid(game.motivation_marker), "Consumed affinity with no next kind must immediately clear its marker")
 	ready(0, "ember_bloom", flower.position)
 	scrap = game.scrap
-	memory = game.essence
 	await press(KEY_F)
-	check(game.scrap - scrap == 12 and game.essence == memory,
-		"A second real flower interaction must preserve its base reward without repeating the consumed eight memory")
+	check(game.scrap - scrap == 12,
+		"A second real flower interaction must preserve its base reward without repeating the consumed eight scrap")
 
 func nearest_types_and_gate() -> void:
 	reset_case()

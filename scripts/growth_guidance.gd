@@ -8,8 +8,9 @@ static func snapshot(game: Node3D) -> Dictionary:
 	var memory: Dictionary = {
 		"pending": int(game.run.pending),
 		"cost": memory_cost,
-		"balance": int(game.essence),
-		"shortfall": maxi(0, memory_cost - int(game.essence)),
+		"balance": int(game.scrap),
+		"shortfall": maxi(0, memory_cost - int(game.scrap)),
+		"available": game.run.has_available_upgrade(),
 	}
 	var candidates: Array[Dictionary] = []
 	for index in range(game.world.tower_pads.size()):

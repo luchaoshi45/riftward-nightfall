@@ -166,12 +166,11 @@ func check_freeze() -> void:
 	for phase: String in ["paused", "draft"]:
 		var done: Dictionary = game.contracts.done.duplicate()
 		var scrap: int = game.scrap
-		var memory: int = game.essence
 		var clock: float = game.phase_time
 		game.phase = phase
 		game.simulate(20.0); game.update_day_contracts(20.0)
 		check(not game.follow_contract(), "Inactive phases must not accept the production contract navigation command")
-		check(game.contracts.done == done and game.scrap == scrap and game.essence == memory and game.phase_time == clock,
+		check(game.contracts.done == done and game.scrap == scrap and game.phase_time == clock,
 			"%s must freeze authoritative contract progress, rewards and day clock" % phase)
 	game.phase = "day"
 
@@ -197,29 +196,28 @@ func check_early_salvage() -> void:
 	check_freeze()
 	await capture("res://build/day-contract-active.png")
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	wait_day(55.1)
 	check(game.phase == "day" and not selected[0].source.collected and game.contracts.done.has(int(selected[0].index)),
 		"Actual fifty-five-second cache respawn must preserve already completed contract progress")
-	check(game.scrap == before_scrap and game.essence == before_memory, "Cache respawn and waiting cannot grant a contract payout")
+	check(game.scrap == before_scrap, "Cache respawn and waiting cannot grant a contract payout")
 	if not collect_target(selected[1]): await close_game(); return
 	check(game.contracts.done.size() == 2 and game.contracts.status == "bonus_offer", "Completed field actions must offer the optional detour without pretending delivery occurred")
 	choose_return()
-	before_scrap = game.scrap; before_memory = game.essence
+	before_scrap = game.scrap
 	if not travel(HOME): await close_game(); return
 	check(game.phase_time >= 15.0, "Selected real route plus respawn must retain the fifteen-second early-return margin")
 	check(game.contracts.status == "completed" and game.contracts.pending_reward.is_empty(), "Production update must consume the actual completed contract request")
-	check(game.scrap == before_scrap + 40 and game.essence == before_memory + 8, "Actual early return must pay forty supplies and eight memory exactly once")
+	check(game.scrap == before_scrap + 48, "Actual early return must pay forty-eight scrap exactly once")
 	check(game.exploration.affinity_active() and game.exploration.affinity_kinds.has("ember_bloom"),
 		"Returning a salvage contract must arm a one-shot ember/supply exploration affinity")
-	var affinity_before: int = game.essence
-	game.grant_exploration_reward("委托共鸣测试", game.hero.position, 0, 0, 0.0, 0.0, "ember_bloom")
-	check(game.essence >= affinity_before + 8 and not game.exploration.affinity_active(),
+	var affinity_before: int = game.scrap
+	game.grant_exploration_reward("委托共鸣测试", game.hero.position, 0, 0.0, 0.0, "ember_bloom")
+	check(game.scrap >= affinity_before + 8 and not game.exploration.affinity_active(),
 		"The next matching production discovery must consume the affinity exactly once")
 	await capture("res://build/day-contract-return.png")
-	before_scrap = game.scrap; before_memory = game.essence
+	before_scrap = game.scrap
 	for step in 20: game.update_day_contracts(.1)
-	check(game.scrap == before_scrap and game.essence == before_memory, "Repeated production payout updates must never pay the contract twice")
+	check(game.scrap == before_scrap, "Repeated production payout updates must never pay the contract twice")
 	await close_game()
 
 func check_generator() -> void:
@@ -238,10 +236,9 @@ func check_generator() -> void:
 	check(game.contracts.status == "bonus_offer", "Field energy reward must offer a detour without pretending the contract has already returned")
 	choose_return()
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	if not travel(HOME): await close_game(); return
 	check(game.phase_time >= 15.0 and game.contracts.status == "completed", "Real generator round trip plus combat and hold must fit an early ninety-second return")
-	check(game.scrap == before_scrap + 40 and game.essence == before_memory + 8, "Generator contract must use the same real production payout, separately from its energy reward")
+	check(game.scrap == before_scrap + 48, "Generator contract must use the same real production payout, separately from its energy reward")
 	await close_game()
 
 func check_late_or_dusk(dusk: bool) -> void:
@@ -250,15 +247,14 @@ func check_late_or_dusk(dusk: bool) -> void:
 		if not collect_target(target): await close_game(); return
 	check(game.contracts.done.size() == 2 and game.contracts.status == "bonus_offer", "Both caches away from home must offer the explicit primary-or-detour decision")
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	if dusk:
 		wait_day(game.phase_time + .1)
 		check(game.phase == "night" and game.contracts.status == "completed", "Actual dusk must preserve a genuinely completed primary contract as a guarantee")
-		check(game.scrap == before_scrap + 30 and game.essence == before_memory + 8,
+		check(game.scrap == before_scrap + 38,
 			"Dusk must grant the completed primary guarantee without early-return or extra-supply rewards")
-		before_scrap = game.scrap; before_memory = game.essence
+		before_scrap = game.scrap
 		game.update_day_contracts(20.0)
-		check(game.scrap == before_scrap and game.essence == before_memory and game.contracts.pending_reward.is_empty(),
+		check(game.scrap == before_scrap and game.contracts.pending_reward.is_empty(),
 			"Dusk and later production updates must never duplicate the guaranteed primary payout")
 	else:
 		choose_return()
@@ -266,7 +262,7 @@ func check_late_or_dusk(dusk: bool) -> void:
 		wait_day(maxf(0.0, game.phase_time - return_seconds - 6.0))
 		if not travel(HOME): await close_game(); return
 		check(game.phase == "day" and game.phase_time < 15.0 and game.contracts.status == "completed", "Actual late arrival must remain valid without an early bonus")
-		check(game.scrap == before_scrap + 30 and game.essence == before_memory + 8, "Late arrival must pay thirty supplies, eight memory, and no ten-supply early bonus")
+		check(game.scrap == before_scrap + 38, "Late arrival must pay thirty-eight scrap, and no ten-supply early bonus")
 	await close_game()
 
 func check_incomplete_dusk() -> void:
@@ -275,11 +271,10 @@ func check_incomplete_dusk() -> void:
 	check(game.contracts.status == "active" and game.contracts.done.size() == 1,
 		"Only one of two real caches must leave the primary contract incomplete")
 	var before_scrap: int = game.scrap
-	var before_memory: int = game.essence
 	wait_day(game.phase_time + .1)
 	check(game.phase == "night" and game.contracts.status == "expired",
 		"Actual dusk must expire an incomplete primary contract")
-	check(game.scrap == before_scrap and game.essence == before_memory and game.contracts.pending_reward.is_empty(),
+	check(game.scrap == before_scrap and game.contracts.pending_reward.is_empty(),
 		"Partial primary field work must not receive the completed-work guarantee")
 	await close_game()
 

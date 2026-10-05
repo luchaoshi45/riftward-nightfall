@@ -151,8 +151,8 @@ func opening_upgrade() -> void:
 	stand(game.world.tower_pads[0].position)
 	check(game.scrap == 90 and game.run.pending == 0, "A real opening must retain 90 scrap and consume its opening card")
 	var initial: Dictionary = advice(0, "upgrade", 50, 0, "opening affordable upgrade")
-	check(int(initial.memory.cost) == 200 and int(initial.memory.shortfall) == 200,
-		"The first memory improvement must show its real 200-memory threshold")
+	check(int(initial.memory.cost) == 120 and int(initial.memory.shortfall) == 30,
+		"The first inscription must share the real 90 scrap and show a 30-scrap deficit")
 	await capture("affordable")
 	await press(KEY_F)
 	check(game.scrap == 40 and int(game.world.tower_pads[0].level) == 2,
@@ -318,7 +318,7 @@ func reset_memory() -> void:
 	game.run.queue.clear()
 	game.run.offer.clear()
 	game.run.memory_level = 0
-	game.essence = 0
+	game.scrap = 0
 	game.exploration_count = 0
 	game.exploration_milestones = 0
 	game.exploration.reset_run()
@@ -326,7 +326,7 @@ func reset_memory() -> void:
 
 func memory_rewards_and_inputs() -> void:
 	reset_memory()
-	game.essence = 190
+	game.scrap = 108
 	stand(DISCOVERY_POINT)
 	var crystal: Dictionary = {}
 	for item: Dictionary in game.discoveries.items:
@@ -338,8 +338,8 @@ func memory_rewards_and_inputs() -> void:
 	crystal.state = "ready"
 	await press(KEY_F)
 	var memory: Dictionary = game.growth_snapshot().memory
-	check(int(memory.pending) == 1 and int(memory.balance) == 2 and int(memory.cost) == 450 and int(memory.shortfall) == 448,
-		"A real +12 crystal must pay 200 once, queue one card and publish the next 450 threshold")
+	check(int(memory.pending) == 0 and int(memory.balance) == 120 and int(memory.cost) == 120 and int(memory.shortfall) == 0,
+		"A real +12 crystal must update the common balance without automatic payment or queuing")
 	check(game.phase == "day", "The actual reward must keep gameplay active until V")
 	check_text(game.growth_snapshot(), "one queued imprint")
 	await capture("queued")
@@ -349,28 +349,30 @@ func memory_rewards_and_inputs() -> void:
 	game._process(5.0)
 	check(readonly_state() == before, "Draft simulation and growth reads must not consume a second memory payment")
 	await press(KEY_1)
-	check(game.phase == "day" and game.run.pending == 0 and game.essence == 2 and game.run.memory_level == 1,
-		"A real card selection must consume its queue entry without spending memory again")
+	check(game.phase == "day" and game.run.pending == 0 and game.scrap == 0 and game.run.memory_level == 1,
+		"A real card selection must preserve the single 120-scrap payment and advance the price once")
 	reset_memory()
-	game.grant_exploration_reward("成长验证", DISCOVERY_POINT, 0, 4200)
+	game.grant_exploration_reward("成长验证", DISCOVERY_POINT, 4200)
 	memory = game.growth_snapshot().memory
-	check(int(memory.pending) == 5 and int(memory.balance) == 200 and int(memory.cost) == 2000 and int(memory.shortfall) == 1800,
-		"A genuine 4200-memory reward must queue five progressive choices and leave 200")
+	check(int(memory.pending) == 0 and int(memory.balance) == 4200 and int(memory.cost) == 120 and int(memory.shortfall) == 0,
+		"A genuine income must remain available for buildings, troops or deliberate inscriptions")
 	check_text(game.growth_snapshot(), "five queued imprints")
 	await click(Vector2(1230, 500))
-	check(game.phase == "day" and game.run.pending == 5,
+	check(game.phase == "day" and game.run.pending == 0 and game.scrap == 4200,
 		"The old squad-panel memory hit area must not open queued cards")
 	await click(Vector2(1230, 700))
-	check(game.phase == "day" and game.run.pending == 5,
+	check(game.phase == "day" and game.run.pending == 0 and game.scrap == 4200,
 		"Tower-growth advice rows must not open queued cards")
 	await click(game.hud.MEMORY_BUTTON_RECT.get_center())
-	check(game.phase == "draft" and game.run.pending == 5,
-		"The actual visible growth-memory title must open the queued imprint")
+	check(game.phase == "draft" and game.run.pending == 1 and game.scrap == 4080,
+		"The visible inscription button must purchase and open exactly one real upgrade")
+	var balance: int = 4200
 	for code: int in [KEY_1, KEY_2, KEY_3, KEY_1, KEY_2]:
-		var pending_before: int = game.run.pending
+		if game.phase == "day":await press(KEY_V)
+		balance -= game.run.memory_cost(game.run.memory_level - 1)
 		await press(code)
-		check(game.run.pending == pending_before - 1 and game.essence == 200 and game.run.memory_level == 5,
-			"Production 1/2/3 must consume one queued choice and preserve paid memory")
+		check(game.run.pending == 0 and game.scrap == balance,
+			"Each real V purchase and 1/2/3 choice must pay one fee from the common balance")
 	check(game.phase == "day" and game.run.pending == 0, "The final real imprint must resume the interrupted day")
 	var relay: Dictionary = game.world.relays[0]
 	relay.activated = false
@@ -437,7 +439,7 @@ func readonly_state() -> Dictionary:
 	for pad: Dictionary in game.world.tower_pads:
 		towers.append({"level": int(pad.level), "hp": float(pad.hp), "max_hp": float(pad.max_hp),
 			"branch": game.specializations.branch(pad), "cooldown": float(pad.cooldown), "mode": String(pad.mode)})
-	return {"scrap": game.scrap, "essence": game.essence, "pending": game.run.pending,
+	return {"scrap": game.scrap, "pending": game.run.pending,
 		"memory_level": game.run.memory_level, "queue": game.run.queue.duplicate(), "offer": game.run.offer.duplicate(true),
 		"towers": towers, "path": game.hero_path.duplicate(), "phase_time": game.phase_time,
 		"discoveries_queries": game.discoveries.motivation_route_queries, "budget_queries": game.contracts.budget_route_queries}
