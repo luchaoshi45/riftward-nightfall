@@ -15,19 +15,48 @@ void vertex() {
 }
 void fragment() {
     vec2 p=world_pos.xz;
+    vec3 geometric_normal=normalize(world_normal);
+    vec3 weights=pow(abs(geometric_normal),vec3(4.0));
+    weights/=max(dot(weights,vec3(1.0)),.001);
+    float footprint=max(length(dFdx(world_pos)),length(dFdy(world_pos)));
+    float grit_visibility=1.0-smoothstep(.055,.18,footprint);
+    // Keep the steep embankment at the same physical grain scale as the
+    // ground. XZ-only projection stretched the grit down vertical walls.
+    float grit_x=noise(world_pos.zy*4.6);
+    float grit_y=noise(world_pos.xz*4.6);
+    float grit_z=noise(world_pos.xy*4.6);
+    float grit=mix(.5,dot(vec3(grit_x,grit_y,grit_z),weights),grit_visibility);
+    float rock_coarse=dot(vec3(noise(world_pos.zy*.55),
+        noise(world_pos.xz*.55),noise(world_pos.xy*.55)),weights);
     float broad=noise(p*.18);
-    float grit=noise(p*4.6);
-    float cracks=smoothstep(.73,.82,noise(p*1.6+vec2(17.0,8.0)));
+    float compacted=smoothstep(.73,.86,noise(p*1.6+vec2(17.0,8.0)));
     float ash=smoothstep(.58,.83,noise(p*.57+vec2(2.0,39.0)));
-    vec3 earth=mix(vec3(.045,.049,.045),vec3(.109,.104,.085),broad*.72+grit*.28);
-    earth=mix(earth,vec3(.031,.037,.039),ash*.45+cracks*.27);
-    float cliff=smoothstep(.27,.68,1.0-abs(world_normal.y));
-    float strata=sin(world_pos.y*8.2+noise(p*.83)*2.1)*.5+.5;
-    vec3 rock=mix(vec3(.035,.043,.046),vec3(.105,.101,.084),strata*.47+grit*.20);
-    rock=mix(rock,vec3(.13,.108,.080),smoothstep(4.4,5.1,world_pos.y)*.16);
+    vec3 earth=mix(vec3(.051,.055,.047),vec3(.116,.108,.089),broad*.78+grit*.22);
+    earth=mix(earth,vec3(.044,.052,.052),ash*.36+compacted*.20);
+    float cliff=smoothstep(.27,.68,1.0-abs(geometric_normal.y));
+    // Broad, irregular deposits describe the five-metre rise without the
+    // tight, evenly spaced contour stripes of the previous material.
+    float layer_phase=world_pos.y*4.2+rock_coarse*1.8;
+    float layer_footprint=max(abs(dFdx(layer_phase)),abs(dFdy(layer_phase)));
+    float layer_visibility=exp(-.5*layer_footprint*layer_footprint);
+    float strata=.5+.5*sin(layer_phase)*layer_visibility;
+    vec3 rock=mix(vec3(.050,.056,.058),vec3(.128,.118,.099),
+        strata*.34+rock_coarse*.31+grit*.12);
+    float rim_dust=smoothstep(4.25,5.10,world_pos.y);
+    rock=mix(rock,vec3(.130,.118,.095),rim_dust*.11);
     ALBEDO=mix(earth,rock,cliff);
-    ROUGHNESS=.98;
-    AO=.87+grit*.10;
-    NORMAL_MAP=vec3(.5+(grit-.5)*.055,.5+(noise(p*4.6+7.0)-.5)*.055,1.0);
-    NORMAL_MAP_DEPTH=.30;
+    METALLIC=0.0;
+    SPECULAR=.10;
+    ROUGHNESS=.98-cliff*.03;
+    AO=.93+grit*.045;
+    // A shallow derivative bump is valid on every projection, including
+    // meshes without a usable tangent basis. It never changes the terrain.
+    float relief=(grit-.5)*.0017+rock_coarse*.0008+cliff*strata*.0012;
+    vec3 dpdx=dFdx(VERTEX),dpdy=dFdy(VERTEX);
+    vec3 tangent_x=cross(dpdy,NORMAL),tangent_y=cross(NORMAL,dpdx);
+    float determinant=dot(dpdx,tangent_x);
+    float denominator=(determinant<0.0?-1.0:1.0)*max(abs(determinant),.000001);
+    vec3 gradient=(tangent_x*dFdx(relief)+tangent_y*dFdy(relief))/denominator;
+    gradient/=max(1.0,length(gradient)/.12);
+    NORMAL=normalize(NORMAL-gradient);
 }

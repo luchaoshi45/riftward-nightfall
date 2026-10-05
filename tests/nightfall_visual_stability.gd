@@ -127,6 +127,10 @@ func actual_frames() -> void:
 	game.world.night_mix = 0.0
 	game.world.set_night(false)
 	await photograph("wilderness")
+	view(Vector3(17,3,0),21.0)
+	await photograph("embankment")
+	view(Vector3(8,5,-4),12.0)
+	await photograph("stone-close")
 	view(Vector3(33,0,32),12.0)
 	await photograph("close")
 	game.hud.visible = true
