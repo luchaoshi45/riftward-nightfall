@@ -267,6 +267,12 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 		_cancel_enemy_intercept(enemy)
 		_intercepts[key] = {"enemy": weakref(enemy), "target": weakref(blocker)}
 		enemy.attack_queued = false; enemy.attack_windup = 0.0
+	# Intercepts bypass nightfall's normal target selector. Keep the live
+	# blocker in the same metadata channel so target-side warnings follow the
+	# unit that will actually receive this attack.
+	enemy.set_meta("attack_target_kind", "squad")
+	enemy.set_meta("attack_target_index", -1)
+	enemy.set_meta("attack_target_token", blocker.get_instance_id())
 	var distance: float = _ground_distance(enemy.position, blocker.position)
 	enemy.face(blocker.position, delta)
 	if distance > enemy.attack_range:
@@ -304,12 +310,25 @@ func _cancel_enemy_intercept(enemy: BattleUnit) -> void:
 	if not _intercepts.has(key): return
 	_intercepts.erase(key)
 	enemy.attack_queued = false; enemy.attack_windup = 0.0
+	enemy.set_meta("attack_target_kind", "")
+	enemy.set_meta("attack_target_index", -1)
+	enemy.set_meta("attack_target_token", -1)
 
 func _cancel_intercepts() -> void:
 	for value: Dictionary in _intercepts.values():
 		var enemy := (value.enemy as WeakRef).get_ref() as BattleUnit
 		if is_instance_valid(enemy): enemy.attack_queued = false; enemy.attack_windup = 0.0
 	_intercepts.clear()
+
+func intercept_target_for(enemy: BattleUnit) -> BattleUnit:
+	# The normal enemy target metadata is bypassed while a shield intercept is
+	# active. Expose the live blocker so the HUD can draw the same warning on
+	# the unit that will actually receive the hit.
+	if not is_instance_valid(enemy): return null
+	var value: Variant = _intercepts.get(enemy.get_instance_id())
+	if not value is Dictionary: return null
+	var blocker := (value.target as WeakRef).get_ref() as BattleUnit
+	return blocker if _living(blocker) and _is_holding(blocker) else null
 
 func _enemy(unit: Variant) -> bool:
 	return _living(unit) and unit.kind == "monster" and unit.team == 2

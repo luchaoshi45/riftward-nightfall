@@ -25,7 +25,7 @@ func setup(owner_game: Node) -> void:
 	game=owner_game
 	rng.seed=471009
 	if not players.is_empty():return
-	for key in ["swing","heavy_swing","hit","critical","finisher","kill","milestone"]:
+	for key in ["swing","heavy_swing","hit","hurt","critical","finisher","kill","milestone"]:
 		sounds[key]=make_sound(key)
 	for i in MAX_VOICES:
 		var player:=AudioStreamPlayer.new()
@@ -81,6 +81,7 @@ func tick(delta: float) -> void:
 			flare.scale=Vector3.ONE*maxf(.03,1.0-progress*3.5)
 		if effect.has("ring"):
 			var ring:=effect.ring as MeshInstance3D
+			ring.visible=not reduced_effects
 			var expansion:=.32+.68*(1.0-pow(1.0-progress,3.0))
 			ring.scale=Vector3(expansion,1.0,expansion)
 		if effect.has("light"):
@@ -149,6 +150,35 @@ func impact(point: Vector3, direction: Vector3, amount: float, critical: bool, f
 	trauma=clampf(trauma+(.31 if finisher else (.25 if critical else .12)),0.0,.50)
 	play_sound("finisher" if finisher else ("critical" if critical else "hit"),0.0,rng.randf_range(.965,1.035))
 	duck_music(.22 if not strong else .36)
+
+func damage_confirmed(point: Vector3, hp_loss: float, shield_loss: float, source_title: String = "") -> void:
+	if not active():return
+	var parts: Array[String]=[]
+	if shield_loss>0.0:parts.append("护盾 -%d" % maxi(1,roundi(shield_loss)))
+	if hp_loss>0.0:parts.append("生命 -%d" % maxi(1,roundi(hp_loss)))
+	if parts.is_empty():return
+	var root:=Node3D.new()
+	root.name="HeroDamageConfirmed"
+	add_child(root)
+	root.global_position=point+Vector3(0,.08,0)
+	var color:=Color("e97870") if hp_loss>0.0 else Color("75cdd5")
+	var mat:=glow_material(Color(color.r,color.g,color.b,.82),1.65)
+	var ring:=BattleVisuals.ring(root,Vector3.ZERO,1.0,color,.07 if hp_loss>0.0 else .055)
+	ring.material_override=mat
+	var light:=OmniLight3D.new()
+	light.name="HeroDamageFlashLight"
+	light.light_color=color
+	light.omni_range=2.4
+	light.shadow_enabled=false
+	light.light_energy=0.0 if reduced_effects else .75
+	root.add_child(light)
+	add_effect({"node":root,"kind":"damage_confirmed","time":0.0,"duration":.34,"materials":[mat],"parts":[],"ring":ring,"light":light,"energy":.75})
+	add_float(point+Vector3(0,2.15,0)," · ".join(parts),color,.78,1.05)
+	trauma=clampf(trauma+.16,0.0,.50)
+	if not reduced_effects:
+		BattleVisuals.sparks(game.effects,point+Vector3.UP*.95,color,5)
+	play_sound("hurt",-.5,.88)
+	duck_music(.18)
 
 func kill(point: Vector3, scrap_gain: int, memory_gain: int) -> void:
 	if not active():return
@@ -291,6 +321,7 @@ func make_sound(key: String) -> AudioStreamWAV:
 	match key:
 		"heavy_swing":duration=.25
 		"hit":duration=.20
+		"hurt":duration=.24
 		"critical":duration=.30
 		"finisher":duration=.33
 		"kill":duration=.34
@@ -311,7 +342,7 @@ func make_sound(key: String) -> AudioStreamWAV:
 				var weight:=1.0 if key=="swing" else 1.23
 				sample=pressure*((noise-low_noise)*.27+low_noise*.42)
 				sample+=sin(TAU*(340.0*t-410.0*t*t))*.12*pressure*weight
-			"hit","critical","finisher":
+			"hit","hurt","critical","finisher":
 				var strength:=1.0 if key=="hit" else (1.14 if key=="critical" else 1.27)
 				var attack:=smoothstep(0.0,.003,t)
 				sample=(noise-low_noise)*.26*exp(-t*48.0)

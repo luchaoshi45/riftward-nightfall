@@ -3,6 +3,7 @@ extends Node3D
 ## Combatant data and presentation. The match controller owns battle decisions.
 signal defeated(unit: BattleUnit, source: BattleUnit)
 signal damaged(unit: BattleUnit, source: BattleUnit)
+signal damage_confirmed(unit: BattleUnit, source: BattleUnit, hp_loss: float, shield_loss: float)
 signal shield_absorbed(amount: float)
 
 var team: int = 0
@@ -494,10 +495,16 @@ func hurt(amount: float, source: BattleUnit) -> void:
 	if kind=="monster":hit_recoil=1.0
 	damaged.emit(self,source)
 	amount*=100.0/(100.0+armor)
+	var previous_hp:=hp
+	var previous_shield:=shield
 	var absorbed := minf(shield, amount)
 	shield -= absorbed
-	hp = maxf(0.0, hp - (amount - absorbed))
+	hp = maxf(0.0, hp - (amount-absorbed))
+	var shield_loss:=maxf(0.0,previous_shield-shield)
+	var health_loss:=maxf(0.0,previous_hp-hp)
 	if absorbed>0:shield_absorbed.emit(absorbed)
+	if absorbed>0.0 or health_loss>0.0:
+		damage_confirmed.emit(self,source,health_loss,shield_loss)
 	if hp <= 0:
 		alive = false
 		moving = false

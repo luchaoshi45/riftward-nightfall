@@ -1,7 +1,7 @@
 {
   "target": 100,
-  "completed": 45,
-  "latest_version": "0.8.35",
-  "latest_improvement": "高地镜头跟随响应与移动流畅度",
-  "verification": "Godot 4.7.2 生产场景回归通过：高地镜头水平滞后约0.66米且固定视角不变，平地仍保留约1.26米缓动；高地移动、坡口输入、右键取点、地形引导和主循环回归通过；非headless Forward+实际渲染加载通过；Windows成品仍为0.8.25"
+  "completed": 47,
+  "latest_version": "0.8.37",
+  "latest_improvement": "高地外坡射线求根与目标侧蓄力/实际受击反馈",
+  "verification": "Godot 4.7.2 生产回归通过：高地外坡相机射线32点有界求根、坡口/墙边移动、右键路线与主循环通过；普通敌人和盾卫拦截目标预警、暂停冻结、护盾/生命/致命受击确认顺序通过；隐藏窗口 Forward+ 与 OpenGL 实际渲染加载通过；Windows成品仍为0.8.25"
 }

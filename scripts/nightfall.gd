@@ -17,6 +17,11 @@ const HERO_MOVE_RETRY_FACTORS := [1.0, 0.5, 0.25]
 const HERO_RAMP_SIDE_CLEARANCE := 0.42
 const HERO_RAMP_SAFE_START_Z := 7.45
 const HERO_RAMP_SAFE_FULL_Z := 8.35
+# Include the imported ramp's vertical side-wall thickness when resolving a
+# cursor ray. A ray through the outer 3.9 m edge can otherwise fall onto the
+# low ground behind the ramp and send a right-click target several metres
+# backwards along the map.
+const HERO_RAMP_CLICK_OUTER_EDGE := 3.95
 # Keep the hero's visual footprint away from the raised courtyard retaining
 # walls as well as the south ramp walls. The gameplay wall remains at 6.5 m;
 # this centre-only margin prevents the cape and shoulders from scraping it.
@@ -152,6 +157,8 @@ var kill_chain_time := 0.0
 var combat_milestone_time := 0.0
 var combat_milestone_title := ""
 var combat_milestone_detail := ""
+var hero_damage_flash_time := 0.0
+var hero_damage_flash_text := ""
 var camera_follow := Vector3.ZERO
 var quitting := false
 const SALVAGE_REFRESH := 55.0
@@ -170,6 +177,7 @@ func _ready() -> void:
 	hero.title="余烬守望者"
 	hero.defeated.connect(_on_hero_defeated)
 	hero.damaged.connect(_on_hero_damaged)
+	hero.damage_confirmed.connect(_on_hero_damage_confirmed)
 	cores.setup(self)
 	hero.shield_absorbed.connect(cores.absorbed)
 	move_goal=hero.position
@@ -228,6 +236,7 @@ func _process(delta: float) -> void:
 		reward_toasts[i].time-=delta
 		if reward_toasts[i].time<=0:reward_toasts.remove_at(i)
 	if notice_time>0:notice_time=maxf(0,notice_time-delta)
+	hero_damage_flash_time=maxf(0.0,hero_damage_flash_time-delta)
 	if is_instance_valid(hero):
 		world.follow_ashfall(hero.position)
 		var target:=hero.position+Vector3(0,25,29)
@@ -849,7 +858,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	var attacking_unit: bool=target_kind=="squad" and final_target
 	var hero_attackable: bool=pursuing_hero and final_target
 	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
-	if distance>reach or (day_hunter and not can_traverse(creature.position,target)):
+	var unreachable_hero_target:=pursuing_hero and not final_target
+	if distance>reach or unreachable_hero_target or (day_hunter and not can_traverse(creature.position,target)):
 		creature.attack_queued=false
 		creature.attack_windup=0
 		if day_hunter:
@@ -954,6 +964,55 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 		if tower_index>=0:
 			selected={"kind":"tower","index":tower_index,"position":world.tower_pads[tower_index].position}
 	return selected
+
+func target_warning_snapshot() -> Array[Dictionary]:
+	# Read the live attack windups instead of running a second timer. This keeps
+	# target-side warnings frozen with the simulation during pause and selection
+	# screens, and automatically follows a moving hero or squad member.
+	var warnings: Array[Dictionary]=[]
+	if phase not in ["day","night","paused"]:return warnings
+	for creature: BattleUnit in enemies:
+		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false):continue
+		if not creature.attack_queued or creature.attack_windup<=0.0:continue
+		var target:=attack_target_node(creature)
+		var target_kind:=String(creature.get_meta("attack_target_kind",""))
+		if not is_instance_valid(target) and is_instance_valid(squads) and squads.has_method("intercept_target_for"):
+			target=squads.intercept_target_for(creature)
+			if is_instance_valid(target):target_kind="squad"
+		if not is_instance_valid(target):continue
+		warnings.append({"source":creature,"target":target,"target_kind":target_kind,
+			"threat":String(creature.get_meta("threat","stalker")),"title":creature.title,
+			"remaining":creature.attack_windup,"duration":maxf(.01,creature.windup_duration),
+			"progress":1.0-clampf(creature.attack_windup/maxf(.01,creature.windup_duration),0.0,1.0)})
+	if is_instance_valid(squads):
+		for squad: Dictionary in squads.squads:
+			for soldier: BattleUnit in squad.members:
+				if not is_instance_valid(soldier) or not soldier.alive or not soldier.attack_queued or soldier.attack_windup<=0.0:continue
+				if not is_instance_valid(soldier.target):continue
+				warnings.append({"source":soldier,"target":soldier.target,"target_kind":"enemy",
+					"threat":"defender","title":soldier.title,"remaining":soldier.attack_windup,
+					"duration":maxf(.01,soldier.windup_duration),
+					"progress":1.0-clampf(soldier.attack_windup/maxf(.01,soldier.windup_duration),0.0,1.0)})
+	return warnings
+
+func attack_target_node(creature: BattleUnit) -> Node3D:
+	var target_kind:=String(creature.get_meta("attack_target_kind",""))
+	match target_kind:
+		"hero":return hero
+		"squad":return squad_member_by_token(int(creature.get_meta("attack_target_token",-1)))
+		"tower":
+			var index:=int(creature.get_meta("attack_target_index",-1))
+			if index>=0 and index<world.tower_pads.size():return world.tower_pads[index].node as Node3D
+		"barricade":return gate_barricade
+		"beacon":return world.beacon
+	return null
+
+func squad_member_by_token(token: int) -> BattleUnit:
+	if token<0 or not is_instance_valid(squads):return null
+	for squad: Dictionary in squads.squads:
+		for member: BattleUnit in squad.members:
+			if is_instance_valid(member) and member.get_instance_id()==token:return member
+	return null
 
 func threat_is_tower_hunter(creature: BattleUnit) -> bool:
 	return creature.get_meta("threat","")=="sapper"
@@ -1637,6 +1696,15 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 	if run.count("thorns")>0 and is_instance_valid(source) and source.alive:
 		source.hurt(18+hero.armor*.25,hero)
 
+func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: float, shield_loss: float) -> void:
+	var source_title: String=source.title if is_instance_valid(source) else "未知攻击"
+	var losses: Array[String]=[]
+	if shield_loss>0.0:losses.append("护盾 -%d" % maxi(1,roundi(shield_loss)))
+	if hp_loss>0.0:losses.append("生命 -%d" % maxi(1,roundi(hp_loss)))
+	hero_damage_flash_time=.62
+	hero_damage_flash_text="受到%s · %s" % [source_title," · ".join(losses)]
+	if combat:combat.damage_confirmed(hero.position,hp_loss,shield_loss,source_title)
+
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
 	cores.clear()
@@ -2277,31 +2345,44 @@ func ground_point(screen: Vector2) -> Vector3:
 	ground_point_queries+=1
 	var origin:=camera.project_ray_origin(screen)
 	var direction:=camera.project_ray_normal(screen)
-	var result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
-	var flat_seed: Vector3=result if result is Vector3 else hero.position
-	# The raised south ramp is a smooth, sloped surface rather than a flat
-	# plane. Three fixed-point updates leave the cursor more than a metre away
-	# from the visible slope in the middle of the ramp, which makes right-click
-	# movement appear to snag while the route is corrected. Extra iterations are
-	# cheap (only two scalar plane intersections) and converge to the same
-	# terrain profile used by movement and navigation.
-	for i in 16:
-		if not result is Vector3:break
-		var point: Vector3=result
-		var next: Variant=Plane(Vector3.UP,outpost_height(point)).intersects_ray(origin,direction)
-		if next is Vector3:
-			# Flat ground converges in one pass and the raised ramp usually takes
-			# four to six. Stop once the cursor moved less than a millimetre on the
-			# ground; the fixed-point loop otherwise burns all sixteen iterations on
-			# every high-frequency mouse-motion event.
-			if Vector2(next.x,next.z).distance_to(Vector2(point.x,point.z))<.001:
-				result=next
-				break
-		result=next
-	if result is Vector3:
-		var ramp_click: Vector3=resolve_ramp_click(flat_seed,result)
+	var flat_result: Variant=Plane(Vector3.UP,0).intersects_ray(origin,direction)
+	if flat_result is Vector3:
+		var flat_seed: Vector3=flat_result
+		var terrain_result:=ray_terrain_intersection(origin,direction,flat_seed)
+		var ramp_click: Vector3=resolve_ramp_click(flat_seed,terrain_result)
 		if ramp_click!=Vector3.INF:return ramp_click
-	return result if result is Vector3 else hero.position
+		return terrain_result
+	return hero.position
+
+func ray_terrain_intersection(origin: Vector3, direction: Vector3, flat_seed: Vector3) -> Vector3:
+	# Fixed-point plane updates oscillate on the steep outer slope: the ray can
+	# alternate between y=0 and y=5 instead of converging. Find the first
+	# surface crossing along the actual camera ray, then refine it by bisection.
+	# The y=0 hit bounds the raised terrain because every authored surface is at
+	# or above the outer ground.
+	var flat_t:=origin.distance_to(flat_seed)
+	if flat_t<=.001:return flat_seed
+	var previous_t:=0.0
+	var previous_value:=origin.y-outpost_height(origin)
+	var lower:=0.0
+	var upper:=flat_t
+	var bracketed:=false
+	const SAMPLES:=40
+	for index in range(1,SAMPLES+1):
+		var current_t:=flat_t*float(index)/float(SAMPLES)
+		var point:=origin+direction*current_t
+		var current_value:=point.y-outpost_height(point)
+		if current_value<=0.0 or previous_value>=0.0 and current_value<=0.0:
+			lower=previous_t;upper=current_t;bracketed=true;break
+		previous_t=current_t;previous_value=current_value
+	if not bracketed:return flat_seed
+	for _iteration in 14:
+		var middle:=(lower+upper)*.5
+		var point:=origin+direction*middle
+		var value:=point.y-outpost_height(point)
+		if value>0.0:lower=middle
+		else:upper=middle
+	return origin+direction*((lower+upper)*.5)
 
 func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
 	# The imported ramp meets the outer ground at x=±3.2. A cursor placed on
@@ -2309,7 +2390,7 @@ func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
 	# the raised surface and y=0, producing a target several metres away from
 	# the visible terrain. Treat a near-side-wall click as a request for the
 	# nearest walkable ramp edge while leaving clicks on the outer ground alone.
-	if absf(flat_seed.x)<2.77 or absf(flat_seed.x)>3.75:return Vector3.INF
+	if absf(flat_seed.x)<2.77 or absf(flat_seed.x)>HERO_RAMP_CLICK_OUTER_EDGE:return Vector3.INF
 	if sampled is Vector3 and outpost_walkable(sampled) and absf((sampled as Vector3).x)<2.77:return Vector3.INF
 	var side: float=signf(flat_seed.x)
 	# Preserve the cursor's forward position whenever possible. The y=0 ray

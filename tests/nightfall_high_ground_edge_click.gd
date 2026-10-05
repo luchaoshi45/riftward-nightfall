@@ -37,6 +37,17 @@ func run() -> void:
 			game.plan_hero_path(resolved)
 			check(not game.hero_path.is_empty() or game.move_goal.distance_to(resolved)<.25,
 				"Side-wall route must produce a reachable endpoint at x=%.1f z=%.1f" % [wall_point.x,z])
+			# The imported side wall is wider than the ramp's walkable centre. A
+			# cursor ray through that outer edge must still resolve to the nearby
+			# ramp corridor instead of the low ground behind it.
+			for outer_x in [2.8,3.2,3.8,3.94]:
+				var outer_seed:=Vector3(outer_x*side,game.outpost_height(Vector3(3.2*side,0,z)),z)
+				var outer_screen: Vector2=game.camera.unproject_position(outer_seed)
+				var outer_resolved: Vector3=game.ground_point(outer_screen)
+				check(outer_resolved.y>0.0 and absf(outer_resolved.x)<=game.hero_ramp_side_limit(outer_resolved.z)+.01,
+					"Outer ramp-wall ray must stay on the raised corridor at x=%.2f z=%.1f" % [outer_seed.x,z])
+				check(absf(outer_resolved.z-z)<1.3,
+					"Outer ramp-wall ray must preserve its nearby z at x=%.2f z=%.1f (resolved z=%.2f)" % [outer_seed.x,z,outer_resolved.z])
 	print("NIGHTFALL_HIGH_GROUND_EDGE_CLICK_OK")
 	if not failures:
 		await game.prepare_shutdown()

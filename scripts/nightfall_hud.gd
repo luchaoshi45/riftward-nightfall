@@ -151,6 +151,8 @@ func _draw() -> void:
 		box(Rect2(492,670,456,48),Color(.032,.048,.050,.91),Color("b39761"))
 		var width:=font.get_string_size(prompt,HORIZONTAL_ALIGNMENT_LEFT,-1,17).x
 		label(prompt,Vector2(720-width*.5,701),17,amber)
+	draw_hero_damage_feedback()
+	draw_target_warnings()
 	box(Rect2(300,746,840,129),Color(.025,.041,.047,.94),Color("53605c"))
 	label("守望者",Vector2(323,776),15,muted)
 	var mana_text: String="法力 %d/%d" % [floori(game.mana),int(game.max_mana)]
@@ -236,6 +238,66 @@ func draw_combat_floats() -> void:
 		occupied.append(footprint)
 		draw_string_outline(font,position,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,3,Color(.014,.024,.028,.84*fade))
 		label(value,position,size_px,tint)
+
+func _world_screen(point: Vector3) -> Variant:
+	if not is_instance_valid(game.camera) or game.camera.is_position_behind(point):return null
+	var viewport_size:=get_viewport_rect().size
+	if viewport_size.x<=0.0 or viewport_size.y<=0.0:return null
+	return game.camera.unproject_position(point)*Vector2(1440,900)/viewport_size
+
+func draw_target_warnings() -> void:
+	if game.phase not in ["day","night","paused"] or not game.has_method("target_warning_snapshot"):return
+	var hero_warning_count:=0
+	var hero_remaining:=INF
+	var hero_source_title: String=""
+	for warning: Dictionary in game.target_warning_snapshot():
+		var source:=warning.get("source") as BattleUnit
+		var target:=warning.get("target") as Node3D
+		# Only enemy windups are target-side danger warnings. Friendly squad
+		# attacks remain visible through their existing attack pose and never tint
+		# the player's target marker red.
+		if not is_instance_valid(source) or source.team!=2 or not is_instance_valid(target):continue
+		var point:=target.global_position+Vector3.UP*1.05
+		var screen: Variant=_world_screen(point)
+		if screen==null:continue
+		var position:=screen as Vector2
+		if position.x<0.0 or position.x>1440.0 or position.y<0.0 or position.y>900.0:continue
+		var remaining:=maxf(0.0,float(warning.get("remaining",0.0)))
+		var progress_value:=clampf(float(warning.get("progress",0.0)),0.0,1.0)
+		var danger:=Color("f08b67") if String(warning.get("threat","stalker"))!="runner" else Color("e5bb70")
+		var radius:=16.0+3.0*sin(float(Time.get_ticks_msec())*.012)
+		draw_arc(position,radius,0.0,TAU,28,danger,2.4)
+		draw_arc(position,radius+4.0,-PI*.5,-PI*.5+TAU*progress_value,24,Color("ffe0a1"),2.5)
+		draw_line(position+Vector2(-4,-radius-8),position+Vector2(4,-radius-8),Color(.04,.02,.015,.88),5.0)
+		draw_line(position+Vector2(-4,-radius-8),position+Vector2(-4+8.0*progress_value,-radius-8),danger,3.0)
+		var label_text: String="蓄力 %.1f" % remaining
+		if target==game.hero:
+			hero_warning_count+=1
+			if remaining<hero_remaining:
+				hero_remaining=remaining
+				hero_source_title=String(warning.get("title","敌人"))
+		if target!=game.hero:
+			var text_width:=font.get_string_size(label_text,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x
+			label(label_text,position+Vector2(-text_width*.5,-radius-13),12,danger)
+	if hero_warning_count>0 and hero_remaining<INF:
+		var detail: String="被锁定 · %s · %.1f秒后命中" % [hero_source_title,hero_remaining]
+		box(Rect2(520,700,600,38),Color(.12,.035,.028,.95),Color("d87961"))
+		var width:=font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x
+		label(detail,Vector2(820-width*.5,725),16,Color("ffd1a0"))
+
+func draw_hero_damage_feedback() -> void:
+	if game.phase not in ["day","night","paused"]:return
+	if float(game.get("hero_damage_flash_time"))<=0.0:return
+	var fade:=clampf(float(game.hero_damage_flash_time)/.18,0.0,1.0)
+	var border:=Color("ed756c",.75+.2*fade)
+	# Keep the actual hit confirmation persistent in the HUD even when F2
+	# reduces particles and camera trauma.
+	draw_rect(Rect2(300,746,840,129),border,false,2.4)
+	var text_value:=String(game.hero_damage_flash_text)
+	if text_value!="":
+		box(Rect2(520,708,600,31),Color(.13,.035,.032,.94),Color("c9665d",.9))
+		var width:=font.get_string_size(text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,14).x
+		label(text_value,Vector2(820-width*.5,729),14,Color("ffd0bc",fade))
 
 func draw_boss_panel(snapshot: Dictionary) -> void:
 	var phase_name: String=String(snapshot.get("phase","approach"))
