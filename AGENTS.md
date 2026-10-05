@@ -1,5 +1,9 @@
 # 《余烬守望》项目规则、双机派工与交接
 
+## 2026-10-06荒原跨后端颜色核验（主机A，进行中）
+
+领取main基线`993b95d8694cad9c459b96f37ef4d8eb723ebff3`。委托实景复查发现OpenGL庭院缺砖处和外围荒原明显偏黑，Metal同点不同；黑格形状对应生成器原有16%缺砖及砖缝，当前GLB导入缓存源MD5一致，不能先归因于丢三角或旧资产。只读证据显示土Shader硬编码线性低值、砖Shader通过source_color输入，两后端相对亮度反转。本轮主机A负责`assets/shaders/wasteland.gdshader`及新`tests/nightfall_ground_color_space.gd`，先只改测试做原生材质/临时色彩转换A/B，确认后再写生产修复；从机勿同时改这两文件。不更改城堡几何、地形通行、夜间暗环境要求或两份用户cfg，不提前增加正式版本/计数。实际图形验证保持后台隐藏、无焦点、屏幕外、Dummy音频。
+
 ## 2026-10-06委托先承诺风险与方案资格（主机A，源码与Mac行为/HUD验收完成）
 
 领取main基线`99ea4ac7a2a79f2c58c2e38b3563afd9fb32d367`。源码核对发现先普通F启动/完成未选目标，再切换高奖方案，可沿用真实源状态却绕过额外追猎；废墟55秒刷新还会抹去已采集的瞬时状态。主机A负责`scripts/day_contracts.gd`、`scripts/nightfall.gd`、`scripts/nightfall_hud.gd`、`scripts/contract_route_budget.gd`、新`tests/nightfall_contract_prework.gd`及必要相关回归，内部按文件分工；从机勿同时修改这些文件。
