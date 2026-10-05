@@ -112,6 +112,14 @@ func _draw() -> void:
 			label(contract.return_budget_text(budget),Vector2(477,110),13,budget_color)
 			var hint: String="4 立即返家 / 5 追加 · P 前往目标" if contract.status=="bonus_offer" else ("P 前往追加目标 · F 采集后再 P 返家" if contract.status=="bonus_active" else "P 回灯塔 · 提前15秒再+10零件")
 			label(hint+" · 估时不含战斗",Vector2(477,130),12,muted)
+		elif contract.status=="active":
+			var budget: Dictionary=contract.primary_budget()
+			var budget_color: Color=red if String(budget.risk) in ["late","unreachable"] else (amber if String(budget.risk)=="tight" else Color("a3d7bd"))
+			label(contract.primary_travel_text(budget),Vector2(477,79),14,ink)
+			label(contract.primary_timing_text(budget),Vector2(477,99),12,budget_color)
+			label(contract.offer_summary(contract.selected_offer),Vector2(477,119),11,amber)
+			var choice_hint: String="4/5/6 换方案" if not contract.progress_started else "方案已锁定"
+			label("P指路 · F行动 · "+choice_hint+" · "+contract.primary_condition_text(budget),Vector2(477,142),11,muted)
 		else:
 			var goal: Vector3=game.contract_goal()
 			var detail: String="日落前完成并返回灯塔"

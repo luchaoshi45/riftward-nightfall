@@ -1431,6 +1431,9 @@ func refresh_construction_navigation() -> void:
 	construction_blocks=construction.navigation_blocks()
 	building_approach_cache.clear()
 	build_hero_navigation()
+	# Route estimates must observe a placed, destroyed or rebuilt building
+	# in the same frame rather than retaining its previous open approach.
+	if is_instance_valid(contracts):contracts.clear_budget_cache()
 	for creature in enemies:
 		if is_instance_valid(creature) and creature is BattleUnit:creature.path.clear();creature.path_timer=0.0
 	if is_instance_valid(squads):

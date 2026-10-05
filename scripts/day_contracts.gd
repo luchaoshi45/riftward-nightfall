@@ -2,6 +2,7 @@ extends Node
 ## Optional overlay on existing actions. Controller owns rewards and all visuals.
 signal progress_changed(text: String)
 
+const RouteBudget = preload("res://scripts/contract_route_budget.gd")
 const TITLES := {"salvage":"废墟补给", "generator":"能源交接", "escort":"哨兵归队", "nest":"封巢报告"}
 const REWARD_SCRAP := 30
 const REWARD_MEMORY := 8
@@ -214,6 +215,18 @@ func offer_summary(index: int) -> String:
 	if risk_seconds > 0.0:risk_text += " · 提前%d秒截止" % risk_seconds
 	return "%s · +%d零件/+%d记忆 · %s" % [String(offer.get("name", "方案%d" % (index + 1))), int(offer.get("scrap", REWARD_SCRAP)), int(offer.get("memory", REWARD_MEMORY)), risk_text]
 
+func primary_budget(offer_index: int = -1) -> Dictionary:
+	return RouteBudget.evaluate(self, offer_index)
+
+func primary_travel_text(budget: Dictionary) -> String:
+	return RouteBudget.travel_text(budget)
+
+func primary_timing_text(budget: Dictionary) -> String:
+	return RouteBudget.timing_text(budget)
+
+func primary_condition_text(budget: Dictionary) -> String:
+	return RouteBudget.condition_text(budget)
+
 func _select_offer(index: int) -> void:
 	selected_offer=index
 	var offer: Dictionary=offers[index]
@@ -263,6 +276,11 @@ func route_distance(from: Vector3, to: Vector3) -> float:
 	var start: Vector2i=game.nearest_navigation_cell(from,true)
 	var finish: Vector2i=game.nearest_navigation_cell(to,false)
 	if start.x==999 or finish.x==999:
+		budget_route_cache[key]={}
+		return INF
+	# The nearest free cell can sit outside a sealed pocket. Its final
+	# approach still has to reach the actual source instead of crossing a wall.
+	if not game.can_traverse(Vector3(finish.x,0,finish.y),to):
 		budget_route_cache[key]={}
 		return INF
 	var route: PackedVector2Array=game.hero_navigation.get_point_path(start,finish)
@@ -453,7 +471,10 @@ func build_reward(early: bool, include_bonus: bool) -> Dictionary:
 	return {"id":"day_contract_%d" % day_id,"day":day_id,"kind":kind,"scrap":reward_scrap,"memory":reward_memory,"risk":int(selected_reward.get("risk",selected_offer)),"risk_hunters":int(selected_reward.get("risk_hunters",0)),"early_return":early,"bonus":include_bonus,"affinity":AFFINITY_KINDS.get(kind, []).duplicate()}
 
 func returned_home() -> bool:
-	return game.hero.alive and game.hero.position.y > 4.8 and flat_distance(game.hero.position, Vector3.ZERO) < 6.2
+	return game.hero.alive and in_home_area(game.hero.position)
+
+func in_home_area(point: Vector3) -> bool:
+	return point.y > 4.8 and flat_distance(point, Vector3.ZERO) < 6.2
 
 func take_reward_request() -> Dictionary:
 	# The only payout interface; progress signals carry no spendable reward.

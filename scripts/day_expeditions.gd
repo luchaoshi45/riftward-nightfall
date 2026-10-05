@@ -3,6 +3,7 @@ extends Node3D
 ## Daytime expeditions earn supplies and persistent help for the following nights.
 const HOLD_SECONDS := 12.0
 const HOLD_RADIUS := 5.0
+const FOLLOW_SPEED := 5.4
 const GENERATOR_REWARD := 100
 const RESCUE_REWARD := 80
 const HOME_LANTERN_SCENE: PackedScene = preload("res://assets/models/waylight.glb")
@@ -190,7 +191,7 @@ func follow_hero(camp: Dictionary, delta: float) -> void:
 	var before:=npc.position
 	var direction:=target-before;direction.y=0
 	if direction.length()>.04:
-		var next:=before+direction.normalized()*minf(direction.length(),5.4*delta)
+		var next:=before+direction.normalized()*minf(direction.length(),FOLLOW_SPEED*delta)
 		if game.can_traverse(before,next):
 			next.y=game.outpost_height(next);npc.position=next
 			npc.face(target,delta)
