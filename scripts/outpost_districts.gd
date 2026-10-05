@@ -62,13 +62,13 @@ func _technology_eligibility(definition: Dictionary, unknown_reason: String) -> 
 	return {"available": missing.is_empty(), "reason": "" if missing.is_empty() else "需要存活%s" % "、".join(titles), "missing": missing}
 
 func begin_night(day: int) -> void:
-	if not _active() or String(game.phase) != "night" or day < 1 or _begun_nights.has(day): return
+	if not _active() or String(game.phase) != "night" or day < 1 or day != _current_night_day() or _begun_nights.has(day): return
 	_begun_nights[day] = true
 	_recovery_day = day
 	_captured_scrap = 0
 
 func register_wreck(id: int, point: Vector3) -> Dictionary:
-	if not _active() or String(game.phase) != "night" or _recovery_day < 1:
+	if not _active() or String(game.phase) != "night" or _recovery_day < 1 or _recovery_day != _current_night_day():
 		return {"accepted": false, "reason": "只回收夜袭的真实残骸"}
 	if id < 0 or not point.is_finite() or _wreck_ids.has(id): return {"accepted": false, "reason": "无效或重复残骸"}
 	# Remember every observed death, including out-of-range/capped deaths: it
@@ -114,6 +114,12 @@ func tick(delta: float) -> void:
 
 func _recovery_interval(plot: Dictionary) -> float:
 	return 3.0 if int(plot.level) >= 2 else 4.0
+
+func _current_night_day() -> int:
+	if not is_instance_valid(game): return -1
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) == "day_number": return int(game.get("day_number"))
+	return -1
 
 func nearest() -> int:
 	if not _active() or not is_instance_valid(game.hero): return -1

@@ -9,6 +9,7 @@ const HERO_RECT := Rect2(344,800,752,80)
 const MEMORY_RECT := Rect2(1108,800,104,80)
 const TACTICS_RECT := Rect2(24,824,126,36)
 const MAP_BUTTON_RECT := Rect2(164,824,96,36)
+const BUILD_BUTTON_RECT := Rect2(272,824,64,36)
 const DRAWER_RECT := Rect2(24,112,540,622)
 const DRAWER_CLOSE_RECT := Rect2(428,692,112,30)
 const TAB_IDS := ["contract","exploration","army","defense","help"]
@@ -147,6 +148,8 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.label("F3 战术" if not open else "F3 收起",Vector2(43,848),16,GREEN if open else ui.ink)
 	ui.box(MAP_BUTTON_RECT,ui.panel,Color("617364"))
 	ui.label("地图",Vector2(195,848),16,ui.ink)
+	ui.box(BUILD_BUTTON_RECT,ui.panel,GREEN if game.construction.active else Color("617364"))
+	ui.label("Y 建造",Vector2(279,847),14,GREEN if game.construction.active else ui.ink)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
@@ -307,14 +310,14 @@ static func _draw_help(ui: Control) -> void:
 	var groups: Array[String]=[
 		"移动：ZASD / 方向键；未选部队时右键寻路。W 用于屏障。",
 		"技能：Q 斩光 / W 屏障 / E 突进 / R 灯焰 / X 治疗。",
-		"建设：Y 选址，1/2/3选当前页，PgUp/PgDn翻页；左键/F建造，右键/Esc/Y退出。",
+		"建设：Y选址；1/2/3选当前页；PgUp/PgDn翻页。\n左键/F建造；右键/Esc/Y退出。",
 		"科技：工坊解锁回收站；兵营+工坊解锁研究所；研究所解锁重弩组。",
 		"互动：F 搜集、修灯、升级与重建；H 修塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
 		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
-		"部队：U盾卫 / I弩手 / N工程员；F3部队页翻页训练重弩，每营独立队列。",
-		"指挥：点选/框选，Shift 追加，Tab 全选；右键移动/攻击，O 驻守或召回。",
-		"整备：白昼L 付费补员；V 用零件铭刻。Esc先收起详情/地图，再取消建设或部队选择，最后暂停。",
+		"部队：U盾卫 / I弩手 / N工程员；F3部队页翻页训练重弩。",
+		"指挥：点选/框选、Shift追加、Tab全选；右键指挥，O驻守。",
+		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",
 	]

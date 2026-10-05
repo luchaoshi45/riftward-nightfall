@@ -30,6 +30,7 @@ const GROWTH_MEMORY_RECT := CleanHud.MEMORY_RECT
 const MEMORY_BUTTON_RECT := CleanHud.MEMORY_RECT
 const TACTICS_BUTTON_RECT := CleanHud.TACTICS_RECT
 const MAP_BUTTON_RECT := CleanHud.MAP_BUTTON_RECT
+const BUILD_BUTTON_RECT := CleanHud.BUILD_BUTTON_RECT
 const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 var detail_tab := ""
@@ -148,7 +149,7 @@ func live_panel_rects() -> Array[Rect2]:
 	var objective:=CleanHud.OBJECTIVE_RECT
 	if not game.boss_snapshot().is_empty() and (game.phase=="night" or (game.phase=="paused" and game.paused_from=="night")):objective.size.y=110
 	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
-		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,minimap_rect()])
+		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT,minimap_rect()])
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
@@ -279,7 +280,8 @@ func change_troop_page(direction: int) -> void:
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
-	var tint:=Color("85d5a5") if bool(placement.valid) else (amber if bool(placement.space_valid) else red)
+	var tint:=Color("85d5a5") if bool(placement.valid) else red
+	if not bool(placement.valid) and bool(placement.space_valid):tint=amber if bool(placement.tech_valid) else Color("aca0e8")
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
 	var kinds:=visible_construction_kinds()
 	for index in kinds.size():
@@ -794,6 +796,9 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 			if TACTICS_BUTTON_RECT.has_point(point):toggle_details();accept_event();return
 			if MAP_BUTTON_RECT.has_point(point) or minimap_rect().has_point(point):toggle_map();accept_event();return
+			if BUILD_BUTTON_RECT.has_point(point):
+				if game.phase in ["day","night"]:game.toggle_tower_construction()
+				accept_event();return
 			if not detail_tab.is_empty() and not game.construction.active:
 				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
 				for index in CleanHud.TAB_IDS.size():
