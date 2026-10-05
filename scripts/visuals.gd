@@ -72,14 +72,14 @@ static func burst(parent: Node3D, pos: Vector3, radius: float, color: Color, dur
 ## The lamp's overload is a single, readable blast. Its final rim matches the
 ## damage radius, while the brief point light gives it a presence in darkness.
 static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_light: bool = true) -> void:
-	var blast := Node3D.new()
+	var blast := preload("res://scripts/visual_inferno.gd").new()
 	blast.name = "LanternInferno"
 	parent.add_child(blast)
 	blast.position = pos + Vector3(0, 0.13, 0)
 
 	var ground_mat := ShaderMaterial.new()
 	ground_mat.shader = load("res://assets/shaders/lantern_inferno.gdshader")
-	var opacity_scale := 1.0 if scene_light else .14
+	var opacity_scale := .70 if scene_light else .34
 	ground_mat.set_shader_parameter("opacity",opacity_scale)
 	var ground_mesh := PlaneMesh.new()
 	ground_mesh.size = Vector2.ONE * radius * 2.0
@@ -92,8 +92,8 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	ground.position.y = 0.025
 	ground.scale = Vector3(0.08, 1.0, 0.08)
 
-	var rim_color := Color(1.0, 0.68, 0.26, 0.95)
-	var rim_mat := material(rim_color, 2.8)
+	var rim_color := Color(1.0, 0.65, 0.24, 0.74)
+	var rim_mat := material(rim_color, 1.4)
 	rim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	rim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var rim := ring(blast, Vector3(0, 0.085, 0), radius, rim_color, 0.13)
@@ -101,8 +101,8 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	rim.material_override = rim_mat
 	rim.scale = Vector3(0.06, 1.0, 0.06)
 
-	var inner_color := Color(1.0, 0.40, 0.10, 0.63 if scene_light else .25)
-	var inner_mat := material(inner_color, 1.8)
+	var inner_color := Color(1.0, 0.36, 0.09, 0.34 if scene_light else .18)
+	var inner_mat := material(inner_color, .8)
 	inner_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	inner_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var inner := ring(blast, Vector3(0, 0.11, 0), radius * 0.63, inner_color, 0.12)
@@ -110,24 +110,25 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	inner.material_override = inner_mat
 	inner.scale = Vector3(0.08, 1.0, 0.08)
 
-	var tongue_color := Color(1.0, 0.54, 0.15, 0.72 if scene_light else .30)
-	var tongue_mat := material(tongue_color, 1.9)
-	tongue_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	tongue_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	tongue_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var tongue_mat := ShaderMaterial.new()
+	tongue_mat.shader = ground_mat.shader
+	tongue_mat.set_shader_parameter("layer_kind", 1.0)
+	var tongue_opacity := .70 if scene_light else .46
+	tongue_mat.set_shader_parameter("opacity", tongue_opacity)
 	var tongues := Node3D.new()
 	tongues.name = "InfernoFlameTongues"
 	blast.add_child(tongues)
 	tongues.scale = Vector3(0.05, 1.0, 0.05)
 	for i in range(12):
-		var tongue := sector_band(radius * 0.12, radius * (0.77 + 0.06 * float(i % 3)), 0.095, tongue_mat, true)
+		var tongue := sector_band(radius * .24, radius * (.58 + .07 * float(i % 3)), .05 + .014 * float(i % 2), tongue_mat, true)
 		tongue.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		tongues.add_child(tongue)
 		tongue.rotation.y = float(i) * TAU / 12.0 + float(i % 3) * 0.08
-		tongue.position.y = 0.055 + float(i % 2) * 0.008
+		tongue.rotation.x = .065 + float(i % 3) * .022
+		tongue.position.y = .08 + float(i % 2) * .04
 
-	var flare_color := Color(1.0, 0.84, 0.49, 0.78 if scene_light else .40)
-	var flare_mat := material(flare_color, 3.4)
+	var flare_color := Color(1.0, 0.76, 0.32, 0.38 if scene_light else .20)
+	var flare_mat := material(flare_color, 1.1)
 	flare_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	flare_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var flare_mesh := SphereMesh.new()
@@ -141,8 +142,8 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	flare.material_override = flare_mat
 	flare.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	blast.add_child(flare)
-	flare.position.y = 1.4
-	flare.scale = Vector3(0.35, 1.7, 0.35)
+	flare.position.y = .75
+	flare.scale = Vector3(0.15, .50, 0.15)
 
 	var light := OmniLight3D.new()
 	light.name = "InfernoFlashLight"
@@ -159,24 +160,72 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 		for mesh in blast.find_children("*", "MeshInstance3D", true, false):
 			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	sparks(parent, pos + Vector3.UP * 0.5, Color("ffd084"), 42)
-	sparks(parent, pos + Vector3.UP * 0.4, Color("ed672d"), 24)
+	inferno_embers(blast, radius, Color("ffc06c"), 18)
+	inferno_embers(blast, radius * .75, Color("e66e35"), 10)
 	var tween := blast.create_tween().set_parallel(true)
 	tween.tween_property(ground, "scale", Vector3.ONE, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(rim, "scale", Vector3.ONE, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(inner, "scale", Vector3.ONE, 0.27).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(tongues, "scale", Vector3.ONE, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(tongues, "rotation:y", 0.16, 0.38).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tween.tween_property(flare, "scale", Vector3(1.1, 2.4, 1.1), 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(flare, "scale", Vector3(.35, 1.1, .35), .13).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if scene_light:
 		tween.tween_property(light, "light_energy", 0.0, 0.70).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.chain().tween_method(func(value: float) -> void: ground_mat.set_shader_parameter("opacity", value * opacity_scale), 1.0, 0.0, 0.31)
 	tween.tween_property(rim_mat, "albedo_color", Color(rim_color.r, rim_color.g, rim_color.b, 0.0), 0.31)
 	tween.tween_property(inner_mat, "albedo_color", Color(inner_color.r, inner_color.g, inner_color.b, 0.0), 0.31)
-	tween.tween_property(tongue_mat, "albedo_color", Color(tongue_color.r, tongue_color.g, tongue_color.b, 0.0), 0.31)
+	tween.tween_method(func(value: float) -> void: tongue_mat.set_shader_parameter("opacity", value * tongue_opacity), 1.0, 0.0, .31)
 	tween.tween_property(flare_mat, "albedo_color", Color(flare_color.r, flare_color.g, flare_color.b, 0.0), 0.22)
 	tween.tween_property(flare, "scale", Vector3(0.08, 0.08, 0.08), 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(blast.queue_free)
+	var owner_game: Node = parent.get_parent() if parent.get_parent().has_method("simulate") else null
+	blast.configure(owner_game, tween, [ground_mat, tongue_mat])
+
+static func inferno_embers(parent: Node3D, radius: float, tint: Color, count: int) -> void:
+	var particles := GPUParticles3D.new()
+	particles.name = "InfernoEmbers"
+	particles.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	particles.one_shot = true
+	particles.amount = count
+	particles.lifetime = .78
+	particles.explosiveness = .85
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(radius * .46, .05, radius * .46)
+	process.direction = Vector3.UP
+	process.spread = 28.0
+	process.initial_velocity_min = 1.0
+	process.initial_velocity_max = 2.7
+	process.gravity = Vector3(0, -2.2, 0)
+	process.scale_min = .65
+	process.scale_max = 1.15
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, .12, .55, 1.0])
+	gradient.colors = PackedColorArray([Color(tint, 0.0), Color(tint, .78), Color(tint, .36), Color(tint, 0.0)])
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	particles.process_material = process
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(.13, .22)
+	var mat := material(Color.WHITE, .65)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.vertex_color_use_as_albedo = true
+	var falloff := Gradient.new()
+	falloff.colors = PackedColorArray([Color(1, 1, 1, .85), Color(1, 1, 1, 0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = falloff
+	texture.width = 32; texture.height = 32
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(.5, .5); texture.fill_to = Vector2(.5, 0)
+	mat.albedo_texture = texture
+	mesh.material = mat
+	particles.draw_pass_1 = mesh
+	parent.add_child(particles)
+	particles.position.y = .30
+	particles.emitting = true
 
 static func breaker_slam(parent: Node3D, pos: Vector3) -> void:
 	var slam:=Node3D.new()
@@ -335,6 +384,7 @@ static func tower_shot(parent: Node3D, from: Vector3, to: Vector3, level: int) -
 
 static func sector_band(inner_radius: float, outer_radius: float, half_angle: float, mat: Material, tapered: bool=false) -> MeshInstance3D:
 	var vertices:=PackedVector3Array()
+	var uvs:=PackedVector2Array()
 	var indices:=PackedInt32Array()
 	var segments:=28
 	for i in range(segments+1):
@@ -349,12 +399,14 @@ static func sector_band(inner_radius: float, outer_radius: float, half_angle: fl
 			outer=midpoint+width
 		vertices.append(Vector3(sin(angle)*inner,0,-cos(angle)*inner))
 		vertices.append(Vector3(sin(angle)*outer,0,-cos(angle)*outer))
+		uvs.append(Vector2(fraction,0.0));uvs.append(Vector2(fraction,1.0))
 	for i in segments:
 		var n:=i*2
 		indices.append_array(PackedInt32Array([n,n+1,n+2,n+1,n+3,n+2]))
 	var arrays:=[]
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX]=vertices
+	arrays[Mesh.ARRAY_TEX_UV]=uvs
 	arrays[Mesh.ARRAY_INDEX]=indices
 	var mesh:=ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays)

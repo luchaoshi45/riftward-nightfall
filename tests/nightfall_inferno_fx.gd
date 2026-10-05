@@ -17,6 +17,9 @@ func run() -> void:
 	assert(absf((boundary.mesh as TorusMesh).outer_radius - 8.13) < .001, "The visible boundary must match the damage radius")
 	var tongues: Node3D = blast.get_node_or_null("InfernoFlameTongues")
 	assert(tongues != null and tongues.get_child_count() == 12)
+	assert(tongues.get_child(0).rotation.x > 0.0, "Flame tongues must rise above the floor instead of forming a flat opaque flower")
+	var ground_material: ShaderMaterial = blast.get_node("InfernoGroundGlow").material_override
+	assert(not ground_material.shader.code.contains("TIME"), "Fire texture must use the effect's pausable age")
 	for mesh in blast.find_children("*", "MeshInstance3D", true, false):
 		assert(mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "Pure inferno light shapes must not occlude the skill lamp")
 	var flash: OmniLight3D = blast.get_node_or_null("InfernoFlashLight")
