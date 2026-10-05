@@ -148,7 +148,7 @@ func live_panel_rects() -> Array[Rect2]:
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
 	if game.notice_time>0.0 and not game.construction.active and game.hero_damage_flash_time<=0.0:areas.append(Rect2(344,740,752,48))
-	if game.phase in ["day","night"] and not game.construction.active and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
+	if game.phase in ["day","night"] and not game.construction.active and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
 	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
 	if game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
 	if game.hero_damage_flash_time>0.0:areas.append(Rect2(558,773,530,24))
@@ -162,7 +162,7 @@ func context_prompt_rect() -> Rect2:
 	return Rect2(435,682,570,40)
 
 func draw_context_prompt() -> void:
-	if game.phase not in ["day","night"] or game.construction.active:return
+	if game.phase not in ["day","night"] or game.construction.active or not detail_tab.is_empty():return
 	var prompt: String=game.interaction_prompt()
 	if prompt.is_empty():return
 	var rect:=context_prompt_rect()
@@ -393,7 +393,8 @@ func draw_day_forecast() -> void:
 		box(rect,Color(.10,.15,.14,.96) if selected else Color(.045,.075,.073,.92),outline)
 		var marker: String="已选" if selected else ("推荐" if recommended else "")
 		label("%d %s %s" % [index+7,game.countermeasure_title(index),marker],rect.position+Vector2(8,21),12,amber if selected or recommended else ink)
-		CleanHud._paragraph(self,game.countermeasure_summary(index),rect.position+Vector2(8,41),144,12,muted,16,2)
+		var summary: String=game.countermeasure_summary(index).replace("防御塔伤害提高","塔伤提升")
+		CleanHud._paragraph(self,summary,rect.position+Vector2(8,41),144,12,muted,16,2)
 	label("点击 / 7/8/9 选择 · 天黑前可更换",Vector2(46,364),14,Color("a3c7b7"))
 
 func draw_combat_rewards() -> void:
