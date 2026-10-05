@@ -5,6 +5,7 @@ class_name ExplorationMotivation
 const STREAK_WINDOW := 22.0
 const DEEP_RADIUS := 42.0
 const ROUTE_KINDS := ["ember_bloom", "memory_crystal", "supply_cache", "waylight"]
+const KIND_NAMES := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
 
 var game: Node3D
 var route_seed := 0
@@ -144,7 +145,8 @@ func affinity_active() -> bool:
 	return affinity_time > 0.0 and not affinity_kinds.is_empty()
 
 func record(kind: String, point: Vector3, phase_name: String) -> Dictionary:
-	var result := {"scrap": 0, "memory": 0, "event": ""}
+	var result := {"scrap": 0, "memory": 0, "event": "", "speed_seconds": 0.0}
+	var events: Array[String] = []
 	var category := kind if not kind.is_empty() else "other"
 	run_kinds[category] = int(run_kinds.get(category, 0))+1
 	day_kinds[category] = true
@@ -163,39 +165,44 @@ func record(kind: String, point: Vector3, phase_name: String) -> Dictionary:
 		last_kind = category
 		streak_time = STREAK_WINDOW
 		best_streak = maxi(best_streak, streak)
-	if streak == 2:
-		result.memory += 4
-		speed_bonus = .8
-		speed_time = 18.0
-		result.event = "探索连段 2 · 获得 4 记忆，移动加速"
-	elif streak == 3:
-		result.scrap += 12
-		result.memory += 6
-		result.event = "探索连段 3 · +12 零件、+6 记忆"
-	elif streak >= 4 and not full_set_claimed and _has_full_set():
+		# Ordinary salvage and wildlife still count towards the five-visit
+		# milestone, but may not replay a previously reached route tier.
+		if streak == 2:
+			result.memory += 4
+			speed_bonus = .8
+			speed_time = 18.0
+			result.speed_seconds = 18.0
+			events.append("探索连段 2")
+		elif streak == 3:
+			result.scrap += 12
+			result.memory += 6
+			events.append("探索连段 3")
+	# Collecting all four types is a set reward, independent of the 22-second
+	# chain. It can share the final discovery with a chain or affinity reward.
+	if route_kind and not full_set_claimed and _has_full_set():
 		full_set_claimed = true
 		result.scrap += 40
 		result.memory += 12
-		result.event = "完整搜寻 · 四类发现各一次，+40 零件、+12 记忆"
+		events.append("完整搜寻")
 
 	if route_kind and point.distance_to(Vector3.ZERO) >= DEEP_RADIUS:
 		deep_discoveries += 1
 		result.scrap += 8
-		if result.event.is_empty():
-			result.event = "深入荒原 · +8 零件"
+		events.append("深入荒原")
 	if route_kind and phase_name == "night" and phase_night_discoveries <= 2:
 		result.scrap += 6
 		result.memory += 3
-		if result.event.is_empty():
-			result.event = "夜行搜寻 · +6 零件、+3 记忆"
+		events.append("夜行搜寻")
 	if route_kind and network_active() and category != "waylight":
 		result.memory += 2
+		events.append("灯网共鸣")
 	if category in affinity_kinds and affinity_active():
 		result.memory += 8
-		result.event = "委托共鸣 · 匹配探索额外 +8 记忆"
+		events.append("委托共鸣")
 		affinity_kinds.clear()
 		affinity_time = 0.0
 
+	result.event = " · ".join(events)
 	if not result.event.is_empty():
 		last_event = result.event
 		event_history.push_back(result.event)
@@ -221,12 +228,27 @@ func route_text() -> String:
 		if day_kinds.has(kind):
 			collected += 1
 	var next := next_kind()
-	if affinity_active():
-		return "委托共鸣 · 下一次探索额外 +8 记忆"
 	if next.is_empty():
-		return "完整搜寻已完成 · 连段 %d" % streak
-	var names := {"ember_bloom":"余烬花", "memory_crystal":"记忆晶簇", "supply_cache":"补给箱", "waylight":"灯碑"}
-	return "路线 %d/4 · 下一站 %s · 连段 %d" % [collected, names.get(next, next), streak]
+		return "完整搜寻已完成" if full_set_claimed else "四类已齐 · 合集尚未领取"
+	return "路线 %d/4 · 下一站 %s" % [collected, KIND_NAMES.get(next, next)]
+
+func streak_text() -> String:
+	if streak<=0 or streak_time<=0.0:return "换类连段 · 22秒内采集不同类型"
+	return "换类连段 %d · 余时 %.1f秒" % [streak, streak_time]
+
+func streak_reward_text() -> String:
+	if streak_time>0.0 and streak==1:return "下一段：+4记忆 · 加速18秒"
+	if streak_time>0.0 and streak==2:return "下一段：+12零件 +6记忆"
+	return "同类会重置 · 废墟与动物不续段"
+
+func collection_reward_text() -> String:
+	return "四类合集已领 · 次日可重新收集" if full_set_claimed else "四类各一次：+40零件 +12记忆"
+
+func affinity_text() -> String:
+	if not affinity_active():return ""
+	var names: Array[String] = []
+	for kind in affinity_kinds:names.append(String(KIND_NAMES.get(kind,kind)))
+	return "共鸣 %s · +8记忆 · %.0f秒" % ["/".join(names),ceilf(affinity_time)]
 
 func run_summary() -> String:
 	return "本局探索 %d 次 · 最长连段 %d · 深处 %d · 夜行 %d" % [run_discoveries, best_streak, deep_discoveries, night_discoveries]

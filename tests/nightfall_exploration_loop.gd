@@ -105,8 +105,8 @@ func run() -> void:
 	game.discoveries.tick(100.0)
 	assert(is_equal_approx(later.respawn,frozen_later_respawn),"A cache reward opening cards must freeze later refresh entries")
 	print("NIGHTFALL_EXPLORATION_LOOP_OK opening night, refreshing F, milestones, pause/draft clocks, R multi-kill payouts, rapid F protection")
-	for sound: AudioStreamPlayer in game.effects.find_children("*","AudioStreamPlayer",true,false):
-		sound.stop();sound.stream=null;sound.queue_free()
-	await create_timer(.04).timeout
+	await game.prepare_shutdown()
+	game.queue_free()
 	await process_frame
+	await create_timer(.5).timeout
 	quit()

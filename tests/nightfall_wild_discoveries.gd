@@ -142,8 +142,8 @@ func run() -> void:
 		var item:=find_item(events,kind)
 		if not item.is_empty():await capture(game,item.position,"wild-"+kind)
 	print("NIGHTFALL_WILD_DISCOVERIES_OK 18 reachable sites, recovery/memory/cache rewards, cancelled opening, frozen timers, rotating refresh, shield field, 6-light budget")
-	for sound: AudioStreamPlayer in game.effects.find_children("*","AudioStreamPlayer",true,false):
-		sound.stop();sound.stream=null;sound.queue_free()
-	await create_timer(.04).timeout
+	await game.prepare_shutdown()
+	game.queue_free()
 	await process_frame
+	await create_timer(.5).timeout
 	quit()

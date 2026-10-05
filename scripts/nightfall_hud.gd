@@ -11,6 +11,8 @@ var panel:=Color(.022,.035,.045,.88)
 var card_rects: Array[Rect2] = []
 var mode_rects: Array[Rect2] = []
 const BOSS_PANEL_RECT := Rect2(457,24,570,110)
+const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
+const EXPLORATION_TOAST_TOP := 451.0
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -200,7 +202,7 @@ func draw_combat_floats() -> void:
 	if canvas_size.x<=0.0 or canvas_size.y<=0.0:return
 	var occupied: Array[Rect2]=[
 		Rect2(24,22,405,160),Rect2(1050,22,365,173),
-		Rect2(24,197,340,128+game.reward_toasts.size()*70),
+		Rect2(EXPLORATION_PANEL_RECT.position,Vector2(340,EXPLORATION_TOAST_TOP-EXPLORATION_PANEL_RECT.position.y+game.reward_toasts.size()*70)),
 			Rect2(1161,195,254,373),Rect2(1050,480,365,125),Rect2(1050,620,365,46),Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
 	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
@@ -497,7 +499,7 @@ func draw_exploration_rewards() -> void:
 	var ready:=0
 	for item in game.discoveries.items:
 		if item.state=="ready" or item.state=="channel":ready+=1
-	box(Rect2(24,197,322,128),panel,Color("497467"))
+	box(EXPLORATION_PANEL_RECT,panel,Color("497467"))
 	label("荒原发现",Vector2(43,224),17,Color("a6decb"))
 	label("探索 %d 次 · 里程碑 %d" % [game.exploration_count,game.exploration_milestones],Vector2(43,247),13,ink)
 	var collected: int=game.exploration_count%5
@@ -507,20 +509,30 @@ func draw_exploration_rewards() -> void:
 	label("荧光互动点 %d · 采集后会刷新" % ready,Vector2(43,298),11,muted)
 	if game.exploration:
 		label(game.exploration.route_text(),Vector2(43,317),11,amber if game.exploration.streak>1 else Color("a3c7b7"))
+		var urgent: bool=game.exploration.streak>0 and game.exploration.streak_time<=5.0
+		label(game.exploration.streak_text(),Vector2(43,336),12,red if urgent else ink)
+		label(game.exploration.streak_reward_text(),Vector2(43,354),11,amber)
+		label(game.exploration.collection_reward_text(),Vector2(43,372),11,muted)
 		if game.exploration.affinity_active():
-			label("委托共鸣已就绪 · 匹配探索 +8记忆",Vector2(43,347),10,Color("e8bc70"))
+			label(game.exploration.affinity_text(),Vector2(43,408),10,Color("e8bc70"))
+		if game.exploration.speed_time>0.0:
+			label("探索加速 +0.8 · 剩余 %.1f秒" % game.exploration.speed_time,Vector2(43,426),10,Color("a6decb"))
 		var target: Dictionary=game.discoveries.motivation_target()
 		if not target.is_empty():
 			var target_name: String=game.discoveries.TITLES.get(String(target.kind),"下一种发现")
-			label("下一站 %s · 可达路线 %.0f 米 · P 跟随" % [target_name,float(target.distance)],Vector2(43,333),10,amber)
+			var shortcut: String="P优先委托" if game.phase=="day" and game.contract_goal()!=Vector3.INF else "P跟随"
+			label("下一站 %s · 可达路线 %.0f米 · %s" % [target_name,float(target.distance),shortcut],Vector2(43,390),10,amber)
 	for i in game.reward_toasts.size():
 		var reward: Dictionary=game.reward_toasts[game.reward_toasts.size()-1-i]
 		var fade: float=minf(1.0,reward.time/.45)
-		var y:=360.0+float(i)*70.0
+		var y:=EXPLORATION_TOAST_TOP+float(i)*70.0
 		box(Rect2(24,y,340,62),Color(.026,.067,.060,.92*fade),Color("527c6b",fade))
 		var tint: Color=reward.color;tint.a=fade
-		label(reward.title,Vector2(42,y+24),15,tint)
-		label(reward.detail,Vector2(42,y+47),12,Color(.89,.92,.85,fade))
+		var long_title: bool=font.get_string_size(String(reward.title),HORIZONTAL_ALIGNMENT_LEFT,-1,15).x>304.0
+		if long_title:
+			draw_multiline_string(font,Vector2(42,y+18),String(reward.title),HORIZONTAL_ALIGNMENT_LEFT,304,13,2,tint)
+		else:label(reward.title,Vector2(42,y+24),15,tint)
+		label(reward.detail,Vector2(42,y+54 if long_title else y+47),12,Color(.89,.92,.85,fade))
 
 func draw_draft() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.008,.016,.024,.68))

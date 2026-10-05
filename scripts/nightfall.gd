@@ -230,7 +230,6 @@ func prepare_opening_defenses() -> void:
 func _process(delta: float) -> void:
 	flush_pending_aim()
 	if phase=="day" or phase=="night":simulate(delta)
-	if exploration:exploration.tick(delta)
 	update_beacon_alarm(delta)
 	for i in range(reward_toasts.size()-1,-1,-1):
 		reward_toasts[i].time-=delta
@@ -261,6 +260,9 @@ func _process(delta: float) -> void:
 
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
+	# Advance route timers once, before speed is read and before this frame
+	# can grant a fresh bonus through a completed discovery interaction.
+	if exploration:exploration.tick(delta)
 	cores.advance(delta)
 	specializations.advance(delta)
 	phase_time-=delta
@@ -2556,7 +2558,9 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, me
 	reward_toasts.append({"title":"探索里程碑 · " + title if milestone else title,"detail":detail,"time":3.2,"color":color})
 	if reward_toasts.size()>3:reward_toasts.pop_front()
 	if not String(route.event).is_empty():
-		reward_toasts.append({"title":String(route.event),"detail":"路线奖励已加入本次搜寻","time":3.8,"color":Color("a6d9c6")})
+		var route_detail: String="路线加成：+%d零件 +%d记忆" % [int(route.scrap),int(route.memory)]
+		if float(route.get("speed_seconds",0.0))>0.0:route_detail+=" · 加速%.0f秒" % float(route.speed_seconds)
+		reward_toasts.append({"title":String(route.event),"detail":route_detail,"time":3.8,"color":Color("a6d9c6")})
 		while reward_toasts.size()>4:reward_toasts.pop_front()
 	var floating:=Label3D.new()
 	effects.add_child(floating);floating.position=point+Vector3.UP*2.4
