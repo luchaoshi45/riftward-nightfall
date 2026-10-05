@@ -256,6 +256,8 @@ func construction_and_economy() -> void:
 	check(not game.construction.active and game.hero_path.is_empty(), "Right-click must leave building mode before issuing any unit or hero command")
 
 func hud_training_buttons() -> void:
+	game.hud.toggle_details("army")
+	await redraw_hud()
 	var balance: int = game.scrap
 	var towers: int = game.world.tower_pads.size()
 	var plots: int = game.districts.plots.size()
@@ -278,10 +280,10 @@ func hud_training_buttons() -> void:
 	check(game.scrap == balance and members().is_empty(), "Actual HUD cancellation buttons must refund every unfinished order once")
 	check(game.hud.font.get_string_size("点选/框选 · Shift追加 · 右键指挥 · O驻守", HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x <= 344,
 		"The Chinese troop instructions must fit inside their visible panel")
-	await click_ui(Rect2(1071, 689, 200, 20))
+	await click_ui(Rect2(46, 480, 350, 20))
 	check(not game.selection_dragging and game.scrap == balance, "Passive troop-panel text must consume world clicks without spending")
-	check(not Rect2(190, 746, 840, 129).intersects(game.hud.GROWTH_PANEL_RECT),
-		"The skill panel and growth panel must have separate visible bounds")
+	check(not game.hud.CleanHud.HERO_RECT.intersects(game.hud.MEMORY_BUTTON_RECT),
+		"The skill bar and memory button must have separate visible bounds")
 	for index in 6:
 		check(game.squads.enqueue(["shield", "ranged", "engineer"][index % 3], barracks[index % 2]).ok,
 			"Independent barracks must retain more unfinished orders than fit on one HUD page")
@@ -309,6 +311,9 @@ func hud_training_buttons() -> void:
 		while not game.squads.training_queues.get(id, []).is_empty():
 			check(game.squads.cancel_training(id, 0).ok, "Pagination cleanup must cancel each remaining paid order once")
 	check(game.scrap == balance and members().is_empty(), "All paginated unfinished orders must refund their exact original balance")
+
+	game.hud.dismiss_details()
+	await redraw_hud()
 
 func queues_and_freezing() -> void:
 	if barracks.size() != 2 or barracks[0] < 0 or barracks[1] < 0: return
@@ -556,10 +561,13 @@ func attacks_and_engineering() -> void:
 				"Engineering support cannot repair a destroyed building back to life or charge for it")
 
 func fresh_run() -> void:
-	await game.prepare_shutdown()
+	var old_id:=game.get_instance_id()
 	game.phase = "ended"
 	await press(KEY_ENTER)
-	for _frame in 6: await process_frame
+	for _frame in 600:
+		await process_frame
+		if is_instance_valid(current_scene) and current_scene.get_instance_id()!=old_id:break
+	check(is_instance_valid(current_scene) and current_scene.get_instance_id()!=old_id, "Enter must complete an actual scene replacement after audio cleanup")
 	game = current_scene as Node3D
 	game.set_process(false)
 	game.world.set_process(false)

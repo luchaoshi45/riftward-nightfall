@@ -363,7 +363,7 @@ func memory_rewards_and_inputs() -> void:
 	await click(Vector2(1230, 700))
 	check(game.phase == "day" and game.run.pending == 5,
 		"Tower-growth advice rows must not open queued cards")
-	await click(Vector2(1230, 752))
+	await click(game.hud.MEMORY_BUTTON_RECT.get_center())
 	check(game.phase == "draft" and game.run.pending == 5,
 		"The actual visible growth-memory title must open the queued imprint")
 	for code: int in [KEY_1, KEY_2, KEY_3, KEY_1, KEY_2]:

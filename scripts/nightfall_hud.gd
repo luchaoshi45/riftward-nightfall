@@ -1,8 +1,9 @@
 extends Control
 ## Compact dark-fantasy HUD for the outpost loop.
 const Layout = preload("res://scripts/outpost_layout.gd")
-const CONSTRUCTION_PANEL_RECT := Rect2(435,518,570,140)
-const SQUAD_PANEL_RECT := Rect2(1050,480,365,240)
+const CleanHud = preload("res://scripts/nightfall_clean_hud.gd")
+const CONSTRUCTION_PANEL_RECT := Rect2(435,642,570,140)
+const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
 var game: Node3D
@@ -21,7 +22,17 @@ const BOSS_PANEL_RECT := Rect2(457,24,570,110)
 const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
 const EXPLORATION_TOAST_TOP := 451.0
 const GROWTH_PANEL_RECT := Rect2(1050,732,365,111)
-const GROWTH_MEMORY_RECT := Rect2(1050,732,365,46)
+const GROWTH_MEMORY_RECT := CleanHud.MEMORY_RECT
+const MEMORY_BUTTON_RECT := CleanHud.MEMORY_RECT
+const TACTICS_BUTTON_RECT := CleanHud.TACTICS_RECT
+const MAP_BUTTON_RECT := CleanHud.MAP_BUTTON_RECT
+const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
+const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
+var detail_tab := ""
+var map_expanded := false
+var contract_primary_budget: Dictionary = {}
+var contract_return_budget: Dictionary = {}
+var budget_refresh_time := 0.0
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -69,163 +80,151 @@ func progress(rect: Rect2,ratio: float,color: Color) -> void:
 	draw_rect(rect,Color("202c32"))
 	draw_rect(Rect2(rect.position,Vector2(rect.size.x*clampf(ratio,0,1),rect.size.y)),color)
 
+func _process(delta: float) -> void:
+	if not is_instance_valid(game):return
+	if game.construction.active and (not detail_tab.is_empty() or map_expanded):dismiss_details()
+	if detail_tab != "contract":return
+	budget_refresh_time-=delta
+	if budget_refresh_time<=0.0:
+		refresh_contract_budgets()
+		budget_refresh_time=.28
+
+func refresh_contract_budgets() -> void:
+	if not is_instance_valid(game) or not is_instance_valid(game.contracts):return
+	if game.phase not in ["day","paused"]:return
+	if game.phase=="paused" and game.paused_from!="day":return
+	if game.contracts.status=="active":contract_primary_budget=game.contracts.primary_budget()
+	elif game.contracts.status in ["bonus_offer","bonus_active","returning"]:contract_return_budget=game.contracts.return_budget()
+
+func dismiss_details() -> void:
+	detail_tab=""
+	map_expanded=false
+	training_cancel_buttons.clear()
+	queue_redraw()
+
+func toggle_details(tab: String = "") -> void:
+	if game.phase not in ["day","night","paused"] or game.music_credits_open or game.construction.active:return
+	var target: String="contract" if tab.is_empty() else tab
+	if target not in CleanHud.TAB_IDS:return
+	if (tab.is_empty() and not detail_tab.is_empty()) or detail_tab==target:
+		dismiss_details()
+		return
+	detail_tab=target
+	map_expanded=false
+	training_cancel_buttons.clear()
+	game.selection_dragging=false
+	budget_refresh_time=.28
+	refresh_contract_budgets()
+	queue_redraw()
+
+func toggle_map() -> void:
+	if game.phase not in ["day","night","paused"] or game.music_credits_open or game.construction.active:return
+	map_expanded=not map_expanded
+	detail_tab=""
+	training_cancel_buttons.clear()
+	game.selection_dragging=false
+	queue_redraw()
+
+func details_tab_rect(index: int) -> Rect2:
+	return Rect2(36+index*104,124,100,34)
+
+func minimap_rect() -> Rect2:
+	return Rect2(1162,106,254,252) if map_expanded else Rect2(1252,106,164,164)
+
+func countermeasure_rect(index: int) -> Rect2:
+	return Rect2(44+index*168,280,160,62)
+
+func visible_hud_rects() -> Array[Rect2]:
+	return live_panel_rects()
+
+func live_panel_rects() -> Array[Rect2]:
+	var areas: Array[Rect2]=[]
+	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return areas
+	var objective:=CleanHud.OBJECTIVE_RECT
+	if not game.boss_snapshot().is_empty() and (game.phase=="night" or (game.phase=="paused" and game.paused_from=="night")):objective.size.y=110
+	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
+		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,minimap_rect()])
+	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
+	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
+	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
+	if game.notice_time>0.0 and not game.construction.active and game.hero_damage_flash_time<=0.0:areas.append(Rect2(344,740,752,48))
+	if game.phase in ["day","night"] and not game.construction.active and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
+	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
+	if game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
+	if game.hero_damage_flash_time>0.0:areas.append(Rect2(558,773,530,24))
+	if not game.target_warning_snapshot().is_empty():areas.append(Rect2(566,606,530,32))
+	return areas
+
+func context_prompt_rect() -> Rect2:
+	if game.districts.nearest()>=0:return Rect2(435,642,570,84)
+	var pad: int=game.nearest_tower_pad()
+	if pad>=0 and game.world.tower_pads[pad].level>=2:return Rect2(435,642,570,84)
+	return Rect2(435,682,570,40)
+
+func draw_context_prompt() -> void:
+	if game.phase not in ["day","night"] or game.construction.active:return
+	var prompt: String=game.interaction_prompt()
+	if prompt.is_empty():return
+	var rect:=context_prompt_rect()
+	box(rect,Color(.032,.048,.050,.91),Color("89784f"))
+	CleanHud._paragraph(self,prompt,rect.position+Vector2(18,26),534,15,amber,20,2)
+	if rect.size.y<80:return
+	var district_index: int=game.districts.nearest()
+	if district_index>=0:
+		var district: Dictionary=game.districts.snapshots()[district_index]
+		CleanHud._paragraph(self,String(district.title)+" · "+String(district.benefit),rect.position+Vector2(18,67),534,13,muted,18,1)
+	else:
+		var pad: Dictionary=game.world.tower_pads[game.nearest_tower_pad()]
+		var hint: String="J 破甲 / K 牵制 · 45零件 · 每座只能改装一次" if game.specializations.branch(pad)=="standard" else "H 修复 · G 目标模式 · C 指定集火"
+		label(hint,rect.position+Vector2(18,67),13,muted)
+
 func _draw() -> void:
 	if not is_instance_valid(game) or not is_instance_valid(game.hero):return
 	draw_set_transform(Vector2.ZERO,0,get_viewport_rect().size/Vector2(1440,900))
 	card_rects.clear()
 	mode_rects.clear()
+	training_cancel_buttons.clear()
+	if game.music_credits_open:
+		draw_music_credits()
+		return
+	if game.phase=="draft":
+		draw_draft()
+		return
+	if game.phase=="ended":
+		draw_result()
+		return
 	draw_combat_floats()
-	box(Rect2(24,22,405,160),panel,Color("6c654f"))
-	label("余烬哨站",Vector2(45,57),27,ink)
-	label("最后的灯火  /  THE LAST LIGHT",Vector2(46,80),13,amber)
-	var display_night: bool=game.phase=="night" or (game.phase=="draft" and game.return_phase=="night") or (game.phase=="paused" and game.paused_from=="night")
-	var phase_name:="第 %d 夜 · 守卫" % game.day_number if display_night else "第 %d 日 · 搜寻" % game.day_number
-	label(phase_name,Vector2(46,114),19,red if display_night else amber)
-	label("距阶段结束  %02d:%02d" % [int(game.phase_time)/60,int(game.phase_time)%60],Vector2(46,147),17,muted)
-	if game.phase=="night":
-		var wave_text: String="夜袭 %d/%d 波" % [game.wave_index,game.WAVES_PER_NIGHT]
-		if game.wave_index<game.WAVES_PER_NIGHT:wave_text+=" · 下一波 %02d 秒" % ceili(game.spawn_timer)
-		label(wave_text+" · "+game.run_mode_title(),Vector2(46,166),13,red if game.world.wave_warning else amber)
-	elif game.expeditions:
-		label(game.expeditions.objective_text(),Vector2(46,170),13,Color("8dcfc3"))
-	progress(Rect2(235,126,173,8),game.phase_time/(game.NIGHT_LENGTH if display_night else game.DAY_LENGTH),red if display_night else amber)
-	draw_exploration_rewards()
-	if game.phase=="night":
-		var preview: Dictionary=game.wave_preview()
-		var boss: Dictionary=game.boss_snapshot() if game.has_method("boss_snapshot") else {}
-		box(BOSS_PANEL_RECT,panel,Color("9a5d4e") if not boss.is_empty() else Color("876f52"))
-		if not boss.is_empty():
-			draw_boss_panel(boss)
-		elif not preview.is_empty():
-			label("下一波 · %s · %d只 · %.0f秒" % [preview.title,preview.count,preview.remaining],Vector2(477,54),19,amber)
-			label(preview.advice,Vector2(477,85),14,muted)
-			label("先安排防线，再处理主要威胁",Vector2(477,114),13,Color("8dcfc3"))
-		else:label("最后一波已抵达 · 守住南门",Vector2(477,66),19,amber)
-	elif game.phase=="day" and game.contracts.status!="idle":
-		var contract: Node=game.contracts
-		box(Rect2(457,24,570,132),panel,Color("587c68"))
-		var title: String=contract.TITLES.get(contract.kind,"自由探索")
-		label("可选委托 · %s · 方案%d/%d · %d/%d" % [title,contract.selected_offer+1,contract.offers.size(),contract.done.size(),contract.targets.size()],Vector2(477,54),19,Color("a3d7bd"))
-		if contract.status in ["bonus_offer","bonus_active","returning"]:
-			var budget: Dictionary=contract.return_budget()
-			var budget_color: Color=red if String(budget.risk) in ["late","unreachable"] else (amber if String(budget.risk)=="tight" else Color("a3d7bd"))
-			var detail: String=contract.bonus_summary() if contract.status!="returning" else ("追加补给已带走 · 回灯塔兑现" if contract.bonus_done else "主委托已完成 · 返回灯塔领取奖励")
-			label(detail,Vector2(477,84),15,ink)
-			label(contract.return_budget_text(budget),Vector2(477,110),13,budget_color)
-			var hint: String="4 立即返家 / 5 追加 · P 前往目标" if contract.status=="bonus_offer" else ("P 前往追加目标 · F 采集后再 P 返家" if contract.status=="bonus_active" else "P 回灯塔 · 提前15秒再+10零件")
-			label(hint+" · 估时不含战斗",Vector2(477,130),12,muted)
-		elif contract.status=="active":
-			var budget: Dictionary=contract.primary_budget()
-			var budget_color: Color=red if String(budget.risk) in ["late","unreachable"] else (amber if String(budget.risk)=="tight" else Color("a3d7bd"))
-			label(contract.primary_travel_text(budget),Vector2(477,79),14,ink)
-			label(contract.primary_timing_text(budget),Vector2(477,99),12,budget_color)
-			label(contract.offer_summary(contract.selected_offer),Vector2(477,119),11,amber)
-			label("P指路/F行动 · "+contract.choice_hint()+" · "+contract.primary_condition_text(budget),Vector2(477,142),11,muted)
-		else:
-			var goal: Vector3=game.contract_goal()
-			var detail: String="日落前完成并返回灯塔"
-			if contract.status=="completed":detail="已交回 · 奖励到账"
-			elif contract.status=="unavailable":detail="今日无可用目标，可以自由探索"
-			elif contract.status=="expired":detail="委托已截止 · 可自由探索并准备守夜"
-			if goal!=Vector3.INF:detail="P 前往目标 · %.0f米 · 日落前回灯塔交付" % game.hero.position.distance_to(goal)
-			label(detail,Vector2(477,84),15,ink)
-			label(contract.offer_summary(contract.selected_offer),Vector2(477,110),13,amber)
-			label("4/5/6 切换方案 · 首次行动即锁定" if not contract.progress_started else "委托已开始 · 方案已锁定",Vector2(477,130),12,Color("a3c7b7"))
-	if game.phase=="day":draw_day_forecast()
-	box(Rect2(1050,22,365,173),panel,Color("665343"))
-	label("灯塔耐久",Vector2(1071,55),17,ink)
-	label("%d / %d" % [int(game.beacon_hp),int(game.BEACON_MAX)],Vector2(1261,55),16,amber)
-	progress(Rect2(1071,70,322,10),game.beacon_hp/game.BEACON_MAX,amber)
-	label("零件  %d" % game.scrap,Vector2(1071,109),18,ink)
-	label("清除夜行体  %d" % game.kills,Vector2(1247,109),14,muted)
-	label("记忆 %d / %d" % [game.essence,game.run.memory_cost()],Vector2(1071,146),14,muted)
-	label("南门机关 %d / %d" % [game.gate_trap_charges,game.GATE_TRAP_MAX],Vector2(1244,146),14,amber)
-	label("C 塔群集火  %s" % ("进行中 %.0fs" % game.focus_time if game.focus_time>0 else ("就绪" if game.focus_cooldown<=0 else "冷却 %.0fs" % game.focus_cooldown)),Vector2(1071,168),12,amber if game.focus_time>0 else muted)
-	label("灯下同伴 %d/2 · 协作修灯 %d 零件" % [game.survivors_rescued,game.beacon_repair_cost()],Vector2(1071,188),12,Color("a3c7b7"))
-	if game.beacon_alarm_time>0:
-		var flash:=alarm_outline_alpha()
-		draw_rect(Rect2(1051,23,363,171),Color("ef6b56",flash),false,2.4)
-		box(Rect2(500,25,440,54),Color(.14,.025,.024,.93),Color("c46c58"))
-		var alarm_text: String="灯塔遭攻击  -%d  ·  立即回防" % int(game.beacon_alarm_damage)
-		var alarm_width:=font.get_string_size(alarm_text,HORIZONTAL_ALIGNMENT_LEFT,-1,20).x
-		label(alarm_text,Vector2(720-alarm_width*.5,60),20,Color("ff9d80"))
+	CleanHud.draw_live(self)
 	draw_minimap()
-	draw_squads()
-	draw_growth_guidance()
-	if game.notice_time>0:
-		box(Rect2(368,192,704,48),Color(.035,.046,.050,.86),Color("9a7051"))
-		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
-		label(game.notice,Vector2(720-width*.5,224),19,ink)
-	var prompt: String=game.interaction_prompt()
-	var district_index: int=game.districts.nearest()
-	if district_index>=0 and game.phase in ["day","night"] and not game.construction.active:
-		var district: Dictionary=game.districts.snapshots()[district_index]
-		box(Rect2(435,553,570,94),panel,Color("648779"))
-		label("城区 · "+district.title,Vector2(457,582),18,amber)
-		label("F 原址重建 · 60零件" if district.level==0 else ("F 升至二级 · 80零件" if district.level==1 else "二级 · 耐久 %d/%d" % [ceili(district.hp),ceili(district.max_hp)]),Vector2(457,609),15,ink)
-		label(String(district.benefit),Vector2(457,634),13,Color("a3d7bd"))
-	var pad_index: int=game.nearest_tower_pad()
-	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"] and not game.construction.active:
-		var pad: Dictionary=game.world.tower_pads[pad_index]
-		box(Rect2(435,553,570,86),panel,Color("647d78"))
-		if game.specializations.branch(pad)=="standard":
-			label("二级塔改装 · 每座只能选择一次 · 45零件",Vector2(457,582),16,amber)
-			label("J 破甲：重敌更强 / 放弃群伤    K 牵制：降伤减速群敌",Vector2(457,614),14,ink)
-		else:
-			label("塔专精 · "+("重敌破甲" if game.specializations.branch(pad)=="piercing" else "范围牵制"),Vector2(457,582),17,amber)
-			label("H 修复 · G 目标模式 · C 指定集火",Vector2(457,614),15,ink)
-	if prompt!="" and game.phase!="draft" and not game.construction.active:
-		box(Rect2(492,670,456,48),Color(.032,.048,.050,.91),Color("b39761"))
-		var width:=font.get_string_size(prompt,HORIZONTAL_ALIGNMENT_LEFT,-1,17).x
-		label(prompt,Vector2(720-width*.5,701),17,amber)
+	draw_context_prompt()
 	draw_construction()
 	draw_selection_rect()
+	draw_combat_rewards()
 	draw_hero_damage_feedback()
 	draw_target_warnings()
-	box(Rect2(190,746,840,129),Color(.025,.041,.047,.94),Color("53605c"))
-	label("守望者",Vector2(213,776),15,muted)
-	var mana_text: String="法力 %d/%d" % [floori(game.mana),int(game.max_mana)]
-	var mana_width:=font.get_string_size(mana_text,HORIZONTAL_ALIGNMENT_LEFT,-1,11).x
-	label(mana_text,Vector2(397-mana_width,776),11,Color("91bdd0"))
-	label("%d / %d" % [int(game.hero.hp),int(game.hero.max_hp)],Vector2(213,805),16,ink)
-	progress(Rect2(213,817,184,9),game.hero.hp/game.hero.max_hp,red)
-	progress(Rect2(213,835,184,6),game.mana/game.max_mana,Color("74a5bb"))
-	var names:=["Q  斩光","W  屏障","E  突进","R  灯焰","X  治疗"]
-	for i in range(5):
-		var x:=421+i*116
-		var status: String=game.skill_status(i)
-		var status_color:=red if status=="法力不足" else (amber if game.cooldowns[i]<=0 else muted)
-		box(Rect2(x,770,106,72),Color(.068,.087,.083,.9),Color("80524f") if status=="法力不足" else Color("59685f"))
-		label(names[i],Vector2(x+11,798),14,ink)
-		label(status,Vector2(x+11,824),13,status_color)
-	label("ZASD移动 · Y建设 · 1塔/2兵营/3工坊 · F互动/升级 · H修塔 · G塔目标 · C集火 · T机关",Vector2(213,854),11,muted)
-	label("U盾卫 · I弩手 · N工程员 · 框选/Tab全选 · 右键指挥 · O驻守 · L补员 · V铭刻 · Esc取消/暂停",Vector2(213,870),10,muted)
-	draw_combat_rewards()
-	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
-	for core_key in core_names:
-		if game.run.count(core_key)>0:
-			label(core_names[core_key],Vector2(548,737),15,Color("a3d4cb"))
-	if game.phase=="draft":draw_draft()
 	if game.phase=="paused":
-		draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.58))
-		box(Rect2(440,258,560,394),panel,Color("b78c57"))
-		label("守夜暂停",Vector2(637,319),28,ink)
-		label("按 ESC 继续",Vector2(646,365),18,amber)
-		if game.music:
-			label("配乐  %s  ·  音量 %d%%" % ["静音" if game.music.muted else "开启",roundi(game.music.get_volume()*100)],Vector2(526,415),18,ink)
-			label("M 开关配乐  ·  [ 降低音量  ·  ] 提高音量",Vector2(502,452),16,muted)
-		if is_instance_valid(game.combat):
-			label("F2  震动与闪光：%s" % ("已减弱" if game.combat.reduced_effects else "完整反馈"),Vector2(570,494),16,Color("8dcfc3"))
-		label("F1  配乐来源与许可",Vector2(603,543),16,amber)
-		label("Music by Rusted Music Studio / Fabien C.",Vector2(497,600),14,muted,true)
-	if game.phase=="ended":draw_result()
-	if game.music_credits_open:draw_music_credits()
+		if not detail_tab.is_empty() or map_expanded:
+			box(Rect2(584,742,352,40),panel,amber)
+			label("已暂停 · Esc 先收起详情",Vector2(626,768),16,amber)
+		else:draw_pause()
+
+func draw_pause() -> void:
+	draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.58))
+	box(Rect2(440,258,560,394),panel,Color("b78c57"))
+	label("守夜暂停",Vector2(637,319),28,ink)
+	label("ESC 继续 · F3 战术详情",Vector2(600,365),18,amber)
+	if game.music:
+		label("配乐  %s  ·  音量 %d%%" % ["静音" if game.music.muted else "开启",roundi(game.music.get_volume()*100)],Vector2(526,415),18,ink)
+		label("M 开关配乐  ·  [ 降低音量  ·  ] 提高音量",Vector2(502,452),16,muted)
+	if is_instance_valid(game.combat):label("F2  震动与闪光：%s" % ("已减弱" if game.combat.reduced_effects else "完整反馈"),Vector2(570,494),16,Color("8dcfc3"))
+	label("F1  配乐来源与许可",Vector2(603,543),16,amber)
+	label("Music by Rusted Music Studio / Fabien C.",Vector2(497,600),14,muted,true)
 
 func construction_kind_rect(index: int) -> Rect2:
-	return Rect2(457+index*175,534,166,31)
+	return Rect2(457+index*175,658,166,31)
 
 func training_kind_rect(index: int) -> Rect2:
-	return Rect2(1071+index*108,551,101,30)
+	return Rect2(44+index*168,230,160,32)
 
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
@@ -238,9 +237,9 @@ func draw_construction() -> void:
 		box(rect,Color(.06,.15,.12,.95) if kind==String(placement.kind) else panel,tint if kind==String(placement.kind) else muted)
 		label(["1 防御塔","2 兵营","3 工坊"][index],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
-	label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,590),18,ink)
-	label(String(placement.reason),Vector2(457,616),15,tint)
-	label("吸附格子 · 左键/F连续建造 · 右键/Esc/Y退出",Vector2(457,642),14,amber)
+	label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
+	label(String(placement.reason),Vector2(457,740),15,tint)
+	label("吸附格子 · 左键/F连续建造 · 右键/Esc/Y退出",Vector2(457,766),14,amber)
 
 func draw_selection_rect() -> void:
 	if not game.selection_dragging or game.phase not in ["day","night"]:return
@@ -255,18 +254,7 @@ func draw_combat_floats() -> void:
 	if game.music_credits_open or not is_instance_valid(game.combat) or not is_instance_valid(game.camera):return
 	var canvas_size: Vector2=get_viewport_rect().size
 	if canvas_size.x<=0.0 or canvas_size.y<=0.0:return
-	var occupied: Array[Rect2]=[
-		Rect2(24,22,405,160),Rect2(1050,22,365,173),
-		Rect2(EXPLORATION_PANEL_RECT.position,Vector2(340,EXPLORATION_TOAST_TOP-EXPLORATION_PANEL_RECT.position.y+game.reward_toasts.size()*70)),
-			Rect2(1161,195,254,373),SQUAD_PANEL_RECT,GROWTH_PANEL_RECT,Rect2(190,746,840,129),Rect2(492,670,456,48)
-	]
-	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
-		occupied.append(BOSS_PANEL_RECT)
-	if game.construction.active:occupied.append(CONSTRUCTION_PANEL_RECT)
-	if game.kill_chain>0 and game.kill_chain_time>0.0:occupied.append(Rect2(370,436,254,77))
-	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
-	if game.combat_milestone_time>0.0:occupied.append(Rect2(504,259,432,65))
-	if game.beacon_alarm_time>0.0:occupied.append(Rect2(500,25,440,54))
+	var occupied: Array[Rect2]=live_panel_rects()
 	# New contacts get their natural screen position first; older messages stack
 	# above them or expire without obscuring another reward or a fixed HUD panel.
 	for index in range(game.combat.floats.size()-1,-1,-1):
@@ -342,9 +330,9 @@ func draw_target_warnings() -> void:
 			label(label_text,position+Vector2(-text_width*.5,-radius-13),12,danger)
 	if hero_warning_count>0 and hero_remaining<INF:
 		var detail: String="被锁定 · %s · %.1f秒后命中" % [hero_source_title,hero_remaining]
-		box(Rect2(520,700,600,38),Color(.12,.035,.028,.95),Color("d87961"))
+		box(Rect2(566,606,530,32),Color(.12,.035,.028,.95),Color("d87961"))
 		var width:=font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x
-		label(detail,Vector2(820-width*.5,725),16,Color("ffd1a0"))
+		label(detail,Vector2(831-width*.5,628),16,Color("ffd1a0"))
 
 func draw_hero_damage_feedback() -> void:
 	if game.phase not in ["day","night","paused"]:return
@@ -353,12 +341,12 @@ func draw_hero_damage_feedback() -> void:
 	var border:=Color("ed756c",.75+.2*fade)
 	# Keep the actual hit confirmation persistent in the HUD even when F2
 	# reduces particles and camera trauma.
-	draw_rect(Rect2(190,746,840,129),border,false,2.4)
+	draw_rect(CleanHud.HERO_RECT,border,false,2.4)
 	var text_value:=String(game.hero_damage_flash_text)
 	if text_value!="":
-		box(Rect2(520,708,600,31),Color(.13,.035,.032,.94),Color("c9665d",.9))
+		box(Rect2(558,773,530,24),Color(.13,.035,.032,.94),Color("c9665d",.9))
 		var width:=font.get_string_size(text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,14).x
-		label(text_value,Vector2(820-width*.5,729),14,Color("ffd0bc",fade))
+		label(text_value,Vector2(823-width*.5,790),14,Color("ffd0bc",fade))
 
 func draw_boss_panel(snapshot: Dictionary) -> void:
 	var phase_name: String=String(snapshot.get("phase","approach"))
@@ -390,58 +378,41 @@ func draw_boss_panel(snapshot: Dictionary) -> void:
 	label(detail,Vector2(477,113),14,Color("82ced2") if phase_name in ["windup","exposed"] else muted)
 
 func draw_day_forecast() -> void:
-	var top: float=164.0 if game.contracts.status!="idle" else 24.0
-	var rect:=Rect2(457,top,570,142)
-	box(rect,panel,Color("63745f"))
 	if game.night_plan.is_empty():
-		label("下一夜威胁情报 · 等待计划生成",Vector2(477,top+31),18,amber)
+		label("下一夜威胁情报 · 等待计划生成",Vector2(46,184),18,amber)
 		return
 	var first: Dictionary=game.night_plan[0]
-	label("下一夜威胁情报 · 第 %d 夜" % game.day_number,Vector2(477,top+29),18,Color("a3d7bd"))
-	label("主威胁：%s · %d 波 · 特殊威胁约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()],Vector2(477,top+53),14,ink)
-	label("首波 %s · %s" % [String(first.title),String(first.advice)],Vector2(477,top+74),12,muted)
+	label("下一夜 · 第%d夜" % game.day_number,Vector2(46,184),18,Color("a3d7bd"))
+	label("主威胁 %s · %d波 · 特殊约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()],Vector2(46,212),15,ink)
+	CleanHud._paragraph(self,"首波 "+String(first.title)+" · "+String(first.advice),Vector2(46,240),496,14,muted,20,2)
 	for index in game.countermeasure_count():
-		var option_x:=471.0+float(index)*185.0
+		var rect:=countermeasure_rect(index)
 		var selected: bool=game.countermeasure_selected==index
 		var recommended: bool=game.countermeasure_recommended(index)
-		var outline:=Color("e8bc70") if selected else (Color("82c9be") if recommended else Color("4b625d"))
-		box(Rect2(option_x,top+87,176,43),Color(.10,.15,.14,.96) if selected else Color(.045,.075,.073,.92),outline)
-		var marker: String=" · 已选" if selected else (" · 推荐" if recommended else "")
-		label("%d  %s%s" % [index+7,game.countermeasure_title(index),marker],Vector2(option_x+9,top+106),12,amber if selected or recommended else ink)
-		label(game.countermeasure_summary(index),Vector2(option_x+9,top+123),10,muted)
-	label("7/8/9 选择反制 · 天黑前可更换 · 留家布防也不会获得隐藏加成",Vector2(477,top+139),10,Color("a3c7b7"))
+		var outline:=amber if selected else (Color("82c9be") if recommended else Color("4b625d"))
+		box(rect,Color(.10,.15,.14,.96) if selected else Color(.045,.075,.073,.92),outline)
+		var marker: String="已选" if selected else ("推荐" if recommended else "")
+		label("%d %s %s" % [index+7,game.countermeasure_title(index),marker],rect.position+Vector2(8,21),12,amber if selected or recommended else ink)
+		CleanHud._paragraph(self,game.countermeasure_summary(index),rect.position+Vector2(8,41),144,12,muted,16,2)
+	label("点击 / 7/8/9 选择 · 天黑前可更换",Vector2(46,364),14,Color("a3c7b7"))
 
 func draw_combat_rewards() -> void:
-	if game.phase!="day" and game.phase!="night":return
-	if game.music_credits_open or not is_instance_valid(game.combat):return
+	if game.phase not in ["day","night","paused"] or not is_instance_valid(game.combat):return
 	var step: int=clampi(int(game.attack_chain),0,2)
 	var charged: bool=step==2 and game.attack_chain_time>0.0
-	for i in 3:
-		var point:=Vector2(315+i*14,787)
-		var tint:=Color("eac279") if i==2 else Color("8bd0d0")
-		draw_circle(point,4.4,tint if i<step else Color("354b4e"))
-		if i==2:
-			draw_arc(point,6.2,0,TAU,20,Color("eac279") if charged else Color("62746a"),1.5 if charged else 1.0)
-	progress(Rect2(311,797,37,2),game.attack_chain_time/2.8,Color("eac279") if charged else Color("8bd0d0"))
-	label("下一击 · 破势" if charged else "普攻 %d / 3" % step,Vector2(314,814),11,amber if charged else muted)
-	if game.kill_chain>0 and game.kill_chain_time>0.0:
-		var chain: int=game.kill_chain
-		box(Rect2(370,436,254,77),Color(.028,.049,.051,.9),Color("847554"))
-		label("连斩",Vector2(385,467),16,Color("a6dcd4"))
-		label("%d" % chain,Vector2(444,469),28,amber,true)
-		var threshold: int=3 if chain<3 else (6 if chain<6 else 10)
-		var hint: String="再斩 %d 只 · 额外零件与记忆" % (threshold-chain) if chain<10 else "继续斩击 · 保持燎原之势"
-		label(hint,Vector2(385,491),11,muted)
-		progress(Rect2(385,503,224,3),game.kill_chain_time/6.0,Color("dabb76"))
+	for index in 3:
+		var point:=Vector2(489+index*16,819)
+		draw_circle(point,3.5,amber if index<step else Color("354b4e"))
+		if index==2:draw_arc(point,5,0,TAU,20,amber if charged else muted,1.0,true)
+	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:
+		box(Rect2(24,724,300,30),panel,Color("847554"))
+		label("连斩%d · 余时%.1f秒" % [game.kill_chain,game.kill_chain_time],Vector2(38,744),14,amber)
+		progress(Rect2(38,749,272,2),game.kill_chain_time/6.0,amber)
 	if game.combat_milestone_time>0.0:
 		var fade: float=minf(1.0,game.combat_milestone_time/.35)
-		box(Rect2(504,259,432,65),Color(.073,.064,.031,.9*fade),Color("c7a56e",fade))
-		var title: String=game.combat_milestone_title
-		var title_width: float=font.get_string_size(title,HORIZONTAL_ALIGNMENT_LEFT,-1,20).x
-		label(title,Vector2(720-title_width*.5,286),20,Color("f2ce86",fade))
-		var detail: String=game.combat_milestone_detail
-		var detail_width: float=font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
-		label(detail,Vector2(720-detail_width*.5,309),13,Color("b8d8cb",fade))
+		box(Rect2(566,142,530,36),Color(.073,.064,.031,.9*fade),Color("c7a56e",fade))
+		var message: String=game.combat_milestone_title+" · "+game.combat_milestone_detail
+		CleanHud._paragraph(self,message,Vector2(581,165),500,14,Color("f2ce86",fade),18,1)
 
 func draw_music_credits() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.91))
@@ -461,12 +432,12 @@ func draw_music_credits() -> void:
 	label("F1 或 ESC 返回",Vector2(629,680),18,amber)
 
 func draw_minimap() -> void:
-	var map_rect:=Rect2(1161,195,254,252)
+	var map_rect:=minimap_rect()
 	box(map_rect,Color(.018,.034,.041,.88),Color("66624d"))
-	label("防御塔 %d座  ·  通信塔 %d/8" % [game.tower_count(),game.relay_count()],Vector2(1174,218),13,ink)
-	var center:=Vector2(1288,319)
-	var scale:=.86
-	draw_rect(Rect2(center-Vector2(108,89),Vector2(216,178)),Color(.075,.085,.079,.84))
+	label("地图 · 点击收起" if map_expanded else "地图 · 点击展开",map_rect.position+Vector2(12,21),12,muted)
+	var center:=map_rect.get_center()+Vector2(0,2)
+	var scale:=.86 if map_expanded else .52
+	draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.84))
 	for wall: Rect2 in Layout.wall_blocks():
 		draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398"))
 	for item in game.world.salvage:
@@ -537,28 +508,21 @@ func draw_minimap() -> void:
 	if game.beacon_alarm_time>0:
 		draw_arc(center,11.0,0,TAU,32,Color("f16d58"),2.5)
 	draw_circle(center+Vector2(game.hero.position.x,game.hero.position.z)*scale,4.1,Color("8ee0e8"))
-	label("南门逼近 %d · 夜巢 %d/3" % [game.gate_pressure(),game.remaining_nests()] if game.phase=="night" else "待封闭夜巢  %d / 3" % game.remaining_nests(),Vector2(1174,410),13,red if game.phase=="night" else muted)
-	if game.phase=="day":
-		label("◇ 救援哨兵  ▪ 能源发电机",Vector2(1174,434),12,Color("a3c7b7"))
-	else:
-		label("南门路障  %d / %d" % [ceili(game.gate_barricade_hp),int(game.BARRICADE_MAX)] if game.gate_barricade_hp>0 else "南门路障  未部署",Vector2(1174,434),13,red if game.gate_barricade_hp>0 and game.gate_barricade_hp<game.BARRICADE_MAX*.4 else muted)
-	if maxf(game.world.gate_light_drain[0],game.world.gate_light_drain[1])>.3:
-		label("哨灯遭噬 · 击杀紫色目标恢复",Vector2(1174,456),13,Color("b7a5ee"))
-
+	if not map_expanded:return
+	label("南门逼近%d · 夜巢%d/3" % [game.gate_pressure(),game.remaining_nests()],map_rect.position+Vector2(12,230),12,red if game.phase=="night" else muted)
 func training_page_rect(direction: int) -> Rect2:
-	return Rect2(1333 if direction<0 else 1366,487,27,24)
+	return Rect2(456 if direction<0 else 493,188,29,26)
 
 func draw_squads() -> void:
 	training_cancel_buttons.clear()
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
 	var snapshot: Dictionary=game.squads.snapshot()
-	box(SQUAD_PANEL_RECT,Color(.022,.045,.047,.94),Color("5c7f76"))
-	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(1071,508),17,Color("a9d8cf"))
-	label("存活 %d/%d人 · L补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(1071,534),13,ink)
+	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(46,184),17,Color("a9d8cf"))
+	label("存活 %d/%d人 · L补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
 	for index in 3:
 		var rect:=training_kind_rect(index)
 		box(rect,panel,Color("668a78"))
-		label(["U盾卫70","I弩手80","N工程65"][index],rect.position+Vector2(7,21),12,amber)
+		label(["U盾卫70","I弩手80","N工程65"][index],rect.position+Vector2(9,22),14,amber)
 	var rows: Array[Dictionary]=[]
 	var total_orders:=0
 	# First show one current order per barracks, then pending orders. Each
@@ -580,14 +544,15 @@ func draw_squads() -> void:
 		var row: Dictionary=rows[index+training_page*3]
 		var order: Dictionary=row.order
 		var name: String={"shield":"盾卫","ranged":"弩手","engineer":"工程员"}.get(String(order.kind),"部队")
-		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % float(order.remaining) if int(row.queue_index)==0 else "等待"],Vector2(1071,605+index*27),13,ink)
-		var rect:=Rect2(1302,585+index*27,91,23)
+		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % float(order.remaining) if int(row.queue_index)==0 else "等待"],Vector2(46,321+index*44),13,ink)
+		var rect:=Rect2(422,300+index*44,110,28)
 		box(rect,panel,muted)
 		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
 		training_cancel_buttons.append({"rect":rect,"barracks":row.barracks,"queue_index":row.queue_index})
-	if rows.is_empty():label("先自由建兵营 · 每营独立队列",Vector2(1071,609),13,muted)
-	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(1071,685),12,muted)
-	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(1071,706),11,amber)
+	if rows.is_empty():label("先自由建兵营 · 每营独立队列",Vector2(46,325),13,muted)
+	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(46,465),12,muted)
+	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
+	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
@@ -720,16 +685,16 @@ func draw_result() -> void:
 		label("正在准备下一场守望…",Vector2(630,723),12,amber)
 
 func _gui_input(event: InputEvent) -> void:
-	var point: Vector2=Vector2.ZERO
+	if not is_instance_valid(game):return
+	var point:=Vector2.ZERO
 	if event is InputEventMouseButton or event is InputEventMouseMotion:
 		point=event.position*Vector2(1440,900)/get_viewport_rect().size
 	if game.music_credits_open:
-		if event is InputEventMouseButton and event.pressed:
-			if event.button_index==MOUSE_BUTTON_LEFT:
-				var sources:=["https://rustedstudio.itch.io/free-music-dark-ambient-piano","https://rustedstudio.itch.io/free-music-apocalypse-z","https://rustedstudio.itch.io/free-music-orchestral-fantasy-war","https://creativecommons.org/licenses/by/4.0/"]
-				for i in sources.size():
-					if Rect2(300+i*210,527,190,44).has_point(point):OS.shell_open(sources[i]);break
-			accept_event()
+		if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+			var sources:=["https://rustedstudio.itch.io/free-music-dark-ambient-piano","https://rustedstudio.itch.io/free-music-apocalypse-z","https://rustedstudio.itch.io/free-music-orchestral-fantasy-war","https://creativecommons.org/licenses/by/4.0/"]
+			for index in sources.size():
+				if Rect2(300+index*210,527,190,44).has_point(point):OS.shell_open(sources[index]);break
+		if event is InputEventMouseButton:accept_event()
 		return
 	if game.phase=="ended":
 		if event is InputEventMouseButton:
@@ -739,35 +704,42 @@ func _gui_input(event: InputEvent) -> void:
 			accept_event()
 		return
 	if game.phase=="draft":
-		if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
-			for i in mode_rects.size():
-				if mode_rects[i].has_point(point):game.select_run_mode(i);accept_event();return
-			for i in card_rects.size():
-				if card_rects[i].has_point(point):game.choose_card(i);accept_event();return
+		if event is InputEventMouseButton:
+			if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+				for index in mode_rects.size():
+					if mode_rects[index].has_point(point):game.select_run_mode(index);accept_event();return
+				for index in card_rects.size():
+					if card_rects[index].has_point(point):game.choose_card(index);accept_event();return
+			accept_event()
 		return
-	if game.phase not in ["day","night"]:return
+	if game.phase not in ["day","night","paused"]:return
 	if event is InputEventMouseButton:
 		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
-			if GROWTH_MEMORY_RECT.has_point(point) and game.run.pending>0:
-				game.request_upgrade();accept_event();return
-			if game.construction.active:
-				for index in 3:
-					if construction_kind_rect(index).has_point(point):
-						game.construction.select_kind(["tower","barracks","workshop"][index]);accept_event();return
-			for direction in [-1,1]:
-				if training_page_rect(direction).has_point(point):
-					training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
-			for index in 3:
-				if training_kind_rect(index).has_point(point):
-					game.train_troop(["shield","ranged","engineer"][index]);accept_event();return
-			for button: Dictionary in training_cancel_buttons:
-				if (button.rect as Rect2).has_point(point):
-					game.cancel_troop_training(int(button.barracks),int(button.queue_index));accept_event();return
-		var panels: Array[Rect2]=[Rect2(24,22,405,160),Rect2(1050,22,365,173),Rect2(1161,195,254,275),SQUAD_PANEL_RECT,GROWTH_PANEL_RECT,Rect2(190,746,840,129),EXPLORATION_PANEL_RECT]
-		if game.phase=="night" or game.contracts.status!="idle":panels.append(Rect2(457,24,570,132))
-		if game.construction.active:panels.append(CONSTRUCTION_PANEL_RECT)
-		if game.kill_chain>0 and game.kill_chain_time>0.0:panels.append(Rect2(370,436,254,77))
-		for rect: Rect2 in panels:
+			if TACTICS_BUTTON_RECT.has_point(point):toggle_details();accept_event();return
+			if MAP_BUTTON_RECT.has_point(point) or minimap_rect().has_point(point):toggle_map();accept_event();return
+			if not detail_tab.is_empty() and not game.construction.active:
+				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
+				for index in CleanHud.TAB_IDS.size():
+					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
+			if game.phase in ["day","night"]:
+				if MEMORY_BUTTON_RECT.has_point(point) and game.run.pending>0:game.request_upgrade();accept_event();return
+				if game.construction.active:
+					for index in 3:
+						if construction_kind_rect(index).has_point(point):game.construction.select_kind(["tower","barracks","workshop"][index]);accept_event();return
+				elif detail_tab=="army":
+					for direction in [-1,1]:
+						if training_page_rect(direction).has_point(point):training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
+					for index in 3:
+						if training_kind_rect(index).has_point(point):game.train_troop(["shield","ranged","engineer"][index]);accept_event();return
+					for button: Dictionary in training_cancel_buttons:
+						if (button.rect as Rect2).has_point(point):game.cancel_troop_training(int(button.barracks),int(button.queue_index));training_cancel_buttons.clear();queue_redraw();accept_event();return
+				elif detail_tab=="defense" and game.phase=="day":
+					for index in game.countermeasure_count():
+						if countermeasure_rect(index).has_point(point):game.select_countermeasure(index);accept_event();return
+		for rect in live_panel_rects():
 			if rect.has_point(point):
-				game.selection_dragging=false;accept_event();return
+				game.selection_dragging=false
+				accept_event()
+				return
+		if game.phase=="paused":accept_event();return
 	if game.handle_strategy_mouse(event):accept_event()

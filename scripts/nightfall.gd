@@ -2336,6 +2336,7 @@ func toggle_tower_construction() -> bool:
 		construction.cancel()
 		return true
 	if not construction.begin():return false
+	hud.dismiss_details()
 	selection_dragging=false
 	notify("格子建设 · 1塔3×3 / 2兵营4×3 / 3工坊3×2 · 左键/F连续建造",3)
 	return true
@@ -2660,14 +2661,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			if phase=="day" or phase=="night":paused_from=phase;phase="paused"
 			music_credits_open=not music_credits_open
 			return
+		if event.keycode==KEY_ESCAPE and music_credits_open:
+			music_credits_open=false
+			return
+		if event.keycode==KEY_F3 and not music_credits_open:
+			hud.toggle_details()
+			return
+		if event.keycode==KEY_ESCAPE and not music_credits_open and phase in ["day","night","paused"] and (not hud.detail_tab.is_empty() or hud.map_expanded):
+			hud.dismiss_details()
+			return
 		if event.keycode==KEY_ESCAPE and construction and construction.active and phase in ["day","night"]:
 			construction.cancel()
 			return
 		if event.keycode==KEY_ESCAPE and phase in ["day","night"] and (selection_dragging or squads.selected_count()>0):
 			selection_dragging=false;squads.cancel_selection()
-			return
-		if event.keycode==KEY_ESCAPE and music_credits_open:
-			music_credits_open=false
 			return
 		if music_credits_open:return
 		if event.keycode==KEY_F2 and combat:
@@ -2707,9 +2714,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				notify("当前没有可用的下一夜反制选择",2)
 			return
 		match event.keycode:
-			KEY_1:selection_dragging=false;construction.select_kind("tower")
-			KEY_2:selection_dragging=false;construction.select_kind("barracks")
-			KEY_3:selection_dragging=false;construction.select_kind("workshop")
+			KEY_1:selection_dragging=false;construction.select_kind("tower");hud.dismiss_details()
+			KEY_2:selection_dragging=false;construction.select_kind("barracks");hud.dismiss_details()
+			KEY_3:selection_dragging=false;construction.select_kind("workshop");hud.dismiss_details()
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()
 			KEY_N:train_troop("engineer")

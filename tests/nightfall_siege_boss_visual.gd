@@ -2,7 +2,7 @@ extends SceneTree
 ## Forward+隐藏窗口验收：首领蓄力、破绽和清场 HUD 必须实际可读。
 
 var game: Node3D
-const ROI := Rect2i(457,24,570,110)
+const ROI := Rect2(426,20,588,110)
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -15,14 +15,16 @@ func frame() -> void:
 func photograph(name: String) -> Image:
 	for i in 4:await frame()
 	var picture: Image=root.get_texture().get_image()
-	assert(picture.get_width()==1440 and picture.get_height()==900)
+	assert(picture.get_size()==root.size)
 	assert(picture.save_png("res://build/"+name+".png")==OK)
 	return picture
 
 func roi_difference(first: Image, second: Image) -> int:
 	var changed: int=0
-	for y in range(ROI.position.y,ROI.end.y):
-		for x in range(ROI.position.x,ROI.end.x):
+	var scale:=Vector2(first.get_size())/Vector2(1440,900)
+	var pixels:=Rect2i(ROI.position*scale,ROI.size*scale)
+	for y in range(pixels.position.y,pixels.end.y):
+		for x in range(pixels.position.x,pixels.end.x):
 			var a: Color=first.get_pixel(x,y)
 			var b: Color=second.get_pixel(x,y)
 			if absf(a.r-b.r)+absf(a.g-b.g)+absf(a.b-b.b)>.12:changed+=1
