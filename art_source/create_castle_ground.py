@@ -175,14 +175,17 @@ def stone_walls(stone, coping):
 def courtyard(concrete, fracture, rng):
     # Four times the usable floor area, with small fitted slabs around the
     # beacon and long restrained aisle fragments across the expanded yard.
-    # Slabs finish on the gameplay floor instead of adding walkable height.
+    # Keep the slabs embedded in the gameplay floor while lifting their top
+    # face by 8 mm. A top face exactly coplanar with the terrain mesh causes
+    # depth-buffer competition whenever the orthographic camera moves.
+    slab_center_height = LAYOUT["FORT_HEIGHT"] - 0.032
     for row in range(-10, 11):
         for column in range(-10, 11):
             if rng.random() < 0.16:
                 continue
             x, z = column * 1.18, row * 1.18
             size = (1.05, 1.05, 0.08)
-            box("Fractured castle courtyard", (x, z, LAYOUT["FORT_HEIGHT"] - 0.04), size,
+            box("Fractured castle courtyard", (x, z, slab_center_height), size,
                 concrete if rng.random() < 0.7 else fracture, 0.012)
     for arm in range(4):
         direction = arm * math.pi / 2.0
