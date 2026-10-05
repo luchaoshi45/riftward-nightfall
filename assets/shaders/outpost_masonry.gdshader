@@ -12,7 +12,6 @@ uniform float bump_strength : hint_range(0.0, 2.0) = 0.85;
 
 varying vec3 world_position;
 varying vec3 world_normal;
-varying float view_distance;
 
 float hash21(vec2 p) {
 	// Integer cell scrambling avoids a transcendental sin for every grain/site.
@@ -59,21 +58,23 @@ float fracture_border(vec2 p) {
 }
 
 // x: quiet colour variation, y: physical relief, z: sparse hairline fractures.
-vec3 stone_surface(vec2 p, float micro_visibility) {
+vec3 stone_surface(vec2 p, float projected_footprint) {
+	float micro_visibility = 1.0 - smoothstep(0.018, 0.070, projected_footprint);
 	float coarse = stone_noise(p * 0.47 + vec2(18.0, 7.0));
 	float soot = smoothstep(0.48, 0.78, stone_noise(p * 0.76 + vec2(4.0, 31.0)));
 	float grain = stone_noise(p * 21.0);
 	float pits = smoothstep(0.68, 0.88, stone_noise(p * 8.3 + vec2(49.0, 11.0)));
 	float fracture_field = fracture_border(p * 0.94 + vec2(7.0, 29.0));
-	float projected_footprint = max(length(dFdx(p)), length(dFdy(p)));
-	float fracture_width = max(fwidth(fracture_field), max(projected_footprint * 0.45, 0.0015));
+	// Use the projection footprint computed before the projection branches.
+	// Derivatives evaluated inside a divergent branch are not defined reliably.
+	float fracture_width = max(projected_footprint * 1.10, 0.0015);
 	float hairline = 1.0 - smoothstep(0.002, 0.005 + fracture_width, fracture_field);
 	float fracture_patch = smoothstep(0.63, 0.78, stone_noise(p * 0.71 + vec2(62.0, 5.0)));
 	float crack = hairline * fracture_patch;
 	// Suppress subpixel lines rather than widening every fracture at distant views.
 	crack *= 1.0 - smoothstep(0.026, 0.095, projected_footprint);
-	float tone = 0.98 + (coarse - 0.5) * 0.20 - soot * soot_strength;
-	tone += (grain - 0.5) * 0.105 * micro_visibility - pits * 0.05 * micro_visibility;
+	float tone = 1.0 + (coarse - 0.5) * 0.16 - soot * soot_strength * 0.78;
+	tone += (grain - 0.5) * 0.085 * micro_visibility - pits * 0.04 * micro_visibility;
 	float relief = coarse * 0.002 + (grain - 0.5) * 0.0035 * micro_visibility;
 	relief -= crack * 0.0018 + pits * 0.002 * micro_visibility;
 	return vec3(tone, relief, crack);
@@ -82,7 +83,6 @@ vec3 stone_surface(vec2 p, float micro_visibility) {
 void vertex() {
 	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
-	view_distance = length((MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz);
 }
 
 void fragment() {
@@ -90,12 +90,22 @@ void fragment() {
 	vec3 geometric_normal = normalize(world_normal);
 	vec3 weights = pow(abs(geometric_normal), vec3(4.0));
 	weights /= max(dot(weights, vec3(1.0)), 0.001);
-	float footprint = max(length(dFdx(p)), length(dFdy(p)));
-	float micro_visibility = (1.0 - smoothstep(0.018, 0.070, footprint));
-	micro_visibility *= 1.0 - smoothstep(24.0, 62.0, view_distance);
-	vec3 surface = stone_surface(p.zy, micro_visibility) * weights.x;
-	surface += stone_surface(p.xz, micro_visibility) * weights.y;
-	surface += stone_surface(p.xy, micro_visibility) * weights.z;
+	vec3 projection_footprint = vec3(
+		max(length(dFdx(p.zy)), length(dFdy(p.zy))),
+		max(length(dFdx(p.xz)), length(dFdy(p.xz))),
+		max(length(dFdx(p.xy)), length(dFdy(p.xy))));
+	// Orthographic close-ups must retain grain even when the camera is far
+	// away. Planar paving/walls need one projection, not three fracture fields.
+	vec3 surface = vec3(0.0);
+	if (weights.x > 0.001) {
+		surface += stone_surface(p.zy, projection_footprint.x) * weights.x;
+	}
+	if (weights.y > 0.001) {
+		surface += stone_surface(p.xz, projection_footprint.y) * weights.y;
+	}
+	if (weights.z > 0.001) {
+		surface += stone_surface(p.xy, projection_footprint.z) * weights.z;
+	}
 	float wall = 1.0 - smoothstep(0.30, 0.78, abs(geometric_normal.y));
 	// Both vertical projections put world height on the second axis, so the
 	// rain tracks travel down walls instead of stretching the ground texture.
@@ -106,8 +116,12 @@ void fragment() {
 	float footing = (1.0 - smoothstep(0.06, 0.95, world_position.y)) * wall;
 	footing *= 0.70 + 0.30 * stone_noise(p.xz * 2.0);
 	vec3 color = base_color.rgb * surface.x;
-	color = mix(color, color * vec3(0.68, 0.75, 0.78), rain);
+	color = mix(color, color * vec3(0.82, 0.87, 0.86), rain);
 	color = mix(color, base_color.rgb * vec3(1.10, 1.08, 1.02), footing * 0.20);
+	// Sparse warm dust ties the yard together without painting over the two
+	// imported concrete colours or adding another small-scale checker pattern.
+	float yard_dust = smoothstep(0.42, 0.76, stone_noise(p.xz * 0.22 + vec2(27.0, 61.0))) * weights.y;
+	color = mix(color, color * vec3(1.08, 1.035, 0.93), yard_dust * 0.28);
 	color *= 1.0 - surface.z * crack_strength;
 	ALBEDO = color;
 	METALLIC = 0.0;

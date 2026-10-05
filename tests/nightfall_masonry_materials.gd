@@ -27,7 +27,7 @@ func walk_home(from: Vector3) -> void:
 			"The textured ramp route cannot cut through a fortress wall")
 		check(absf(game.hero.position.y - game.outpost_height(game.hero.position)) < .0001,
 			"The returning hero follows the original actual surface height")
-		if absf(game.hero.position.x) < 2.6 and game.hero.position.z > 7 and game.hero.position.z < 18.8:
+		if absf(game.hero.position.x) < 2.6 and game.hero.position.z > 13.5 and game.hero.position.z < 25.5:
 			ramp_visited = true
 		prior = game.hero.position
 		if game.hero.position.distance_to(home) < .28: break
@@ -43,7 +43,7 @@ func run() -> void:
 	check(game.choose_card(0), "The real opening card enters the playable first night")
 	check(is_instance_valid(game.world.terrain), "The production world exposes its actual imported terrain")
 	var terrain: Node3D = game.world.terrain
-	var reference: Node3D = load("res://assets/models/outpost_ground.glb").instantiate()
+	var reference: Node3D = load("res://assets/models/castle_ground.glb").instantiate()
 	root.add_child(reference)
 	var masonry_count := 0
 	var ash_count := 0
@@ -90,14 +90,15 @@ func run() -> void:
 		"Paving concrete and fracture rubble keep their distinct color palettes")
 	reference.queue_free(); await process_frame
 	var heights := [[Vector3(0, 0, 0), 5.0], [Vector3(0, 0, 7), 5.0],
-		[Vector3(0, 0, 10), 4.21875], [Vector3(0, 0, 13), 2.5],
-		[Vector3(0, 0, 16), .78125], [Vector3(0, 0, 19), 0.0],
-		[Vector3(12, 0, 12), 0.0]]
+		[Vector3(0, 0, 16.5), 4.21875], [Vector3(0, 0, 19.5), 2.5],
+		[Vector3(0, 0, 22.5), .78125], [Vector3(0, 0, 25.5), 0.0],
+		[Vector3(19, 0, 19), 0.0]]
 	for sample in heights:
 		check(absf(game.outpost_height(sample[0]) - float(sample[1])) < .0001,
 			"The fortress and south-ramp height profile retain the playable baseline")
 	walk_home(Vector3(7, 0, 25)); walk_home(Vector3(-8, 0, 26)); walk_home(Vector3(0, 0, 29))
-	game.queue_free(); await process_frame; await process_frame
-	await create_timer(.15).timeout
+	await game.prepare_shutdown()
+	game.queue_free(); await process_frame
+	await create_timer(.5).timeout
 	if failures.is_empty(): print("NIGHTFALL_MASONRY_MATERIALS_OK production_two_surfaces native_palette protected_ash_rust shared_geometry baseline_heights three_home_routes audio_scene_cleanup")
 	quit(0 if failures.is_empty() else 1)
