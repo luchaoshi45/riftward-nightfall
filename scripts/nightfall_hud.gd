@@ -85,22 +85,24 @@ func _draw() -> void:
 		box(Rect2(457,24,570,132),panel,Color("587c68"))
 		var title: String=contract.TITLES.get(contract.kind,"自由探索")
 		label("可选委托 · %s · 方案%d/%d · %d/%d" % [title,contract.selected_offer+1,contract.offers.size(),contract.done.size(),contract.targets.size()],Vector2(477,54),19,Color("a3d7bd"))
-		var goal: Vector3=game.contract_goal()
-		var detail: String
-		if contract.status=="completed":detail="已交回 · 奖励到账"
-		elif contract.status=="unavailable":detail="今日无可用目标，可以自由探索"
-		elif contract.status=="bonus_offer":detail="4 立即返家保底 · "+contract.bonus_summary()
-		elif contract.status=="bonus_active":detail="追加目标 · "+contract.bonus_summary()+" · F 完成后回灯塔"
-		elif contract.status=="returning":detail="目标已完成 · 返回灯塔领取奖励"
-		else:detail="日落前完成并返回灯塔"
-		if goal!=Vector3.INF:
-			var route_hint: String="P 前往目标 · %.0f米" % game.hero.position.distance_to(goal)
-			if contract.status in ["bonus_offer","bonus_active","returning"]:detail+=" · "+route_hint
-			else:detail=route_hint+" · 日落前回灯塔交付"
-		label(detail,Vector2(477,84),15,ink)
-		var summary: String=contract.progress_text() if contract.status in ["bonus_offer","bonus_active","returning"] else contract.offer_summary(contract.selected_offer)
-		label(summary,Vector2(477,110),13,amber)
-		label("4 立即返家 · 5 贪一笔追加补给" if contract.status=="bonus_offer" else ("追加目标完成后返回灯塔" if contract.status=="bonus_active" else ("4/5/6 切换方案 · 完成第一项后锁定" if not contract.progress_started else "委托已开始 · 方案已锁定")),Vector2(477,130),12,Color("a3c7b7"))
+		if contract.status in ["bonus_offer","bonus_active","returning"]:
+			var budget: Dictionary=contract.return_budget()
+			var budget_color: Color=red if String(budget.risk) in ["late","unreachable"] else (amber if String(budget.risk)=="tight" else Color("a3d7bd"))
+			var detail: String=contract.bonus_summary() if contract.status!="returning" else ("追加补给已带走 · 回灯塔兑现" if contract.bonus_done else "主委托已完成 · 返回灯塔领取奖励")
+			label(detail,Vector2(477,84),15,ink)
+			label(contract.return_budget_text(budget),Vector2(477,110),13,budget_color)
+			var hint: String="4 立即返家 / 5 追加 · P 前往目标" if contract.status=="bonus_offer" else ("P 前往追加目标 · F 采集后再 P 返家" if contract.status=="bonus_active" else "P 回灯塔 · 提前15秒再+10零件")
+			label(hint+" · 估时不含战斗",Vector2(477,130),12,muted)
+		else:
+			var goal: Vector3=game.contract_goal()
+			var detail: String="日落前完成并返回灯塔"
+			if contract.status=="completed":detail="已交回 · 奖励到账"
+			elif contract.status=="unavailable":detail="今日无可用目标，可以自由探索"
+			elif contract.status=="expired":detail="委托已截止 · 可自由探索并准备守夜"
+			if goal!=Vector3.INF:detail="P 前往目标 · %.0f米 · 日落前回灯塔交付" % game.hero.position.distance_to(goal)
+			label(detail,Vector2(477,84),15,ink)
+			label(contract.offer_summary(contract.selected_offer),Vector2(477,110),13,amber)
+			label("4/5/6 切换方案 · 完成第一项后锁定" if not contract.progress_started else "委托已开始 · 方案已锁定",Vector2(477,130),12,Color("a3c7b7"))
 	if game.phase=="day":draw_day_forecast()
 	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)

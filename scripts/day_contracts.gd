@@ -6,6 +6,9 @@ const TITLES := {"salvage":"废墟补给", "generator":"能源交接", "escort":
 const REWARD_SCRAP := 30
 const REWARD_MEMORY := 8
 const EARLY_RETURN_SECONDS := 15.0
+const RETURN_HOME := Vector3(0, 5, 3.1)
+const BUDGET_REFRESH_SECONDS := 0.28
+const BUDGET_CELL_SIZE := 2.0
 const OFFER_RISK_SECONDS := [0.0, 8.0, 16.0]
 const OFFER_RISK_HUNTERS := [0, 1, 2]
 const OFFER_NAMES := ["稳妥路线", "加码路线", "孤注路线"]
@@ -35,6 +38,10 @@ var bonus_target: Dictionary = {}
 var bonus_done := false
 var bonus_choice := ""
 var last_text := ""
+var budget_route_queries := 0
+var budget_refresh_time := 0.0
+var budget_cache_revision := -1
+var budget_route_cache: Dictionary = {}
 
 func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	game = owner_game
@@ -59,6 +66,8 @@ func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	risk_spawned=false
 	risk_spawn_count=0
 	last_text = ""
+	budget_route_queries=0
+	clear_budget_cache()
 
 func candidates() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -113,6 +122,7 @@ func on_day() -> void:
 	if game.phase != "day" or int(game.day_number) <= day_id:
 		return
 	day_id = int(game.day_number)
+	clear_budget_cache()
 	done.clear()
 	targets.clear()
 	offers.clear()
@@ -183,7 +193,9 @@ func choose_bonus(index: int) -> bool:
 		emit_progress()
 		return true
 	if index!=1:return false
-	var candidate:=bonus_candidate()
+	# Confirm the current discovery and route when the player accepts, rather
+	# than binding a presentation estimate that may have outlived a respawn.
+	var candidate:=bonus_candidate(true)
 	if candidate.is_empty():return false
 	bonus_target=candidate
 	bonus_done=false
@@ -231,17 +243,49 @@ func bonus_interaction_range(source: Dictionary) -> float:
 
 func route_distance(from: Vector3, to: Vector3) -> float:
 	if game.can_traverse(from,to):return flat_distance(from,to)
+	var discoveries: Node=game.get("discoveries")
+	var revision:=int(discoveries.motivation_revision) if is_instance_valid(discoveries) else -1
+	if budget_refresh_time<=0.0 or revision!=budget_cache_revision:
+		clear_budget_cache()
+		budget_cache_revision=revision
+		budget_refresh_time=BUDGET_REFRESH_SECONDS
+	var cell:=Vector2i(floori(from.x/BUDGET_CELL_SIZE),floori(from.z/BUDGET_CELL_SIZE))
+	var key:=str(cell)+":"+str(to)
+	if budget_route_cache.has(key):
+		var previous: Dictionary=budget_route_cache[key]
+		if previous.is_empty():return INF
+		var first: Vector2=previous.first
+		# A coarse cell can straddle a wall. Never reuse its cached approach
+		# from the other side of that wall, even during the short stale window.
+		if game.can_traverse(from,Vector3(first.x,0,first.y)):
+			return cached_route_distance(from,previous)
+	budget_route_queries+=1
 	var start: Vector2i=game.nearest_navigation_cell(from,true)
 	var finish: Vector2i=game.nearest_navigation_cell(to,false)
-	if start.x==999 or finish.x==999:return INF
+	if start.x==999 or finish.x==999:
+		budget_route_cache[key]={}
+		return INF
 	var route: PackedVector2Array=game.hero_navigation.get_point_path(start,finish)
-	if route.is_empty():return INF
-	var previous:=Vector2(from.x,from.z)
+	if route.is_empty():
+		budget_route_cache[key]={}
+		return INF
+	var previous:=route[0]
 	var distance:=0.0
 	for point in route:
 		distance+=previous.distance_to(point)
 		previous=point
-	return distance+previous.distance_to(Vector2(to.x,to.z))
+	var cached: Dictionary={"first":route[0],"tail":distance+previous.distance_to(Vector2(to.x,to.z))}
+	budget_route_cache[key]=cached
+	return cached_route_distance(from,cached)
+
+func clear_budget_cache() -> void:
+	budget_route_cache.clear()
+	budget_refresh_time=0.0
+	budget_cache_revision=-1
+
+func cached_route_distance(from: Vector3, cached: Dictionary) -> float:
+	if cached.is_empty():return INF
+	return Vector2(from.x,from.z).distance_to(cached.first)+float(cached.tail)
 
 func bonus_candidates() -> Array[Dictionary]:
 	var result: Array[Dictionary]=[]
@@ -261,7 +305,8 @@ func bonus_candidates() -> Array[Dictionary]:
 	)
 	return result
 
-func bonus_candidate() -> Dictionary:
+func bonus_candidate(force_refresh: bool = false) -> Dictionary:
+	if force_refresh:clear_budget_cache()
 	var candidates:=bonus_candidates()
 	return candidates[0] if not candidates.is_empty() else {}
 
@@ -269,8 +314,43 @@ func bonus_summary() -> String:
 	var candidate: Dictionary=bonus_target if not bonus_target.is_empty() else bonus_candidate()
 	if candidate.is_empty():return "4 立即返家保底 · 暂无可达追加补给"
 	var title: String=BONUS_TITLES.get(String(candidate.kind),"追加补给")
-	var seconds:=float(candidate.distance)/maxf(1.0,float(game.hero.speed))+3.0
-	return "5 贪一笔：%s · +%d零件/+%d记忆 · 往返约%.0f秒" % [title,int(candidate.scrap),int(candidate.memory),seconds*2.0]
+	return "%s%s · +%d零件/+%d记忆" % ["5 贪一笔：" if status=="bonus_offer" else "追加 ",title,int(candidate.scrap),int(candidate.memory)]
+
+func return_budget() -> Dictionary:
+	# Cache only route geometry. Time left, actual movement speed and the
+	# remaining cache-opening channel stay live, including during a detour.
+	var candidate: Dictionary={}
+	var source: Dictionary={}
+	var outbound:=0.0
+	var action_seconds:=0.0
+	var return_from: Vector3=game.hero.position
+	var available:=true
+	if status in ["bonus_offer","bonus_active"]:
+		candidate=bonus_candidate() if status=="bonus_offer" else bonus_target
+		if candidate.is_empty():available=false
+		else:
+			var index:=int(candidate.get("index",-1))
+			if index>=0 and index<game.discoveries.items.size():
+				source=game.discoveries.items[index]
+			available=not source.is_empty() and int(source.get("serial",-1))==int(candidate.serial) and String(source.state) in ["ready","channel"]
+		if available:
+			outbound=route_distance(game.hero.position,source.position)
+			return_from=source.position
+			if String(source.kind)=="supply_cache":
+				action_seconds=maxf(0.0,game.discoveries.CHANNEL_SECONDS-float(source.progress)) if String(source.state)=="channel" else game.discoveries.CHANNEL_SECONDS
+	var returning_distance:=route_distance(return_from,RETURN_HOME)
+	if status=="returning" and returned_home():returning_distance=0.0
+	available=available and is_finite(outbound) and is_finite(returning_distance)
+	var total_seconds: float=(outbound+returning_distance)/maxf(1.0,float(game.hero.speed))+action_seconds if available else INF
+	var spare_seconds: float=float(game.phase_time)-total_seconds
+	var risk: String="unreachable" if not available else ("late" if spare_seconds<0.0 else ("tight" if spare_seconds<EARLY_RETURN_SECONDS else "ready"))
+	return {"available":available,"candidate":candidate.duplicate(),"outbound_distance":outbound,"return_distance":returning_distance,"action_seconds":action_seconds,"total_seconds":total_seconds,"spare_seconds":spare_seconds,"risk":risk}
+
+func return_budget_text(budget: Dictionary) -> String:
+	if not budget.available:return "追加目标不可达 · 主委托保底保留"
+	if String(budget.risk)=="late":return "预计回灯塔 %.0f秒 · 日落前难返家，主委托保底保留" % ceili(float(budget.total_seconds))
+	var spare:=maxi(0,floori(float(budget.spare_seconds)))
+	return "预计回灯塔 %.0f秒 · 余%d秒整备%s" % [ceili(float(budget.total_seconds)),spare," · 时间紧" if String(budget.risk)=="tight" else ""]
 
 func active_target_interaction() -> Dictionary:
 	# The controller uses this read-only view before ordinary F actions. Keep
@@ -322,9 +402,10 @@ func mark_risk_spawned(count: int) -> void:
 	risk_spawned=true
 	risk_spawn_count=maxi(0,count)
 
-func tick(_delta: float) -> void:
+func tick(delta: float) -> void:
 	if not is_instance_valid(game): return
 	if game.phase in ["paused", "draft"]: return
+	budget_refresh_time=maxf(0.0,budget_refresh_time-delta)
 	if game.phase != "day" or game.phase_time <= 0.0:
 		on_night()
 		return
