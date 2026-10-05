@@ -18,6 +18,7 @@ func check(condition: bool, message: String) -> void:
 func frame(count: int = 2) -> void:
 	for i in count:
 		game.music.update_game(game, 1.0 / 60.0)
+		game.hud.queue_redraw()
 		await process_frame
 
 func tap(code: int) -> void:
@@ -32,16 +33,23 @@ func tap(code: int) -> void:
 	await frame()
 
 func click(point: Vector2, button: int = MOUSE_BUTTON_LEFT) -> void:
+	var window_point: Vector2 = point * game.hud.get_viewport_rect().size / Vector2(1440,900)
+	var motion := InputEventMouseMotion.new()
+	motion.position = window_point
+	motion.global_position = window_point
+	root.push_input(motion, true)
+	await frame()
 	var event := InputEventMouseButton.new()
-	var window_point: Vector2 = root.get_final_transform() * point
 	event.position = window_point
 	event.global_position = window_point
 	event.button_index = button
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT if button == MOUSE_BUTTON_LEFT else (MOUSE_BUTTON_MASK_RIGHT if button == MOUSE_BUTTON_RIGHT else 0)
 	event.pressed = true
-	Input.parse_input_event(event)
+	root.push_input(event, true)
 	await frame()
+	event.button_mask = 0
 	event.pressed = false
-	Input.parse_input_event(event)
+	root.push_input(event, true)
 	await frame()
 
 func settle(seconds: float = 3.0) -> void:
@@ -96,11 +104,7 @@ func run() -> void:
 	check(game.music.active_track == "night", "The opening night draft starts the quiet night cue")
 	if graphical:
 		await screenshot("res://build/music-opening.png")
-		check(game.hud.card_rects.size() == 3, "Actual rendered draft exposes three card hit areas")
-	else:
-		# The headless renderer skips _draw; populate the same card hit areas so
-		# the positive click test below also detects a broken event path.
-		game.hud.card_rects = [Rect2(198,292,315,372),Rect2(547,292,315,372),Rect2(896,292,315,372)]
+	check(game.hud.card_rects.size() == 3, "Actual production draft drawing exposes three card hit areas")
 	await tap(KEY_F1)
 	check(game.music_credits_open and game.phase == "draft", "Credits over the initial choice preserve draft")
 	var selections: int = game.run.selections
