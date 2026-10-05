@@ -1,6 +1,9 @@
 extends SceneTree
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 
 func capture(game: Node3D, name: String) -> void:
@@ -41,5 +44,9 @@ func run() -> void:
 	assert(game.world.night_mix>0 and game.world.night_mix<1)
 	game.world._process(3.0)
 	assert(is_equal_approx(game.world.night_mix,0.0))
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	print("NIGHTFALL_LIGHTING_TRANSITION_OK")
 	quit()

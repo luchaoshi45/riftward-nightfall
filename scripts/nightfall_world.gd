@@ -25,6 +25,8 @@ var gate_lights: Array[OmniLight3D] = []
 var gate_spots: Array[SpotLight3D] = []
 var gate_flames: Array[MeshInstance3D] = []
 var gate_light_drain: Array[float] = [0.0,0.0]
+var gate_visual_drain: Array[float] = [0.0,0.0]
+var warning_mix := 0.0
 var hero_lantern: OmniLight3D
 var decorative_nodes: Array[Node3D] = []
 var decoration_cull_origin := Vector3(INF, INF, INF)
@@ -37,8 +39,15 @@ var light_time:=0.0
 
 func _process(delta: float) -> void:
 	if beacon_light==null:return
+	var game := get_parent()
+	if game and game.has_method("simulate") and game.get("phase") not in ["day","night"]:return
 	light_time+=delta
 	night_mix=move_toward(night_mix,1.0 if night_active else 0.0,delta/LIGHT_TRANSITION_SECONDS)
+	# Frame-rate independent short fades keep real warning/drain state intact.
+	var response := 1.0-exp(-maxf(delta,0.0)*5.0)
+	warning_mix=lerpf(warning_mix,1.0 if wave_warning else 0.0,response)
+	for i in gate_visual_drain.size():
+		gate_visual_drain[i]=lerpf(gate_visual_drain[i],clampf(gate_light_drain[i],0.0,.85),response)
 	apply_lighting()
 
 func build() -> void:
@@ -334,6 +343,10 @@ func set_night(is_night: bool) -> void:
 func apply_lighting() -> void:
 	if environment==null:return
 	var blend:=night_mix*night_mix*(3.0-2.0*night_mix)
+	var pulse_scale := 1.0
+	var game := get_parent()
+	if game and game.has_method("simulate") and is_instance_valid(game.get("combat")):
+		if game.combat.reduced_effects:pulse_scale=0.0
 	if ashfall:
 		ashfall.amount_ratio=lerpf(.35,.8,blend)
 		ash_material.albedo_color=Color(.55,.51,.46,.44).lerp(Color(.54,.59,.64,.53),blend)
@@ -345,7 +358,7 @@ func apply_lighting() -> void:
 	env.fog_density=lerpf(.010,.020,blend)
 	sun.light_color=Color("e4c6a7").lerp(Color("587090"),blend)
 	sun.light_energy=lerpf(.86,.018,blend)
-	beacon_light.light_energy=lerpf(1.4,8.2,blend)+sin(light_time*4.3)*.13+sin(light_time*8.1)*.06
+	beacon_light.light_energy=lerpf(1.4,8.2,blend)+sin(light_time*1.1)*.045*pulse_scale
 	beacon_light.omni_range=lerpf(25.0,22.0,blend)
 	hero_lantern.light_energy=blend*3.4
 	hero_lantern.visible=hero_lantern.light_energy>.001
@@ -356,9 +369,10 @@ func apply_lighting() -> void:
 		(pad.light as OmniLight3D).light_energy=blend*(1.65+float(pad.level)*.45) if pad.level>0 else 0.0
 		(pad.light as OmniLight3D).visible=pad.light.light_energy>.001
 	for i in gate_lights.size():
-		var drain:=1.0-clampf(gate_light_drain[i],0.0,.85)
-		gate_lights[i].light_energy=((5.0+sin(light_time*10.0+float(i)*1.7)*.7) if wave_warning else (lerpf(.9,5.2,blend)+sin(light_time*5.1+float(i)*1.7)*.11))*drain
-		gate_lights[i].light_color=Color("df5f4c") if wave_warning else Color("ff9d53")
-		gate_spots[i].light_energy=lerpf(0.0,11.0,blend)*(1.25 if wave_warning else 1.0)*drain
+		var drain:=1.0-gate_visual_drain[i]
+		var pulse:=sin(light_time*1.8+float(i)*1.7)*pulse_scale
+		gate_lights[i].light_energy=lerpf(lerpf(.9,5.2,blend)+pulse*.035,5.0+pulse*.12,warning_mix)*drain
+		gate_lights[i].light_color=Color("ff9d53").lerp(Color("df5f4c"),warning_mix)
+		gate_spots[i].light_energy=lerpf(0.0,11.0,blend)*lerpf(1.0,1.25,warning_mix)*drain
 		gate_spots[i].visible=gate_spots[i].light_energy>.001
 		(gate_flames[i].material_override as StandardMaterial3D).emission_energy_multiplier=3.2*drain

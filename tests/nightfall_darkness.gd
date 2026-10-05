@@ -17,7 +17,7 @@ func run() -> void:
 	assert(game.world.beacon_light.light_energy>8.0 and game.world.hero_lantern.light_energy>3.0,"Beacon and carried lantern must remain local light sources")
 	assert(game.world.hero_lantern.omni_range<game.world.beacon_light.omni_range,"Carried lantern should reveal only the nearby ground")
 	var pad: Dictionary=game.world.tower_pads[0]
-	assert((pad.light as OmniLight3D).light_energy==0.0)
+	assert((pad.light as OmniLight3D).light_energy>1.0,"Opening defenses are already built")
 	pad.level=1
 	game.world.apply_lighting()
 	assert((pad.light as OmniLight3D).light_energy>1.0,"Built towers should reveal their immediate surroundings")
@@ -27,10 +27,14 @@ func run() -> void:
 	assert((relay.light as OmniLight3D).light_energy>3.0,"Activated relays should create distant islands of light")
 	var gate_before: float=game.world.gate_spots[0].light_energy
 	game.world.gate_light_drain[0]=.8
-	game.world.apply_lighting()
+	game.world._process(.7)
 	assert(game.world.gate_spots[0].light_energy<gate_before*.25,"Light-eating enemies must noticeably darken the gate")
 	game.world.gate_light_drain[0]=0.0
-	game.world.apply_lighting()
-	assert(is_equal_approx(game.world.gate_spots[0].light_energy,gate_before),"Gate lighting must recover after the drain ends")
+	game.world._process(.7)
+	assert(game.world.gate_spots[0].light_energy>gate_before*.95,"Gate lighting must recover smoothly after the drain ends")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	print("NIGHTFALL_DARKNESS_OK")
 	quit()
