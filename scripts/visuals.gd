@@ -49,7 +49,12 @@ static func ring(parent: Node3D, pos: Vector3, radius: float, color: Color, widt
 	mesh.rings = 48
 	mesh.ring_segments = 6
 	node.mesh = mesh
-	node.material_override = material(color, 0.6)
+	var mat := material(color, 0.28)
+	# Markers describe selection and range; their brightness should not react
+	# to moving shadow maps or throw a second thin shadow onto the ground.
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	node.material_override = mat
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(node)
 	node.position = pos
 	return node
@@ -80,6 +85,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	ground.name = "InfernoGroundGlow"
 	ground.mesh = ground_mesh
 	ground.material_override = ground_mat
+	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	blast.add_child(ground)
 	ground.position.y = 0.025
 	ground.scale = Vector3(0.08, 1.0, 0.08)
@@ -113,6 +119,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	tongues.scale = Vector3(0.05, 1.0, 0.05)
 	for i in range(12):
 		var tongue := sector_band(radius * 0.12, radius * (0.77 + 0.06 * float(i % 3)), 0.095, tongue_mat, true)
+		tongue.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		tongues.add_child(tongue)
 		tongue.rotation.y = float(i) * TAU / 12.0 + float(i % 3) * 0.08
 		tongue.position.y = 0.055 + float(i % 2) * 0.008
@@ -130,6 +137,7 @@ static func lantern_inferno(parent: Node3D, pos: Vector3, radius: float, scene_l
 	flare.name = "InfernoFlash"
 	flare.mesh = flare_mesh
 	flare.material_override = flare_mat
+	flare.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	blast.add_child(flare)
 	flare.position.y = 1.4
 	flare.scale = Vector3(0.35, 1.7, 0.35)
@@ -181,6 +189,7 @@ static func breaker_slam(parent: Node3D, pos: Vector3) -> void:
 		var direction:=Vector3(sin(angle),0,cos(angle))
 		var length:=2.1+float(i%3)*.28
 		var fissure:=box(slam,direction*(length*.52),Vector3(.1,.025,length),cracks)
+		fissure.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		fissure.rotation.y=angle
 		var shard:=box(slam,direction*(length*.95)+Vector3(0,.04,0),Vector3(.3,.13,.36),rubble)
 		shard.rotation.y=angle*.7
@@ -199,6 +208,7 @@ static func breaker_slam(parent: Node3D, pos: Vector3) -> void:
 	flash_mesh.radius=.55
 	flash_mesh.height=1.1
 	flash.mesh=flash_mesh
+	flash.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var flash_mat:=material(Color(1.0,.55,.26,.62),2.0)
 	flash_mat.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	flash_mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -217,6 +227,7 @@ static func breaker_slam(parent: Node3D, pos: Vector3) -> void:
 
 static func sparks(parent: Node3D, point: Vector3, color: Color, count: int=8) -> void:
 	var particles := GPUParticles3D.new()
+	particles.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	particles.one_shot=true
 	particles.amount=count
 	particles.lifetime=.65
@@ -250,7 +261,10 @@ static func beam(parent: Node3D, from: Vector3, to: Vector3, color: Color, width
 	mesh.height = maxf(0.01, from.distance_to(to))
 	mesh.radial_segments = 6
 	node.mesh = mesh
-	node.material_override = material(color, 1.5)
+	var mat := material(color, 0.7)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	node.material_override = mat
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(node)
 	node.position = (from + to) * 0.5
 	var direction := (to - from).normalized()
@@ -277,7 +291,8 @@ static func tower_shot(parent: Node3D, from: Vector3, to: Vector3, level: int) -
 	var halo:=MeshInstance3D.new()
 	halo.name="AmberHalo"
 	halo.mesh=beam_mesh
-	var halo_mat:=material(Color(1.0,.53,.18,.38),1.2)
+	halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var halo_mat:=material(Color(1.0,.53,.18,.22),.6)
 	halo_mat.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	halo_mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 	halo.material_override=halo_mat
@@ -290,7 +305,8 @@ static func tower_shot(parent: Node3D, from: Vector3, to: Vector3, level: int) -
 	var core:=MeshInstance3D.new()
 	core.name="BrightCore"
 	core.mesh=core_mesh
-	var core_mat:=material(Color("ffeac0"),2.2)
+	core.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var core_mat:=material(Color("ffeac0"),1.35)
 	core_mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 	core.material_override=core_mat
 	shot.add_child(core)
@@ -301,6 +317,7 @@ static func tower_shot(parent: Node3D, from: Vector3, to: Vector3, level: int) -
 	flash_mesh.height=flash_mesh.radius*2.0
 	muzzle.mesh=flash_mesh
 	muzzle.material_override=core_mat
+	muzzle.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(muzzle)
 	muzzle.position=from
 	var impact:=ring(parent,to-Vector3(0,.85,0),1.18+float(level)*.13,Color("f6ad65"),.11)
@@ -342,6 +359,7 @@ static func sector_band(inner_radius: float, outer_radius: float, half_angle: fl
 	var node:=MeshInstance3D.new()
 	node.mesh=mesh
 	node.material_override=mat
+	node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return node
 
 static func slash_arc(parent: Node3D, origin: Vector3, direction: Vector3) -> void:

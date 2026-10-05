@@ -1,6 +1,9 @@
 extends SceneTree
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 
 func run() -> void:
@@ -14,11 +17,15 @@ func run() -> void:
 	assert(absf((boundary.mesh as TorusMesh).outer_radius - 8.13) < .001, "The visible boundary must match the damage radius")
 	var tongues: Node3D = blast.get_node_or_null("InfernoFlameTongues")
 	assert(tongues != null and tongues.get_child_count() == 12)
+	for mesh in blast.find_children("*", "MeshInstance3D", true, false):
+		assert(mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "Pure inferno light shapes must not occlude the skill lamp")
 	var flash: OmniLight3D = blast.get_node_or_null("InfernoFlashLight")
 	assert(flash != null and flash.light_energy >= 4.9)
 	await create_timer(.18).timeout
 	assert(flash.light_energy < 5.0 and flash.light_energy > 0.0, "The flash light should fade")
 	await create_timer(.9).timeout
 	assert(effects.get_node_or_null("LanternInferno") == null, "The effect must clean itself up")
+	effects.queue_free()
+	await process_frame
 	print("NIGHTFALL_INFERNO_FX_OK")
 	quit()

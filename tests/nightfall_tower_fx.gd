@@ -31,6 +31,12 @@ func run() -> void:
 	var impact: Node=game.effects.find_child("TowerImpact",false,false)
 	assert(shot!=null and impact!=null)
 	assert(shot.find_child("AmberHalo",false,false)!=null and shot.find_child("BrightCore",false,false)!=null)
+	for mesh in shot.find_children("*","MeshInstance3D",true,false):
+		assert(mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Luminous tower fire must not cast a flickering thin shadow")
+	assert(impact.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Impact range ring must not cast a shadow")
+	var halo_material: StandardMaterial3D=shot.get_node("AmberHalo").material_override
+	var core_material: StandardMaterial3D=shot.get_node("BrightCore").material_override
+	assert(halo_material.albedo_color.a<.3 and halo_material.emission_energy_multiplier<core_material.emission_energy_multiplier,"The soft halo must preserve a readable brighter core")
 	game.hero.visible=false
 	game.hud.visible=false
 	var midpoint: Vector3=(pad.position+enemy.position)*.5
