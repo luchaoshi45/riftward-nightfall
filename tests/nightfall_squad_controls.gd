@@ -5,6 +5,8 @@ var game: Node3D
 var failures: Array[String] = []
 
 func _initialize() -> void:
+	root.set_flag(Window.FLAG_NO_FOCUS, true)
+	root.hide()
 	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
@@ -35,23 +37,29 @@ func run() -> void:
 
 	game.phase = "day"
 	game.scrap = 400
+	game.hero.position = Vector3(-5.4, 5, 1)
+	check(game.build_district("barracks"), "A real freely positioned barracks must begin construction")
+	game.aim = Vector3(-5.4, 5, -4)
+	check(game.construction.confirm(), "Confirming a valid location must construct the production barracks")
 	var plot: Dictionary = game.districts.plots[0]
-	game.hero.position = plot.position
-	check(game.build_district("barracks"), "A real nearby barracks must be constructible before hiring")
 	check(is_equal_approx(game.squads.health_multiplier, 1.2), "Barracks must provide the production squad health multiplier")
 	game.hero.position = Vector3(0, game.outpost_height(Vector3(0, 0, 3.1)), 3.1)
 	game.scrap = 300
 	game.phase = "night"
 
 	press(KEY_U)
-	check(game.squads.snapshot().count == 1 and game.scrap == 230, "U must hire one shield squad for exactly seventy scrap")
+	check(game.squads.snapshot().count == 0 and game.scrap == 230, "U must pay seventy into real training without instant soldiers")
+	game.squads.advance(6.0)
+	check(game.squads.snapshot().count == 1, "Six seconds of real shield training must produce one formation")
 	var first: BattleUnit = game.squads.squads[0].members[0]
 	check(is_equal_approx(first.max_hp, 240.0), "Barracks health must apply to newly hired shield members")
 	press(KEY_U)
+	game.squads.advance(6.0)
 	check(game.squads.snapshot().count == 2 and game.scrap == 160, "A second U hire must allow two squads and charge once")
 	var before_scrap: int = game.scrap
 	press(KEY_U)
-	check(game.squads.snapshot().count == 2 and game.scrap == before_scrap, "A third squad must be rejected without spending")
+	check(game.squads.snapshot().count == 2 and game.scrap == before_scrap - 70, "A third formation must be accepted into training without a fixed count cap")
+	check(game.squads.cancel_training(int(plot.get("index", 0))).ok and game.scrap == before_scrap, "Cancellation must return the third formation escrow")
 
 	press(KEY_O)
 	check(game.squads.snapshot().squads.all(func(row: Dictionary): return String(row.order) == "recall"), "O must recall all active squads")
@@ -128,7 +136,7 @@ func run() -> void:
 	game.hero.position = Vector3(20, game.outpost_height(Vector3(20, 0, 20)), 20)
 	var out_of_range_scrap: int = game.scrap
 	press(KEY_U)
-	check(game.scrap == out_of_range_scrap and game.squads.snapshot().count == 2, "U outside the inner outpost must reject without spending")
+	check(game.scrap == out_of_range_scrap - 70 and game.squads.snapshot().count == 2, "Remote U must queue at the active barracks without requiring the hero beside it")
 
 	if DisplayServer.get_name() != "headless":
 		game.hero.position = Vector3(0, game.outpost_height(Vector3(0, 0, 3.1)), 3.1)
@@ -148,6 +156,6 @@ func run() -> void:
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
-	await create_timer(.15).timeout
+	await create_timer(.5).timeout
 	print("NIGHTFALL_SQUAD_CONTROLS_", "OK" if failures.is_empty() else "FAILED")
 	quit(0 if failures.is_empty() else 1)

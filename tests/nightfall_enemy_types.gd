@@ -24,4 +24,8 @@ func run() -> void:
 			assert(enemy.speed>4.0 and enemy.hp>190)
 	assert(runners>0 and breakers>0 and sappers>0,"Night waves need fast, armored and tower-hunting threats")
 	print("NIGHTFALL_ENEMY_TYPES_OK ",runners," runners, ",breakers," breakers, ",sappers," sappers")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	quit()

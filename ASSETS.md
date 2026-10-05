@@ -113,3 +113,5 @@ art_source/integrate_knight_study.py 将 showcase/knight_study.blend 的头盔�
 
 
 
+
+2026-10-05三兵种玩法：`scripts/outpost_squads.gd`复用已追踪原创卫兵运行模型，盾卫保留盾牌，弩手和工程员隐藏原盾/长柄武器、增加弩/修理工具几何及独立胸徽。选择圈仅所选编组显示；远程和工程反馈由程序几何制作。兵营复用`survivor_camp.glb`、工坊复用`day_generator.glb`并按实测边界缩放，所有底座在Godot中参与占位与动态导航。本轮未制作新的专业兵种GLB或蒙皮动画，不宣称已完成新的Blender兵种资产。

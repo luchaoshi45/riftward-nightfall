@@ -81,7 +81,8 @@ func run() -> void:
 		if not check(game.can_traverse(before,ordinary.position),"An ordinary night creature's tower approach must never cross a wall"):return
 		if not check(absf(ordinary.position.y-game.outpost_height(ordinary.position))<.01,"An ordinary night creature must follow the actual ramp height on every frame"):return
 		if absf(ordinary.position.x)<Layout.GATE_HALF and ordinary.position.z>=Layout.RAMP_END-.5 and ordinary.position.z<Layout.RAMP_END+1.5:ordinary_passed_gate=true
-		if ordinary.position.distance_to(ordinary_target.position)<=ordinary.attack_range:
+		var pad: Dictionary=game.world.tower_pads[int(ordinary_target.index)]
+		if float(pad.hp)<float(pad.max_hp):
 			ordinary_reached_tower=true
 			break
 	if not check(ordinary_passed_gate and ordinary.position.z<ordinary_start.z and ordinary_reached_tower,"An ordinary night creature must reach its real tower through the southern gate"):return
@@ -92,7 +93,7 @@ func run() -> void:
 	for pad: Dictionary in game.world.tower_pads:
 		pad.level=0;pad.hp=0.0
 	game.gate_barricade_hp=0.0
-	game.hero.position=Vector3(.8,5,1.0)
+	game.hero.position=Vector3(.8,5,4.1)
 	var night_hunter: BattleUnit=game.spawn_creature(true,"runner")
 	night_hunter.position=Vector3(8.5,0,18)
 	night_hunter.position.y=game.outpost_height(night_hunter.position)

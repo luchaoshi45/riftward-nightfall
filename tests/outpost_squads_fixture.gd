@@ -7,9 +7,21 @@ var squads: Node3D
 var last_source: BattleUnit
 
 class FixtureWorld extends Node3D:
+	var tower_pads: Array[Dictionary] = []
 	func terrain_height(point: Vector3) -> float:
 		var rise := clampf((19.0 - point.z) / 12.0, 0, 1)
 		return 5.0 * rise * rise * (3.0 - 2.0 * rise)
+
+class FixtureDistricts extends Node3D:
+	var plots: Array[Dictionary] = [
+		{"index": 0, "position": Vector3(0, 5, 5), "level": 1, "kind": "barracks", "hp": 300.0, "max_hp": 300.0},
+		{"index": 1, "position": Vector3(0, 5, 7), "level": 1, "kind": "barracks", "hp": 300.0, "max_hp": 300.0}]
+	func active_barracks() -> Array[Dictionary]:
+		var result: Array[Dictionary] = []
+		for plot in plots:
+			if int(plot.level) > 0 and float(plot.hp) > 0.0: result.append(plot)
+		return result
+	func repair_cost(base: int) -> int: return base
 
 class FixtureGame extends Node3D:
 	var phase := "night"
@@ -18,6 +30,7 @@ class FixtureGame extends Node3D:
 	var focus_target: BattleUnit
 	var focus_time := 0.0
 	var world: FixtureWorld
+	var districts: FixtureDistricts
 	func outpost_height(point: Vector3) -> float: return world.terrain_height(point)
 	func can_traverse(_from: Vector3, to: Vector3) -> bool:
 		return absf(to.x) <= 2.5 and to.z >= 3.0 and to.z <= 20.0
@@ -45,6 +58,8 @@ func remove_enemies() -> void:
 	game.enemies.clear()
 	game.focus_target = null; game.focus_time = 0.0
 
+func _flat_distance(a: Vector3, b: Vector3) -> float: return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
 func settle() -> void:
 	for step in 50: squads.advance(.1)
 
@@ -63,7 +78,7 @@ func run() -> void:
 	game.phase = "night"
 	check(squads.hire("shield").ok and game.scrap == 230, "Shield squad must charge seventy once")
 	check(squads.hire("shield").ok and game.scrap == 160, "Two same-kind squads must be allowed")
-	check(not squads.hire("shield").ok and game.scrap == 160 and squads.snapshot().alive == 6, "Third squad must be rejected; maximum six soldiers")
+	check(squads.hire("shield").ok and game.scrap == 90 and squads.snapshot().alive == 9, "A third paid squad must be supported without a fixed count limit")
 	settle()
 	for squad in squads.squads:
 		for member: BattleUnit in squad.members:
@@ -93,18 +108,18 @@ func run() -> void:
 	check(squads.blocker_for(foe) == null, "Light eaters must retain their original lamp behavior")
 	remove_enemies()
 	defender.hurt(10000, null)
-	check(squads.snapshot().alive == 5, "Death immediately removes a soldier from live counts")
+	check(squads.snapshot().alive == 8, "Death immediately removes a soldier from live counts")
 	await process_frame
-	check(not is_instance_valid(defender) and squads.snapshot().alive == 5, "Cross-frame death must really free the unit and retain an empty paid slot")
+	check(not is_instance_valid(defender) and squads.snapshot().alive == 8, "Cross-frame death must really free the unit and retain an empty paid slot")
 	squads.on_day(); squads.on_night()
-	check(squads.snapshot().alive == 5 and not squads.refill().ok, "Day/night transitions never resurrect and night refill is rejected")
+	check(squads.snapshot().alive == 8 and not squads.refill().ok, "Day/night transitions never resurrect and night refill is rejected")
 	game.phase = "day"; squads.on_day()
 	var refill_price: int = squads.refill_cost()
 	check(refill_price >= 22, "Replacement and existing wounds must carry a repair price")
 	game.scrap = refill_price - 1
-	check(not squads.refill().ok and squads.snapshot().alive == 5, "Unaffordable refill must preserve casualties")
+	check(not squads.refill().ok and squads.snapshot().alive == 8, "Unaffordable refill must preserve casualties")
 	game.scrap = 200; before = game.scrap
-	check(squads.refill().ok and game.scrap == before - refill_price and squads.snapshot().alive == 6, "Day refill must pay once and replace only losses, heal charged wounds")
+	check(squads.refill().ok and game.scrap == before - refill_price and squads.snapshot().alive == 9, "Day refill must pay once and replace only losses, heal charged wounds")
 	check(not squads.refill().ok and game.scrap == before - refill_price, "An intact squad cannot be charged a second time")
 	check(squads.set_order("recall").ok and squads.blocker_for(foe) == null, "Recall must not offer a blocking target")
 	check(not squads.set_order("unknown").ok and not squads.set_order("hold", 9).ok, "Invalid orders and squad ids must be rejected")
@@ -135,6 +150,67 @@ func run() -> void:
 	check(squads._intercepts.is_empty(), "Disposed enemies must not leave interception entries")
 	squads.clear()
 	check(squads.snapshot().alive == 0 and squads.shots.is_empty(), "Clear must retire all soldiers and pending beams")
+	# Independent barracks produce in parallel, with ordered queues and real escrow.
+	game.districts = FixtureDistricts.new(); game.add_child(game.districts)
+	game.phase = "night"; game.scrap = 1000
+	check(squads.enqueue("shield", 0).ok and squads.enqueue("ranged", 1).ok, "Two active barracks must accept independent training")
+	check(game.scrap == 850 and squads.snapshot().count == 0, "Enqueue pays exactly once and cannot instantly create units")
+	squads.advance(3.0)
+	var queues: Array = squads.snapshot().queues
+	check(is_equal_approx(queues[0].queue[0].remaining, 3.0) and is_equal_approx(queues[1].queue[0].remaining, 5.0), "Barracks timers must advance concurrently")
+	game.phase = "paused"; squads.advance(10.0)
+	check(is_equal_approx(squads.snapshot().queues[0].queue[0].remaining, 3.0), "Pause must freeze training escrow and timers")
+	game.phase = "draft"; squads.advance(10.0)
+	check(not squads.cancel_training(0).ok and is_equal_approx(squads.snapshot().queues[1].queue[0].remaining, 5.0), "Cards must freeze training and refuse economic mutations")
+	game.phase = "night"; squads.advance(3.0)
+	check(squads.snapshot().count == 1 and is_equal_approx(squads.snapshot().queues[1].queue[0].remaining, 2.0), "Six-second shield completion must leave the other barracks running")
+	check(squads.enqueue("engineer", 0).ok and squads.enqueue("shield", 0).ok, "One barracks must accept an ordered unbounded queue")
+	before = game.scrap
+	check(squads.cancel_training(0, 1).ok and game.scrap == before + 70, "Cancelling a waiting entry must fully refund its paid price")
+	before = game.scrap
+	game.districts.plots[0].hp = 0.0
+	squads.refresh_barracks()
+	check(game.scrap == before + 65 and not squads.training_queues.has(0), "Destroyed barracks must immediately fully refund unfinished production")
+	squads.advance(.1)
+	check(game.scrap == before + 65, "Destroyed production must refund once")
+	game.districts.plots[1].hp = 0.0
+	check(not squads.enqueue("shield").ok, "No surviving barracks must refuse recruitment")
+	game.districts.plots[0].hp = 300.0; game.districts.plots[1].hp = 300.0
+	squads.advance(2.0)
+	check(squads.snapshot().count == 2, "Already-paid ranged training must complete after the barracks survives")
+	check(squads.select_all() == 2 and squads.selected_count() == 2, "Select all must select every live paid formation")
+	check(squads.command_guard(Vector3(0, 5, 12)).ok, "Selected formations must accept an arbitrary guard destination")
+	squads.on_day(); squads.on_night()
+	check(squads.snapshot().squads.all(func(row: Dictionary): return row.order == "guard"), "Day/night must preserve player-issued orders")
+	squads.cancel_selection()
+	check(squads.selected_count() == 0 and not squads.command_move(Vector3(0, 5, 12)).ok, "Orders must require explicit selection")
+	var member: BattleUnit = squads.squads[0].members[1]
+	check(squads.select_at(member.position) == 0 and squads.selected_count() == 1 and member.selection.visible, "Clicking a living member must select its formation and show the ring")
+	check(squads.command_move(Vector3(0, 5, 11)).ok, "A selected formation must accept moving to a free destination")
+	for step in 100: squads.advance(.1)
+	check(_flat_distance(member.position, Vector3(0, 5, 11)) < .25, "Formation movement must reach its issued destination")
+	squads.clear(); game.scrap = 1000
+	check(squads.hire("engineer").ok and game.scrap == 935, "Engineers must be recruitable as a third distinct kind")
+	var engineer: BattleUnit = squads.squads[0].members[1]
+	for soldier: BattleUnit in squads.squads[0].members:
+		soldier.position = Vector3(0, game.outpost_height(Vector3(0, 0, 10)), 10)
+		soldier.speed = 0.0
+	squads.select_all(); squads.command_guard(Vector3(0, 5, 10))
+	# One selected repairer acts; the other formation members retain real movement intent.
+	game.world.tower_pads = [{"position": engineer.position + Vector3(0, 0, 2), "level": 1, "hp": 95.0, "max_hp": 100.0}]
+	before = game.scrap
+	squads.advance(1.0)
+	check(game.world.tower_pads[0].hp == 100.0 and game.scrap == before - 2, "Engineer repair must pay real scrap and cap restored tower HP")
+	game.world.tower_pads[0].hp = 0.0
+	squads.advance(1.0)
+	check(game.world.tower_pads[0].hp == 0.0, "Engineers cannot resurrect destroyed structures")
+	game.world.tower_pads[0].hp = 30.0; game.scrap = 1
+	squads.advance(1.0)
+	check(game.world.tower_pads[0].hp == 30.0 and game.scrap == 1, "Engineers with insufficient scrap cannot repair for free")
+	game.scrap = 500
+	check(squads.enqueue("shield", 0).ok, "A final queued training must be accepted before reset")
+	before = game.scrap; squads.clear()
+	check(game.scrap == before and squads.training_queues.is_empty(), "New-run clear must discard queue state without cross-run refunds")
 	game.queue_free(); await process_frame; await process_frame
 	print("OUTPOST_SQUADS_FIXTURE_", "OK" if failures.is_empty() else "FAILED")
 	quit(0 if failures.is_empty() else 1)

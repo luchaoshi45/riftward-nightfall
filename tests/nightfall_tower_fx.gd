@@ -1,6 +1,9 @@
 extends SceneTree
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 
 func run() -> void:
@@ -13,7 +16,7 @@ func run() -> void:
 		if is_instance_valid(old_enemy):old_enemy.queue_free()
 	game.enemies.clear()
 	var pad: Dictionary=game.world.tower_pads[1]
-	game.hero.position=pad.position+Vector3(.3,0,.3)
+	game.hero.position=pad.position+Vector3(0,0,-2.0)
 	game.move_goal=game.hero.position
 	game.scrap=60
 	assert(game.interact())
@@ -36,10 +39,15 @@ func run() -> void:
 	game.camera.look_at(midpoint)
 	game.camera.current=true
 	await create_timer(.07).timeout
-	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://build/tower-shot-v2.png")
+	if DisplayServer.get_name()!="headless":
+		await RenderingServer.frame_post_draw
+		assert(root.get_texture().get_image().save_png("res://build/tower-shot-v2.png")==OK)
 	await create_timer(.4).timeout
 	assert(game.effects.find_child("TowerShot",false,false)==null)
 	assert(game.effects.find_child("TowerImpact",false,false)==null)
 	print("NIGHTFALL_TOWER_FX_OK")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	quit()

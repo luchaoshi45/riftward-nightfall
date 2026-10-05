@@ -2,7 +2,51 @@ extends SceneTree
 const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
+
+func verify_close_building_approach(game: Node3D) -> void:
+	# A legal tower can sit against the east wall and touch another building.
+	# The old nearest-face destination landed in the wall or adjacent tower.
+	game.hero.position=Vector3(80,0,80)
+	game.move_goal=game.hero.position
+	game.scrap=1000
+	var wall_point:=Vector3(11.7,5,-8)
+	assert(game.build_tower_at(wall_point))
+	var wall_index: int=game.world.tower_pads.size()-1
+	assert(game.build_tower_at(Vector3(9.14,5,-8)))
+	var neighbour_index: int=game.world.tower_pads.size()-1
+	for index in game.world.tower_pads.size():
+		if index not in [wall_index,neighbour_index] and int(game.world.tower_pads[index].level)>0:game.damage_tower(index,100000.0)
+	var half: Vector2=game.construction.footprint("tower")
+	assert(not game.outpost_walkable(wall_point+Vector3(half.x+.35,0,0)),"Nearest east face is inside the castle wall")
+	assert(not game.outpost_walkable(wall_point-Vector3(half.x+.35,0,0)),"Nearest west face is inside the neighbouring tower")
+	var hunter: BattleUnit=game.spawn_creature(true,"sapper")
+	hunter.position=Vector3(19,0,-8)
+	var approach: Vector3=game.building_approach_position(hunter.position,wall_point,"tower")
+	assert(game.outpost_walkable(approach) and game.can_attack_line(approach,wall_point),"Blocked nearest face must choose a real accessible surface")
+	var starting_hp: float=game.world.tower_pads[wall_index].hp+game.world.tower_pads[neighbour_index].hp
+	for step in range(700):
+		var previous:=hunter.position
+		hunter.tick(.1)
+		game.update_creature(hunter,.1)
+		assert(game.can_traverse(previous,hunter.position),"Dense building approach must never cross either tower or castle wall")
+		if float(game.world.tower_pads[wall_index].hp)+float(game.world.tower_pads[neighbour_index].hp)<starting_hp:break
+	assert(float(game.world.tower_pads[wall_index].hp)+float(game.world.tower_pads[neighbour_index].hp)<starting_hp,"Enemy must travel through the south gate and actually damage one dense wall-side tower")
+	game.enemies.erase(hunter)
+	hunter.queue_free()
+	game.damage_tower(wall_index,100000.0)
+	assert(game.outpost_walkable(wall_point) and game.can_traverse(wall_point+Vector3(0,0,-2),wall_point+Vector3(0,0,2)),"Destroyed tower footing must reopen a real crossing")
+	game.hero.position=wall_point
+	game.move_goal=game.hero.position
+	var balance: int=game.scrap
+	assert(not game.interact() and game.scrap==balance,"F cannot reconstruct a tower on a live unit standing on its footing")
+	game.hero.position=wall_point+Vector3(0,0,2.2)
+	game.move_goal=game.hero.position
+	assert(game.interact() and int(game.world.tower_pads[wall_index].level)==1 and game.scrap==balance-game.districts.tower_cost(game.TOWER_COSTS[0]),"F pays once to reconstruct the existing footing")
+	assert(not game.outpost_walkable(wall_point) and not game.can_traverse(wall_point+Vector3(0,0,-2),wall_point+Vector3(0,0,2)),"Reconstructed live tower must restore its actual movement block")
 
 func run() -> void:
 	var game: Node3D=load("res://scenes/nightfall.tscn").instantiate()
@@ -18,6 +62,7 @@ func run() -> void:
 	assert(game.phase=="draft" and game.run.offer.size()==3)
 	assert(game.choose_card(0))
 	assert(game.phase=="night" and game.tower_count()==2)
+	game.set_process(false)
 	game.begin_day()
 	for old_enemy in game.enemies:
 		if is_instance_valid(old_enemy):old_enemy.queue_free()
@@ -26,7 +71,7 @@ func run() -> void:
 	game.spawn_nest_guards()
 	assert(game.phase=="day")
 	assert(game.world.salvage.size()==36)
-	assert(game.world.tower_pads.size()==12)
+	assert(game.world.tower_pads.size()==2)
 	assert(game.outpost_walkable(Vector3(115,0,95)))
 	assert(not game.outpost_walkable(Vector3(127,0,0)))
 	assert(not game.outpost_walkable(Vector3(0,0,-Layout.WALL_CENTER)))
@@ -47,10 +92,11 @@ func run() -> void:
 	assert(game.interact())
 	assert(game.scrap>=35 and first.collected)
 	game.scrap=120
-	var pad: Dictionary=game.world.tower_pads[0]
-	game.hero.position=pad.position+Vector3(1,0,0)
+	game.hero.position=Vector3(-8,5,-5.8)
 	game.move_goal=game.hero.position
-	assert(game.interact() and pad.level==1 and game.tower_count()==3)
+	assert(game.build_tower_at(Vector3(-8,5,-8)))
+	var pad: Dictionary=game.world.tower_pads.back()
+	assert(pad.level==1 and game.tower_count()==3)
 	assert(game.interact() and pad.level==2)
 	var tower_target: BattleUnit=game.spawn_creature(true)
 	assert(tower_target.legs.size()==4 and tower_target.stalker_head!=null)
@@ -87,6 +133,7 @@ func run() -> void:
 	game.phase_time=.01
 	game.simulate(.03)
 	assert(game.phase=="night")
+	verify_close_building_approach(game)
 	# Isolate the gate-ingress assertion from the constructed-defense targeting
 	# behavior exercised above: with no living towers, a wave must reach the
 	# south entrance before selecting the beacon.
@@ -104,7 +151,7 @@ func run() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://build/outpost-night.png")
 	var creature: BattleUnit=game.spawn_creature(true)
-	creature.position=Vector3(0,5.0,1.3)
+	creature.position=Vector3(0,5.0,3.1)
 	creature.attack_timer=0
 	game.hero.position=Vector3(20,0,20)
 	var before: float=game.beacon_hp
@@ -113,7 +160,7 @@ func run() -> void:
 	creature.tick(creature.windup_duration)
 	game.update_creature(creature,.1)
 	assert(game.beacon_hp<before)
-	game.hero.position=Vector3(1,5,0)
+	game.hero.position=Vector3(3.5,5,0)
 	game.scrap=20
 	assert(game.interact())
 	assert(game.beacon_hp>before-creature.damage)
@@ -134,5 +181,5 @@ func run() -> void:
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
-	await create_timer(.15).timeout
+	await create_timer(.5).timeout
 	quit()

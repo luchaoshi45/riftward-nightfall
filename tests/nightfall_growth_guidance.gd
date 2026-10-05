@@ -148,27 +148,27 @@ func capture(state: String) -> void:
 	print("GROWTH_GUIDANCE_FRAME ", ProjectSettings.globalize_path(output))
 
 func opening_upgrade() -> void:
-	stand(game.world.tower_pads[1].position)
+	stand(game.world.tower_pads[0].position)
 	check(game.scrap == 90 and game.run.pending == 0, "A real opening must retain 90 scrap and consume its opening card")
-	var initial: Dictionary = advice(1, "upgrade", 50, 0, "opening affordable upgrade")
+	var initial: Dictionary = advice(0, "upgrade", 50, 0, "opening affordable upgrade")
 	check(int(initial.memory.cost) == 200 and int(initial.memory.shortfall) == 200,
 		"The first memory improvement must show its real 200-memory threshold")
 	await capture("affordable")
 	await press(KEY_F)
-	check(game.scrap == 40 and int(game.world.tower_pads[1].level) == 2,
+	check(game.scrap == 40 and int(game.world.tower_pads[0].level) == 2,
 		"Production F must spend the advised 50 scrap and upgrade the selected south-gate tower")
 	check(int(initial.tower.target_level) == 2 and game.hud.growth_lines(initial)[0].contains("升至2级"),
 		"Formatting a prior snapshot must preserve its target level after the live tower changes")
-	advice(1, "specialize", 45, 5, "all unaffordable chooses smallest deficit")
+	advice(0, "specialize", 45, 5, "all unaffordable chooses smallest deficit")
 	await capture("shortfall")
 	await press(KEY_J)
-	check(game.scrap == 40 and game.specializations.branch(game.world.tower_pads[1]) == "standard",
+	check(game.scrap == 40 and game.specializations.branch(game.world.tower_pads[0]) == "standard",
 		"An unaffordable production J must retain both money and branch")
 	game.scrap = 50
-	advice(2, "upgrade", 50, 0, "affordable south-gate upgrade precedes modification")
-	stand(game.world.tower_pads[2].position)
+	advice(1, "upgrade", 50, 0, "affordable south-gate upgrade precedes modification")
+	stand(game.world.tower_pads[1].position)
 	await press(KEY_F)
-	check(game.scrap == 0 and int(game.world.tower_pads[2].level) == 2,
+	check(game.scrap == 0 and int(game.world.tower_pads[1].level) == 2,
 		"The other actual south-gate F must also charge 50 scrap")
 
 func complete_towers() -> void:
@@ -183,6 +183,19 @@ func complete_towers() -> void:
 			if int(pad.level) == previous: return
 		if game.specializations.branch(pad) == "standard":
 			check(game.choose_tower_specialization("piercing"), "Production branch action must finish fixture tower %d" % index)
+	check(game.world.tower_pads.size() == 2, "The new castle must start with only two actual towers and no authored empty pads")
+	stand(Vector3(0, 5, 3.9))
+	await press(KEY_Y)
+	for point: Vector3 in [Vector3(-8, 5, 4), Vector3(8, 5, 4), Vector3(0, 5, -8)]:
+		game.aim = point
+		game.aim_sample_pending = false
+		var count: int = game.world.tower_pads.size()
+		await press(KEY_F)
+		check(game.world.tower_pads.size() == count + 1 and game.construction.active,
+			"Real Y/F placement must append another tower and retain continuous construction")
+	await press(KEY_ESCAPE)
+	for index in range(2, game.world.tower_pads.size()):
+		if not finish_production_tower(index, "actual free tower %d" % index): return
 	var snapshot: Dictionary = game.growth_snapshot()
 	check(int(snapshot.tower.index) == -1 and snapshot.tower.action == "place" and snapshot.tower.key == "Y" and snapshot.tower.label == "城内空地",
 		"Completed suggested towers must retain a real Y free-placement opportunity")
@@ -205,32 +218,38 @@ func candidate(index: int, level: int, branch := "piercing") -> void:
 	pad.specialization = branch
 
 func recommendation_order() -> void:
-	stand(game.world.tower_pads[8].position)
-	candidate(8, 1)
-	candidate(1, 2, "standard")
+	stand(game.world.tower_pads[2].position)
+	candidate(2, 1)
+	candidate(0, 2, "standard")
 	game.scrap = 100
-	advice(1, "upgrade", 75, 0, "south-gate upgrade before closer core upgrade")
+	advice(0, "upgrade", 75, 0, "south-gate upgrade before closer core upgrade")
 	game.scrap = 60
-	advice(8, "upgrade", 50, 0, "affordable core upgrade before expensive south-gate upgrade")
-	candidate(1, 3, "standard")
-	advice(8, "upgrade", 50, 0, "other existing upgrade before existing modification")
-	candidate(8, 3)
-	candidate(0, 0, "standard")
-	advice(1, "specialize", 45, 0, "existing modification before empty construction")
-	candidate(1, 3)
-	advice(0, "build", 60, 0, "empty pad follows completed existing towers")
+	advice(2, "upgrade", 50, 0, "affordable core upgrade before expensive south-gate upgrade")
+	candidate(0, 3, "standard")
+	advice(2, "upgrade", 50, 0, "other existing upgrade before existing modification")
+	candidate(2, 3)
+	candidate(3, 0, "standard")
+	advice(0, "specialize", 45, 0, "existing modification before empty construction")
 	candidate(0, 3)
-	game.world.tower_pads[0].hp = 0.0
-	game.world.tower_pads[0].specialization = "standard"
+	advice(3, "build", 60, 0, "empty pad follows completed existing towers")
+	candidate(3, 3)
+	game.world.tower_pads[3].hp = 0.0
+	game.world.tower_pads[3].specialization = "standard"
 	check(game.growth_snapshot().tower.action == "place", "An inconsistent dead tower must offer free placement instead of an invalid upgrade or modification")
-	candidate(0, 3)
+	candidate(3, 3)
 
 func district_discounts_and_branches() -> void:
 	game.scrap = 500
-	stand(game.districts.plots[0].position)
-	await press(KEY_1)
+	stand(Vector3(0, 5, 3.9))
+	game.aim = Vector3(-8, 5, -7)
+	game.aim_sample_pending = false
+	await press(KEY_2)
+	await press(KEY_F)
+	await press(KEY_ESCAPE)
+	check(game.districts.plots.size() == 1, "Real 2/F must append the first freely placed barracks")
+	if game.districts.plots.is_empty(): return
 	check(game.districts.plots[0].kind == "barracks" and game.scrap == 440,
-		"Production 1 must construct the actual 60-scrap barracks")
+		"Production 2/F must freely construct the actual 60-scrap barracks")
 	stand(Vector3(-10, Layout.FORT_HEIGHT, 9))
 	game.hero.hp = game.hero.max_hp - 100.0
 	var hp_before: float = game.hero.hp
@@ -239,49 +258,56 @@ func district_discounts_and_branches() -> void:
 		"Production simulation must apply barracks recovery throughout the expanded castle")
 	check(game.districts.guard_regen(Vector3(-10, 0, 9)) == 0.0 and game.districts.guard_regen(Vector3(0, 0, 30)) == 0.0,
 		"Expanded barracks recovery must still reject wrong altitude and wilderness")
-	stand(game.districts.plots[1].position)
-	await press(KEY_2)
+	stand(Vector3(0, 5, 3.9))
+	game.aim = Vector3(8, 5, -7)
+	game.aim_sample_pending = false
+	await press(KEY_3)
+	await press(KEY_F)
+	await press(KEY_ESCAPE)
+	check(game.districts.plots.size() == 2, "Real 3/F must append the freely placed workshop")
+	if game.districts.plots.size() < 2: return
 	check(game.districts.plots[1].kind == "workshop" and game.scrap == 380,
-		"Production 2 must construct the actual 60-scrap workshop")
-	candidate(1, 2)
-	stand(game.world.tower_pads[1].position)
+		"Production 3/F must freely construct the actual 60-scrap workshop")
+	candidate(0, 2)
+	stand(game.world.tower_pads[0].position)
 	game.scrap = 68
-	advice(1, "upgrade", 68, 0, "workshop level one uses ceiling rounding")
+	advice(0, "upgrade", 68, 0, "workshop level one uses ceiling rounding")
 	game.scrap = 66
 	advice(-1, "place", 54, 0, "affordable discounted new tower before unaffordable upgrade")
 	await press(KEY_F)
-	check(game.scrap == 66 and int(game.world.tower_pads[1].level) == 2,
+	check(game.scrap == 66 and int(game.world.tower_pads[0].level) == 2,
 		"Real F must refuse a 68-scrap upgrade when the live balance is 66")
 	game.scrap = 200
 	stand(game.districts.plots[1].position)
-	await press(KEY_3)
+	await press(KEY_F)
 	check(int(game.districts.plots[1].level) == 2 and game.scrap == 120,
-		"Production 3 must charge 80 to upgrade the workshop")
-	stand(game.world.tower_pads[1].position)
+		"Production F at a completed workshop must charge eighty to upgrade it")
+	stand(game.world.tower_pads[0].position)
 	game.scrap = 66
-	advice(1, "upgrade", 60, 0, "workshop level two immediately changes affordability")
+	advice(0, "upgrade", 60, 0, "workshop level two immediately changes affordability")
 	await capture("workshop")
 	await press(KEY_F)
-	check(game.scrap == 6 and int(game.world.tower_pads[1].level) == 3,
+	check(game.scrap == 6 and int(game.world.tower_pads[0].level) == 3,
 		"Real F must use the newly advised 60-scrap upgrade cost")
 	for choice: int in [KEY_J, KEY_K]:
-		candidate(1, 3, "standard")
+		candidate(0, 3, "standard")
 		game.scrap = 45
-		advice(1, "specialize", 45, 0, "workshop never discounts third-level modification")
+		advice(0, "specialize", 45, 0, "workshop never discounts third-level modification")
 		await press(choice)
 		var expected := "piercing" if choice == KEY_J else "control"
-		check(game.scrap == 0 and game.specializations.branch(game.world.tower_pads[1]) == expected,
+		check(game.scrap == 0 and game.specializations.branch(game.world.tower_pads[0]) == expected,
 			"Production J/K must charge the undiscounted 45 and select the requested branch")
 		advice(-1, "place", 48, 48, "selected branch leaves discounted free placement")
 		await press(choice)
 		check(game.scrap == 0, "Repeated specialization input must not charge again")
-	game.damage_tower(1, float(game.world.tower_pads[1].hp))
-	check(int(game.world.tower_pads[1].level) == 0 and game.specializations.branch(game.world.tower_pads[1]) == "standard",
+	game.damage_tower(0, float(game.world.tower_pads[0].hp))
+	check(int(game.world.tower_pads[0].level) == 0 and game.specializations.branch(game.world.tower_pads[0]) == "standard",
 		"Actual tower destruction must reset level and branch")
 	game.scrap = 48
-	advice(1, "build", 48, 0, "destroyed tower offers discounted reconstruction")
+	stand(game.world.tower_pads[0].position + Vector3(2.1, 0, 0))
+	advice(0, "build", 48, 0, "destroyed tower offers discounted reconstruction")
 	await press(KEY_F)
-	check(game.scrap == 0 and int(game.world.tower_pads[1].level) == 1,
+	check(game.scrap == 0 and int(game.world.tower_pads[0].level) == 1,
 		"Real F must spend 48 to rebuild without retaining its old branch")
 
 func reset_memory() -> void:
@@ -337,7 +363,7 @@ func memory_rewards_and_inputs() -> void:
 	await click(Vector2(1230, 700))
 	check(game.phase == "day" and game.run.pending == 5,
 		"Tower-growth advice rows must not open queued cards")
-	await click(Vector2(1230, 642))
+	await click(Vector2(1230, 752))
 	check(game.phase == "draft" and game.run.pending == 5,
 		"The actual visible growth-memory title must open the queued imprint")
 	for code: int in [KEY_1, KEY_2, KEY_3, KEY_1, KEY_2]:
@@ -357,7 +383,7 @@ func memory_rewards_and_inputs() -> void:
 
 func finish_production_tower(index: int, title: String) -> bool:
 	var pad: Dictionary = game.world.tower_pads[index]
-	stand(pad.position)
+	stand(pad.position + Vector3(2.1, 0, 0))
 	while int(pad.level) < 3:
 		var previous: int = int(pad.level)
 		var built: bool = game.build_or_upgrade_tower(index)
@@ -374,56 +400,37 @@ func blocked_empty_foundation() -> void:
 	game.scrap = 10000
 	for index in game.world.tower_pads.size():
 		if not finish_production_tower(index, "isolated recommendation tower %d" % index): return
-	var blocked: Dictionary = game.world.tower_pads[0]
+	var blocked: Dictionary = game.world.tower_pads[2]
 	var legal: Dictionary = game.world.tower_pads[3]
-	game.damage_tower(0, float(blocked.hp))
+	game.damage_tower(2, float(blocked.hp))
 	game.damage_tower(3, float(legal.hp))
-	check(int(blocked.level) == 0 and not bool(blocked.get("free_built", false)) and int(legal.level) == 0,
-		"Actual destruction must leave two empty authored foundations before free placement")
-	var point: Vector3 = blocked.position + Vector3(0, 0, 2)
-	var separation: float = point.distance_to(blocked.position)
-	check(separation > .6 and separation < 3.0,
-		"The real free tower must block the old foundation without reusing its 0.6m snap area")
-	game.aim = point
-	var count: int = game.world.tower_pads.size()
-	var balance: int = game.scrap
-	var cost: int = game.districts.tower_cost(game.TOWER_COSTS[0])
-	await press(KEY_Y)
-	check(game.construction.active and bool(game.construction.snapshot().valid),
-		"Production Y must expose a valid free position beside the empty authored foundation")
-	await press(KEY_F)
-	check(game.world.tower_pads.size() == count + 1 and game.scrap == balance - cost,
-		"Production F must append and pay for the real free tower instead of consuming the old foundation")
-	check(int(blocked.level) == 0 and not game.construction.active,
-		"Successful free placement must leave the blocked authored foundation empty and close its preview")
-	if game.world.tower_pads.size() != count + 1: return
-	var free_pad: Dictionary = game.world.tower_pads[count]
-	check(bool(free_pad.get("free_built", false)) and int(free_pad.level) == 1 and is_instance_valid(free_pad.turret),
-		"The overlap regression must use a genuinely built live free tower")
-	if not finish_production_tower(count, "blocking free tower"): return
+	check(int(blocked.level) == 0 and bool(blocked.get("free_built", false)) and int(legal.level) == 0,
+		"Actual destruction must retain stable reconstruction identities for freely built towers")
 	stand(blocked.position)
-	var blocked_space: Dictionary = game.construction.validity(blocked.position, 0)
+	var blocked_space: Dictionary = game.construction.validity(blocked.position, 2)
 	check(not bool(blocked_space.space_valid) and not bool(blocked_space.valid),
-		"An empty authored foundation within 3m of a free tower must fail production spacing")
-	advice(3, "build", cost, 0, "blocked nearest foundation yields to a legal authored foundation")
+		"A reconstruction position occupied by a real living unit must fail physical placement")
+	var cost: int = game.districts.tower_cost(game.TOWER_COSTS[0])
+	advice(3, "build", cost, 0, "occupied reconstruction yields to a clear destroyed tower")
 	game.scrap = 0
 	var legal_space: Dictionary = game.construction.validity(legal.position, 3)
 	check(bool(legal_space.space_valid) and not bool(legal_space.valid),
-		"A legal authored foundation must retain its space validity when money is missing")
-	blocked_space = game.construction.validity(blocked.position, 0)
-	check(not bool(blocked_space.space_valid) and not bool(blocked_space.valid),
-		"Low balance must not turn the blocked foundation into a valid space candidate")
-	advice(3, "build", cost, cost, "legal unaffordable foundation retains its full deficit")
+		"A physically clear reconstruction must retain space validity despite insufficient money")
+	advice(3, "build", cost, cost, "clear unaffordable reconstruction retains its full deficit")
 	game.scrap = cost
 	await press(KEY_F)
 	check(int(blocked.level) == 0 and game.scrap == cost,
-		"Real F at the blocked old foundation must refuse construction without spending its sufficient budget")
+		"Real F must not build a tower underneath a living unit or spend its sufficient budget")
+	stand(blocked.position + Vector3(2.1, 0, 0))
+	advice(2, "build", cost, 0, "moving aside exposes the actual nearest reconstruction")
+	await press(KEY_F)
+	check(int(blocked.level) == 1 and game.scrap == 0,
+		"Real F beside the wreck must pay once and rebuild its stable tower identity")
 	game.scrap = 10000
-	if not finish_production_tower(3, "remaining legal foundation"): return
+	if not finish_production_tower(2, "reconstructed free tower"): return
+	if not finish_production_tower(3, "other free reconstruction"): return
 	game.scrap = 0
-	advice(-1, "place", cost, cost, "only blocked authored foundations retain Y and its deficit")
-	check(int(blocked.level) == 0,
-		"Recommendation reads and completion of other towers must keep the blocked old foundation empty")
+	advice(-1, "place", cost, cost, "completed actual towers retain unrestricted Y expansion and its deficit")
 
 func readonly_state() -> Dictionary:
 	var towers: Array[Dictionary] = []

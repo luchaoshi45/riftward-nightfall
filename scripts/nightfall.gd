@@ -61,6 +61,12 @@ var camera: Camera3D
 var hud: Control
 var effects: Node3D
 var construction: Node3D
+var construction_blocks: Array[Rect2] = []
+var building_approach_cache: Dictionary = {}
+var selection_dragging := false
+var selection_start := Vector2.ZERO
+var selection_end := Vector2.ZERO
+var selection_additive := false
 var phase := "draft"
 var day_number := 1
 var phase_time := NIGHT_LENGTH
@@ -207,6 +213,7 @@ func _ready() -> void:
 	squads.set_health_multiplier(districts.squad_health_multiplier())
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
+	refresh_construction_navigation()
 	pickup_sound=make_pickup_sound()
 	world.night_mix=1.0;world.set_night(true)
 	run.grant("守夜者的第一段记忆")
@@ -223,10 +230,11 @@ func _ready() -> void:
 	skill_lights.name="SkillLighting";add_child(skill_lights);skill_lights.setup(self)
 
 func prepare_opening_defenses() -> void:
-	for index in [1,2]:
+	for index in [0,1]:
 		var pad: Dictionary=world.tower_pads[index]
 		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
 		pad.level=1;pad.max_hp=280.0;pad.hp=280.0
+		pad["free_built"]=true
 		pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
 		pad.damage_ring.visible=false
 	gate_trap_charges=1
@@ -830,10 +838,13 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	var threat: String=creature.get_meta("threat","")
 	var day_hunter: bool=phase=="day" and creature.get_meta("day_hunter",false)
 	var selected: Dictionary=choose_enemy_target(creature)
+	if selected.is_empty():
+		creature.moving=false;creature.attack_queued=false;creature.attack_windup=0.0
+		return
 	if day_hunter and hero.alive:
 		selected={"kind":"hero","index":-1,"position":hero.position}
 	var target_kind: String=String(selected.get("kind","beacon"))
-	var target_pad: int=int(selected.get("index",-1)) if target_kind=="tower" else -1
+	var target_pad: int=int(selected.get("index",-1)) if target_kind in ["tower","district"] else -1
 	var target_token: int=int(selected.get("token",-1))
 	var pursuing_hero: bool=target_kind=="hero"
 	var attacking_barricade: bool=target_kind=="barricade"
@@ -844,14 +855,22 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	if phase=="day" and not pursuing_hero:
 		creature.moving=false
 		return
-	var target: Vector3=day_hunter_waypoint(creature,selected_position)
-	var final_target: bool=target.distance_to(selected_position)<.2
+	var destination:=selected_position
+	if target_kind=="tower":destination=building_approach_position(creature.position,selected_position,"tower")
+	elif target_kind=="district":destination=building_approach_position(creature.position,selected_position,String(districts.plots[target_pad].kind))
+	elif target_kind=="beacon":destination=building_approach_position(creature.position,selected_position,"core")
+	if not destination.is_finite():
+		creature.moving=false;creature.attack_queued=false;creature.attack_windup=0.0
+		return
+	var target: Vector3=day_hunter_waypoint(creature,destination)
+	var final_target: bool=target.distance_to(destination)<.2
 	var distance:=creature.position.distance_to(target)
 	var attacking_tower: bool=target_kind=="tower" and final_target
+	var attacking_district: bool=target_kind=="district" and final_target
 	var attacking_unit: bool=target_kind=="squad" and final_target
 	var hero_attackable: bool=pursuing_hero and final_target
-	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
-	var unreachable_target:=not final_target or not can_traverse(creature.position,selected_position)
+	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_district or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
+	var unreachable_target:=not final_target or not can_attack_line(creature.position,selected_position)
 	if distance>reach or unreachable_target:
 		creature.attack_queued=false
 		creature.attack_windup=0
@@ -876,6 +895,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			if threat=="breaker":BattleVisuals.breaker_slam(effects,creature.position)
 			if attacking_tower:
 				damage_tower(target_pad,creature.damage)
+			elif attacking_district:
+				districts.damage(target_pad,creature.damage)
 			elif attacking_barricade:
 				damage_gate_barricade(creature.damage)
 			elif attacking_unit:
@@ -935,6 +956,12 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 		var pad_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(pad.position.x,pad.position.z))
 		if pad_distance<best:
 			best=pad_distance;selected={"kind":"tower","index":i,"position":pad.position}
+	for index in districts.plots.size():
+		var plot: Dictionary=districts.plots[index]
+		if int(plot.level)<=0 or float(plot.get("hp",0))<=0:continue
+		var separation:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(plot.position.x,plot.position.z))
+		if separation<best:
+			best=separation;selected={"kind":"district","index":index,"position":plot.position}
 	if gate_barricade_hp>0.0:
 		var barricade_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(gate_barricade.position.x,gate_barricade.position.z))
 		if barricade_distance<best:
@@ -943,7 +970,40 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 		var tower_index:=south_tower_target(creature.position)
 		if tower_index>=0:
 			selected={"kind":"tower","index":tower_index,"position":world.tower_pads[tower_index].position}
+	if phase=="night" and not enemy_target_reachable(creature.position,selected):
+		return nearest_reachable_structure(creature.position)
 	return selected
+
+func enemy_target_reachable(origin: Vector3, target: Dictionary) -> bool:
+	var kind: String=String(target.kind)
+	if kind in ["tower","district","beacon"]:
+		var structure_kind: String="core" if kind=="beacon" else (String(districts.plots[int(target.index)].kind) if kind=="district" else "tower")
+		return building_approach_position(origin,target.position,structure_kind).is_finite()
+	if can_traverse(origin,target.position):return true
+	var start_cell:=nearest_navigation_cell(origin,true)
+	var end_cell:=nearest_navigation_cell(target.position,true)
+	if start_cell.x==999 or end_cell.x==999:return false
+	var key: String="route:%s" % Vector4i(start_cell.x,start_cell.y,end_cell.x,end_cell.y)
+	if building_approach_cache.has(key):return bool(building_approach_cache[key])
+	var reachable:=not hero_navigation.get_id_path(start_cell,end_cell).is_empty()
+	if building_approach_cache.size()>=2048:building_approach_cache.clear()
+	building_approach_cache[key]=reachable
+	return reachable
+
+func nearest_reachable_structure(origin: Vector3) -> Dictionary:
+	# A sealed nearest target must not stop the assault or receive distant hits.
+	# Enemies first break an exposed building, opening the route for later ticks.
+	var candidates: Array[Dictionary]=[{"kind":"beacon","index":-1,"position":Vector3(0,Layout.FORT_HEIGHT,0)}]
+	for index in world.tower_pads.size():
+		var pad: Dictionary=world.tower_pads[index]
+		if int(pad.level)>0 and float(pad.hp)>0:candidates.append({"kind":"tower","index":index,"position":pad.position})
+	for index in districts.plots.size():
+		var plot: Dictionary=districts.plots[index]
+		if int(plot.level)>0 and float(plot.hp)>0:candidates.append({"kind":"district","index":index,"position":plot.position})
+	candidates.sort_custom(func(left: Dictionary,right: Dictionary)->bool:return (left.position as Vector3).distance_squared_to(origin)<(right.position as Vector3).distance_squared_to(origin))
+	for candidate: Dictionary in candidates:
+		if enemy_target_reachable(origin,candidate):return candidate
+	return {}
 
 func target_warning_snapshot() -> Array[Dictionary]:
 	# Read the live attack windups instead of running a second timer. This keeps
@@ -983,6 +1043,9 @@ func attack_target_node(creature: BattleUnit) -> Node3D:
 		"tower":
 			var index:=int(creature.get_meta("attack_target_index",-1))
 			if index>=0 and index<world.tower_pads.size():return world.tower_pads[index].node as Node3D
+		"district":
+			var index:=int(creature.get_meta("attack_target_index",-1))
+			if index>=0 and index<districts.plots.size():return districts.plots[index].node as Node3D
 		"barricade":return gate_barricade
 		"beacon":return world.beacon
 	return null
@@ -1059,6 +1122,7 @@ func damage_tower(index: int, amount: float) -> void:
 	specializations.on_destroyed(pad)
 	BattleVisuals.burst(effects,pad.position,2.5,Color("db8757"),.45)
 	notify("城内防御塔被摧毁 · 到残基旁按F重建",3)
+	refresh_construction_navigation()
 
 func record_beacon_hit(amount: float) -> void:
 	if amount<=0:return
@@ -1356,6 +1420,19 @@ func build_hero_navigation() -> void:
 			if not outpost_walkable(Vector3(x,0,z)):
 				hero_navigation.set_point_solid(Vector2i(x,z))
 
+func refresh_construction_navigation() -> void:
+	if not is_instance_valid(construction):return
+	construction_blocks=construction.navigation_blocks()
+	building_approach_cache.clear()
+	build_hero_navigation()
+	for creature: BattleUnit in enemies:
+		if is_instance_valid(creature):creature.path.clear();creature.path_timer=0.0
+	if is_instance_valid(squads):
+		for squad: Dictionary in squads.squads:
+			for member: BattleUnit in squad.members:
+				if is_instance_valid(member):member.path.clear();member.path_timer=0.0
+	if is_instance_valid(hero) and not hero_path.is_empty():plan_hero_path(move_goal)
+
 func nearest_navigation_cell(point: Vector3, require_reachable: bool) -> Vector2i:
 	var center:=Vector2i(clampi(roundi(point.x),-123,123),clampi(roundi(point.z),-107,107))
 	for radius in range(0,7):
@@ -1425,6 +1502,8 @@ func outpost_walkable(point: Vector3) -> bool:
 	var flat:=Vector2(point.x,point.z)
 	for block: Rect2 in WALK_BLOCKS:
 		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
+	for block: Rect2 in construction_blocks:
+		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
 	return true
 
 func outpost_height(point: Vector3) -> float:
@@ -1436,7 +1515,55 @@ func can_traverse(start: Vector3, end: Vector3) -> bool:
 	var direction:=Vector2(end.x-start.x,end.z-start.z)
 	for block: Rect2 in WALK_BLOCKS:
 		if segment_crosses_wall(origin,direction,block):return false
+	for block: Rect2 in construction_blocks:
+		if segment_crosses_wall(origin,direction,block):return false
 	return true
+
+func can_attack_line(start: Vector3, end: Vector3) -> bool:
+	# Projectiles and repair tools reach the target's surface. Its own building
+	# footprint blocks movement, but must not prevent attacks or repairs.
+	if not start.is_finite() or not end.is_finite():return false
+	var origin:=Vector2(start.x,start.z)
+	var direction:=Vector2(end.x-start.x,end.z-start.z)
+	for block: Rect2 in WALK_BLOCKS:
+		if segment_crosses_wall(origin,direction,block):return false
+	return true
+
+func building_approach_position(origin: Vector3, center: Vector3, kind: String) -> Vector3:
+	# Free placement can cover the nearest face with a wall or another building.
+	# Choose a reachable exposed surface rather than routing into that footprint.
+	var key:=Vector4i(roundi(origin.x),roundi(origin.z),roundi(center.x*100),roundi(center.z*100))
+	var cache_key: String="%s:%s" % [key,kind]
+	if building_approach_cache.has(cache_key):
+		var cached: Vector3=building_approach_cache[cache_key]
+		if not cached.is_finite() or outpost_walkable(cached):return cached
+	var half: Vector2=construction.footprint(kind) if is_instance_valid(construction) else Vector2(1.3,1.3)
+	var flat:=Vector2(origin.x,origin.z)
+	var anchor:=Vector2(center.x,center.z)
+	var nearest:=Vector2(clampf(flat.x,anchor.x-half.x,anchor.x+half.x),clampf(flat.y,anchor.y-half.y,anchor.y+half.y))
+	var outward:=flat-nearest
+	if outward.length_squared()<.0001:outward=Vector2.DOWN
+	var candidates: Array[Vector2]=[nearest+outward.normalized()*.35]
+	for ratio in [-.85,0.0,.85]:
+		candidates.append(anchor+Vector2(half.x+.35,half.y*ratio))
+		candidates.append(anchor+Vector2(-half.x-.35,half.y*ratio))
+		candidates.append(anchor+Vector2(half.x*ratio,half.y+.35))
+		candidates.append(anchor+Vector2(half.x*ratio,-half.y-.35))
+	candidates.sort_custom(func(left: Vector2,right: Vector2)->bool:return left.distance_squared_to(flat)<right.distance_squared_to(flat))
+	var start_cell:=Vector2i(999,999)
+	var selected:=Vector3.INF
+	for candidate: Vector2 in candidates:
+		var point:=Vector3(candidate.x,0,candidate.y)
+		point.y=outpost_height(point)
+		if not outpost_walkable(point) or not can_attack_line(point,center):continue
+		if can_traverse(origin,point):selected=point;break
+		if start_cell.x==999:start_cell=nearest_navigation_cell(origin,true)
+		if start_cell.x==999:continue
+		var end_cell:=nearest_navigation_cell(point,true)
+		if end_cell.x!=999 and not hero_navigation.get_id_path(start_cell,end_cell).is_empty():selected=point;break
+	if building_approach_cache.size()>=2048:building_approach_cache.clear()
+	building_approach_cache[cache_key]=selected
+	return selected
 
 func segment_crosses_wall(origin: Vector2, direction: Vector2, block: Rect2) -> bool:
 	# Continuous collision prevents short corner cuts that fixed samples can miss.
@@ -1717,7 +1844,9 @@ func open_draft() -> void:
 		return_phase=phase
 		# A second gathering tap must not spend a reroll on the newly opened card UI.
 		draft_reroll_ready_at=float(Time.get_ticks_msec())*.001+.6
-	if run.draft():phase="draft"
+	if run.draft():
+		selection_dragging=false
+		phase="draft"
 
 func choose_card(index: int) -> bool:
 	if phase!="draft":return false
@@ -1805,11 +1934,7 @@ func repair_tower() -> bool:
 	return true
 
 func build_district(kind: String) -> bool:
-	var result: Dictionary=districts.choose(districts.nearest(),kind)
-	if not result.ok:notify(result.reason,2);return false
-	if squads:squads.set_health_multiplier(districts.squad_health_multiplier())
-	notify("兵营建成 · 灯下恢复增强" if kind=="barracks" else "工坊建成 · 塔建设与维修减费",3)
-	return true
+	return construction.begin(kind) if is_instance_valid(construction) else false
 
 func upgrade_district() -> bool:
 	var result: Dictionary=districts.upgrade(districts.nearest())
@@ -1823,39 +1948,33 @@ func near_squad_controls() -> bool:
 	return Layout.contains_castle(hero.position,.1) and hero.position.y >= 4.8
 
 func hire_shield_squad() -> bool:
-	if phase!="day" and phase!="night":return false
-	if not near_squad_controls():
-		notify("请回到灯塔内侧再招募盾卫小队",2)
-		return false
-	var result: Dictionary=squads.hire("shield")
-	if not result.ok:
-		notify(result.reason,2)
-		return false
-	BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,3.1),2.1,Color("79c6c9"),.45)
-	notify("盾卫小队抵达 · 3人 · -%d零件" % result.cost,3)
-	return true
+	return train_troop("shield")
 
 func hire_ranged_squad() -> bool:
-	if phase!="day" and phase!="night":return false
-	if not near_squad_controls():
-		notify("请回到灯塔内侧再招募弩手小队",2)
-		return false
-	var result: Dictionary=squads.hire("ranged")
-	if not result.ok:
-		notify(result.reason,2)
-		return false
-	BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,3.1),2.1,Color("e0b66e"),.45)
-	notify("弩手小队抵达 · 3人 · -%d零件" % result.cost,3)
+	return train_troop("ranged")
+
+func train_troop(kind: String) -> bool:
+	if phase not in ["day","night"]:return false
+	var result: Dictionary=squads.enqueue(kind)
+	if not result.ok:notify(String(result.reason),2);return false
+	notify("%s加入兵营训练队列 · -%d零件" % [{"shield":"盾卫","ranged":"弩手","engineer":"工程员"}.get(kind,"部队"),int(result.cost)],3)
+	return true
+
+func cancel_troop_training(barracks_id: int, queue_index: int) -> bool:
+	var result: Dictionary=squads.cancel_training(barracks_id,queue_index)
+	if not result.ok:notify(String(result.reason),2);return false
+	notify("已取消训练 · 退回%d零件" % int(result.get("refund",result.get("cost",0))),2)
 	return true
 
 func toggle_squad_order() -> bool:
 	if phase!="day" and phase!="night":return false
-	if not near_squad_controls():
-		notify("请回到灯塔内侧再指挥小队",2)
-		return false
+	if squads.selected_count()>0:
+		var guard: Dictionary=squads.command_guard(aim)
+		notify(String(guard.reason),2)
+		return bool(guard.ok)
 	var snapshot: Dictionary=squads.snapshot()
 	if int(snapshot.count)<=0:
-		notify("尚未招募盾卫小队 · U 招募 70 零件",2)
+		notify("先建兵营，再用U/I/N训练部队",2)
 		return false
 	var hold := true
 	for row: Dictionary in snapshot.squads:
@@ -1865,15 +1984,12 @@ func toggle_squad_order() -> bool:
 	if not result.ok:
 		notify(result.reason,2)
 		return false
-	notify("盾卫小队%s" % ("驻守南门" if order=="hold" else "撤回灯塔"),2)
+	notify("全军%s" % ("驻守南门" if order=="hold" else "撤回灯塔"),2)
 	return true
 
 func refill_squads() -> bool:
 	if phase!="day":
 		notify("只能在白昼付费补员休整",2)
-		return false
-	if not near_squad_controls():
-		notify("请回到灯塔内侧再进行小队休整",2)
 		return false
 	var result: Dictionary=squads.refill()
 	if not result.ok:
@@ -2080,17 +2196,14 @@ func interaction_prompt() -> String:
 	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
 		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
 	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
-	if near_squad_controls() and squads:
-		var squad_state: Dictionary=squads.snapshot()
-		if int(squad_state.count)<=0:
-			return "U 盾卫70 · I 弩手80 · 据点内招募"
-		var order_label := "撤回" if _squads_all_holding(squad_state) else "驻守"
-		var refill: int=int(squad_state.refill_cost)
-		var recruit_hint := ""
-		if int(squad_state.count)<int(squad_state.max_squads):
-			recruit_hint=" · U盾卫70/I弩手80"
-		return "O %s · L 白昼补员%s%s · %d/6人" % [order_label,(" %d零件" % refill) if refill>0 else "",recruit_hint,int(squad_state.alive)]
-	return "Y  选择城内空地建防御塔" if Layout.contains_castle(hero.position) else ""
+	var district_index: int=districts.nearest()
+	if district_index>=0:
+		var plot: Dictionary=districts.plots[district_index]
+		var title: String="兵营" if String(plot.kind)=="barracks" else "工坊"
+		if int(plot.level)==0:return "F 重建%s · 60零件" % title
+		return "%s %d/%d · %s" % [title,ceili(plot.hp),ceili(plot.max_hp),"F升级80" if int(plot.level)<2 else "已满级"]
+	if squads and squads.selected_count()>0:return "已选%d队 · 右键移动/攻击 · O光标驻守 · Esc取消选择" % squads.selected_count()
+	return "Y 自由建设 · 兵营训练U盾卫 / I弩手 / N工程员"
 
 func _squads_all_holding(snapshot: Dictionary) -> bool:
 	if int(snapshot.count)<=0:return false
@@ -2197,7 +2310,12 @@ func interact() -> bool:
 		notify("通信塔重新亮起 · +85 零件，防御塔射程与火力提升",4)
 		return true
 	var pad_index:=nearest_tower_pad()
-	return build_or_upgrade_tower(pad_index) if pad_index>=0 else false
+	if pad_index>=0:return build_or_upgrade_tower(pad_index)
+	var district_index: int=districts.nearest()
+	if district_index<0:return false
+	var plot: Dictionary=districts.plots[district_index]
+	if int(plot.level)==0:return build_structure_at(plot.position,String(plot.kind))
+	return upgrade_district()
 
 func toggle_tower_construction() -> bool:
 	if not construction:return false
@@ -2205,12 +2323,23 @@ func toggle_tower_construction() -> bool:
 		construction.cancel()
 		return true
 	if not construction.begin():return false
-	notify("选择城内空地 · 左键或F建塔 · 右键或Esc取消",3)
+	selection_dragging=false
+	notify("城内自由建设 · 1塔 / 2兵营 / 3工坊 · 左键/F连续建造",3)
+	return true
+
+func build_structure_at(point: Vector3, kind: String) -> bool:
+	if phase not in ["day","night"] or not is_instance_valid(construction):return false
+	if kind=="tower":return build_tower_at(point)
+	var placement: Dictionary=construction.validity(point,-1,kind)
+	if not bool(placement.valid):notify(String(placement.reason),2);return false
+	var result: Dictionary=districts.build_at(placement.point,kind)
+	if not bool(result.ok):notify(String(result.reason),2);return false
+	notify("%s建成 · -%d零件 · 可继续放置" % [String(placement.title),int(result.cost)],3)
 	return true
 
 func build_tower_at(point: Vector3) -> bool:
 	if not construction:return false
-	var placement: Dictionary=construction.validity(point)
+	var placement: Dictionary=construction.validity(point,-1,"tower")
 	if not bool(placement.valid):
 		notify(String(placement.reason),2)
 		return false
@@ -2220,7 +2349,7 @@ func build_tower_at(point: Vector3) -> bool:
 		# Reuse only an effectively identical, still-valid suggestion. Snapping
 		# a free point to a nearby foundation can violate spacing after a green
 		# preview and would otherwise move the tower away from the chosen point.
-		if int(candidate.level)==0 and not bool(candidate.get("free_built",false)) and (candidate.position as Vector3).distance_to(placement.point)<=.01 and bool(construction.validity(candidate.position,i).valid):
+		if int(candidate.level)==0 and not bool(candidate.get("free_built",false)) and (candidate.position as Vector3).distance_to(placement.point)<=.01 and bool(construction.validity(candidate.position,i,"tower").valid):
 			index=i
 			break
 	if index<0:index=world.add_tower_pad(placement.point,"castle")
@@ -2235,7 +2364,7 @@ func build_or_upgrade_tower(index: int) -> bool:
 	var level: int=int(pad.level)
 	if level>=3:return false
 	if level==0:
-		var placement: Dictionary=construction.validity(pad.position,index)
+		var placement: Dictionary=construction.validity(pad.position,index,"tower")
 		if not bool(placement.valid):
 			notify(String(placement.reason),2)
 			return false
@@ -2252,6 +2381,8 @@ func build_or_upgrade_tower(index: int) -> bool:
 	pad.hp=pad.max_hp
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
 	(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
+	pad["free_built"]=true
+	if level==0:refresh_construction_navigation()
 	BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
 	notify("自动防御塔 %s · 等级 %d" % ["建成" if level==0 else "升级",pad.level])
 	return true
@@ -2444,28 +2575,62 @@ func flush_pending_aim() -> void:
 	aim=ground_point(pending_aim_screen)
 	aim_sample_pending=false
 
-func _unhandled_input(event: InputEvent) -> void:
-	if music_credits_open and not event is InputEventKey:return
+func handle_strategy_mouse(event: InputEvent) -> bool:
+	if phase not in ["day","night"] or music_credits_open:return false
 	if event is InputEventMouseMotion:
 		pending_aim_screen=event.position
 		aim_sample_pending=true
-	if event is InputEventMouseButton and event.pressed:
-		if construction and construction.active and event.button_index in [MOUSE_BUTTON_LEFT,MOUSE_BUTTON_RIGHT]:
-			if phase not in ["day","night"]:return
-			if event.button_index==MOUSE_BUTTON_RIGHT:construction.cancel()
+		if selection_dragging:selection_end=event.position
+		return false
+	if not event is InputEventMouseButton:return false
+	if event.button_index==MOUSE_BUTTON_WHEEL_UP and event.pressed:
+		camera.size=maxf(21,camera.size-1.5);return true
+	if event.button_index==MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+		camera.size=minf(52,camera.size+1.5);return true
+	if event.button_index not in [MOUSE_BUTTON_LEFT,MOUSE_BUTTON_RIGHT]:return false
+	if construction.active:
+		if not event.pressed:return true
+		selection_dragging=false
+		if event.button_index==MOUSE_BUTTON_RIGHT:construction.cancel()
+		else:
+			aim=ground_point(event.position);aim_sample_pending=false
+			construction.confirm()
+		return true
+	if event.button_index==MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			selection_dragging=true
+			selection_start=event.position;selection_end=event.position
+			selection_additive=event.shift_pressed
+		elif selection_dragging:
+			selection_dragging=false
+			selection_end=event.position
+			if selection_start.distance_to(selection_end)<8.0:
+				squads.select_at(ground_point(event.position),selection_additive)
 			else:
-				aim=ground_point(event.position);aim_sample_pending=false
-				construction.confirm()
-			get_viewport().set_input_as_handled()
-			return
-		if event.button_index==MOUSE_BUTTON_RIGHT and (phase=="day" or phase=="night"):
-			var click_point:=ground_point(event.position)
-			aim=click_point
-			pending_aim_screen=event.position
-			aim_sample_pending=false
-			plan_hero_path(click_point)
-		if event.button_index==MOUSE_BUTTON_WHEEL_UP:camera.size=maxf(21,camera.size-1.5)
-		if event.button_index==MOUSE_BUTTON_WHEEL_DOWN:camera.size=minf(52,camera.size+1.5)
+				squads.select_rect(camera,Rect2(selection_start,selection_end-selection_start).abs(),selection_additive)
+		return true
+	if not event.pressed:return true
+	selection_dragging=false
+	var click_point:=ground_point(event.position)
+	aim=click_point;aim_sample_pending=false
+	if squads.selected_count()>0:
+		var target: BattleUnit
+		var distance:=14.0*get_viewport().get_visible_rect().size.x/1440.0
+		for enemy: BattleUnit in enemies:
+			if not is_instance_valid(enemy) or enemy.hp<=0 or camera.is_position_behind(enemy.position):continue
+			var feet:=camera.unproject_position(enemy.position)
+			var head:=camera.unproject_position(enemy.position+Vector3(0,1.7,0))
+			var candidate:=Geometry2D.get_closest_point_to_segment(event.position,feet,head).distance_to(event.position)
+			if candidate<distance:target=enemy;distance=candidate
+		var result: Dictionary=squads.command_attack(target) if is_instance_valid(target) else squads.command_move(click_point)
+		notify(String(result.reason),2)
+	else:plan_hero_path(click_point)
+	return true
+
+func _unhandled_input(event: InputEvent) -> void:
+	if handle_strategy_mouse(event):
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		flush_pending_aim()
 		if event.keycode==KEY_M and music:
@@ -2477,11 +2642,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			notify("配乐音量 %d%%" % roundi(music.get_volume()*100),2)
 			return
 		if event.keycode==KEY_F1:
+			selection_dragging=false
 			if phase=="day" or phase=="night":paused_from=phase;phase="paused"
 			music_credits_open=not music_credits_open
 			return
 		if event.keycode==KEY_ESCAPE and construction and construction.active and phase in ["day","night"]:
 			construction.cancel()
+			return
+		if event.keycode==KEY_ESCAPE and phase in ["day","night"] and (selection_dragging or squads.selected_count()>0):
+			selection_dragging=false;squads.cancel_selection()
 			return
 		if event.keycode==KEY_ESCAPE and music_credits_open:
 			music_credits_open=false
@@ -2526,11 +2695,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				notify("当前没有可用的下一夜反制选择",2)
 			return
 		match event.keycode:
-			KEY_1:build_district("barracks")
-			KEY_2:build_district("workshop")
-			KEY_3:upgrade_district()
+			KEY_1:selection_dragging=false;construction.select_kind("tower")
+			KEY_2:selection_dragging=false;construction.select_kind("barracks")
+			KEY_3:selection_dragging=false;construction.select_kind("workshop")
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()
+			KEY_N:train_troop("engineer")
+			KEY_TAB:
+				if phase in ["day","night"]:squads.select_all()
 			KEY_O:toggle_squad_order()
 			KEY_L:refill_squads()
 			KEY_P:follow_route()
@@ -2552,7 +2724,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_SPACE:camera.size=38
 			KEY_ESCAPE:
 				if phase=="paused":phase=paused_from
-				elif phase=="day" or phase=="night":paused_from=phase;phase="paused"
+				elif phase=="day" or phase=="night":selection_dragging=false;paused_from=phase;phase="paused"
 
 func notify(message: String, duration: float=3.0) -> void:
 	notice=message;notice_time=duration
@@ -2639,6 +2811,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	cores.clear()
+	selection_dragging=false
 	if construction:construction.clear()
 	if squads:squads.clear()
 	if skill_lights:skill_lights.clear()

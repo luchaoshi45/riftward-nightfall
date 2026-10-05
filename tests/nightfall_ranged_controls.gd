@@ -5,6 +5,8 @@ var game: Node3D
 var failures: Array[String] = []
 
 func _initialize() -> void:
+	root.set_flag(Window.FLAG_NO_FOCUS, true)
+	root.hide()
 	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
@@ -75,13 +77,17 @@ func run() -> void:
 
 	game.phase = "day"
 	game.scrap = 500
+	game.hero.position = Vector3(-5.4, 5, 1)
+	check(game.build_district("barracks"), "A real freely positioned barracks must begin construction")
+	game.aim = Vector3(-5.4, 5, -4)
+	check(game.construction.confirm(), "Confirming a valid location must construct the production barracks")
 	var plot: Dictionary = game.districts.plots[0]
-	game.hero.position = plot.position
-	check(game.build_district("barracks"), "A real nearby barracks must apply before ranged hiring")
 	at_gate()
 	game.scrap = 500
 	press(KEY_I)
-	check(game.squads.snapshot().count == 1 and game.scrap == 420, "I must hire one ranged squad for exactly eighty scrap")
+	check(game.squads.snapshot().count == 0 and game.scrap == 420, "I must debit eighty into a timed training queue")
+	game.squads.advance(8.0)
+	check(game.squads.snapshot().count == 1, "Eight seconds of ranged training must produce three archers")
 	check(String(game.squads.snapshot().squads[0].kind) == "ranged", "I must create a ranged squad in the real manager")
 	check(String(game.squads.snapshot().squads[0].order) == "recall", "A squad hired during daytime must begin recalled")
 	var archer: BattleUnit = game.squads.squads[0].members[1]
@@ -91,11 +97,13 @@ func run() -> void:
 	game.phase = "night"
 	game.squads.on_night()
 	press(KEY_U)
+	game.squads.advance(6.0)
 	check(game.squads.snapshot().count == 2 and game.scrap == 350, "U plus I must allow a mixed shield/ranged formation")
 	check(String(game.squads.snapshot().squads[1].kind) == "shield", "U must preserve the shield squad kind beside ranged")
 	var before_reject: int = game.scrap
 	press(KEY_I)
-	check(game.squads.snapshot().count == 2 and game.scrap == before_reject, "A third squad I hire must reject without spending")
+	check(game.squads.snapshot().count == 2 and game.scrap == before_reject - 80, "A third ranged formation must queue without a fixed cap")
+	check(game.squads.cancel_training(int(plot.get("index", 0))).ok and game.scrap == before_reject, "Cancelled ranged escrow must refund exactly eighty")
 	game.squads.set_order("recall", 1)
 	for member: BattleUnit in game.squads.squads[0].members:
 		member.attack_timer = 999.0
@@ -192,13 +200,13 @@ func run() -> void:
 
 	# Reset the real manager to prove all three supported formations remain selectable.
 	reset_squads()
-	press(KEY_U); press(KEY_U)
+	press(KEY_U); press(KEY_U); game.squads.advance(12.0)
 	check(game.squads.snapshot().count == 2 and game.scrap == 360 and game.squads.squads.all(func(row: Dictionary): return String(row.kind) == "shield"), "U plus U must support a double-shield formation")
 	reset_squads()
-	press(KEY_U); press(KEY_I)
+	press(KEY_U); press(KEY_I); game.squads.advance(14.0)
 	check(game.squads.snapshot().count == 2 and game.scrap == 350 and String(game.squads.squads[0].kind) == "shield" and String(game.squads.squads[1].kind) == "ranged", "U plus I must support a shield/ranged formation")
 	reset_squads()
-	press(KEY_I); press(KEY_I)
+	press(KEY_I); press(KEY_I); game.squads.advance(16.0)
 	check(game.squads.snapshot().count == 2 and game.scrap == 340 and game.squads.squads.all(func(row: Dictionary): return String(row.kind) == "ranged"), "I plus I must support a double-ranged formation")
 
 	if DisplayServer.get_name() != "headless":
@@ -218,6 +226,6 @@ func run() -> void:
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
-	await create_timer(.15).timeout
+	await create_timer(.5).timeout
 	print("NIGHTFALL_RANGED_CONTROLS_", "OK" if failures.is_empty() else "FAILED")
 	quit(0 if failures.is_empty() else 1)

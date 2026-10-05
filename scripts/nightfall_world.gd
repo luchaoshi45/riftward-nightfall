@@ -130,17 +130,10 @@ func build() -> void:
 		sealed_light.shadow_enabled=false
 		sealed.add_child(sealed_light)
 		nests.append({"node":nest,"sealed_node":sealed,"light":nest_light,"sealed_light":sealed_light,"position":point,"cleansed":false})
-	# Every suggested position now belongs to the castle. Indices 1 and 2
-	# remain the opening southern defenses; new player positions use the same
-	# append-only data shape through add_tower_pad().
-	for point in [Vector3(10,0,6),Vector3(5,0,10),Vector3(-5,0,10),Vector3(-10,0,6),
-		Vector3(-10,0,-1),Vector3(-10,0,-10),Vector3(0,0,-10),Vector3(10,0,-10)]:
+	# Only the two actual opening defenses have foundations. Every later
+	# tower is authored by the player; there are no empty fixed construction slots.
+	for point in [Vector3(5,0,10),Vector3(-5,0,10)]:
 		add_tower_pad(point)
-	for i in range(4):
-		var angle := TAU*i/4.0
-		var point := Vector3(cos(angle)*4.8,0,sin(angle)*4.8)
-		if i==1:point=Vector3(4.8,0,4.8)
-		add_tower_pad(point,"core")
 	var salvage_scene := load("res://assets/models/salvage_crate.glb") as PackedScene
 	for i in range(36):
 		var angle := TAU*i/36.0+.23

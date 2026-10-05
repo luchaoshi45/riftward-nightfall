@@ -5,7 +5,10 @@ var game: Node3D
 var squads: Node3D
 var failures: Array[String] = []
 
-func _initialize() -> void: call_deferred("run")
+func _initialize() -> void:
+	root.set_flag(Window.FLAG_NO_FOCUS, true)
+	root.hide()
+	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
 	if condition: return
@@ -86,6 +89,6 @@ func run() -> void:
 	check(squads.shots.is_empty(), "Resumed beams must finish and retire")
 	squads.clear(); check(squads.snapshot().alive == 0, "Shutdown must clear remaining soldiers before scene release")
 	await game.prepare_shutdown()
-	game.queue_free(); await process_frame; await create_timer(.15).timeout
+	game.queue_free(); await process_frame; await create_timer(.5).timeout
 	print("NIGHTFALL_SQUADS_SCENE_", "OK" if failures.is_empty() else "FAILED")
 	quit(0 if failures.is_empty() else 1)

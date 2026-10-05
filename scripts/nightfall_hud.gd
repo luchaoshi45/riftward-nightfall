@@ -1,7 +1,8 @@
 extends Control
 ## Compact dark-fantasy HUD for the outpost loop.
 const Layout = preload("res://scripts/outpost_layout.gd")
-const CONSTRUCTION_PANEL_RECT := Rect2(435,548,570,110)
+const CONSTRUCTION_PANEL_RECT := Rect2(435,518,570,140)
+const SQUAD_PANEL_RECT := Rect2(1050,480,365,240)
 var game: Node3D
 var font: SystemFont
 var display_font: SystemFont
@@ -12,11 +13,13 @@ var red:=Color("db756c")
 var panel:=Color(.022,.035,.045,.88)
 var card_rects: Array[Rect2] = []
 var mode_rects: Array[Rect2] = []
+var training_cancel_buttons: Array[Dictionary] = []
+var training_page := 0
 const BOSS_PANEL_RECT := Rect2(457,24,570,110)
 const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
 const EXPLORATION_TOAST_TOP := 451.0
-const GROWTH_PANEL_RECT := Rect2(1050,620,365,111)
-const GROWTH_MEMORY_RECT := Rect2(1050,620,365,46)
+const GROWTH_PANEL_RECT := Rect2(1050,732,365,111)
+const GROWTH_MEMORY_RECT := Rect2(1050,732,365,46)
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -136,13 +139,12 @@ func _draw() -> void:
 		label(game.notice,Vector2(720-width*.5,224),19,ink)
 	var prompt: String=game.interaction_prompt()
 	var district_index: int=game.districts.nearest()
-	if district_index>=0 and game.phase=="day" and not game.construction.active:
+	if district_index>=0 and game.phase in ["day","night"] and not game.construction.active:
 		var district: Dictionary=game.districts.snapshots()[district_index]
 		box(Rect2(435,553,570,94),panel,Color("648779"))
 		label("城区 · "+district.title,Vector2(457,582),18,amber)
-		label("1 兵营 / 2 工坊 · 建造60零件" if district.level==0 else ("3 升至二级 · 80零件" if district.level==1 else "二级 · 本局不能更换方向"),Vector2(457,609),15,ink)
-		var benefit: String="据点恢复 +%d生命/秒" % (district.level*3) if district.kind=="barracks" else district.benefit
-		label("兵营：据点恢复    工坊：塔建造与维修折扣" if district.level==0 else benefit,Vector2(457,634),13,Color("a3d7bd"))
+		label("F 原址重建 · 60零件" if district.level==0 else ("F 升至二级 · 80零件" if district.level==1 else "二级 · 耐久 %d/%d" % [ceili(district.hp),ceili(district.max_hp)]),Vector2(457,609),15,ink)
+		label(String(district.benefit),Vector2(457,634),13,Color("a3d7bd"))
 	var pad_index: int=game.nearest_tower_pad()
 	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"] and not game.construction.active:
 		var pad: Dictionary=game.world.tower_pads[pad_index]
@@ -158,26 +160,27 @@ func _draw() -> void:
 		var width:=font.get_string_size(prompt,HORIZONTAL_ALIGNMENT_LEFT,-1,17).x
 		label(prompt,Vector2(720-width*.5,701),17,amber)
 	draw_construction()
+	draw_selection_rect()
 	draw_hero_damage_feedback()
 	draw_target_warnings()
-	box(Rect2(300,746,840,129),Color(.025,.041,.047,.94),Color("53605c"))
-	label("守望者",Vector2(323,776),15,muted)
+	box(Rect2(190,746,840,129),Color(.025,.041,.047,.94),Color("53605c"))
+	label("守望者",Vector2(213,776),15,muted)
 	var mana_text: String="法力 %d/%d" % [floori(game.mana),int(game.max_mana)]
 	var mana_width:=font.get_string_size(mana_text,HORIZONTAL_ALIGNMENT_LEFT,-1,11).x
-	label(mana_text,Vector2(507-mana_width,776),11,Color("91bdd0"))
-	label("%d / %d" % [int(game.hero.hp),int(game.hero.max_hp)],Vector2(323,805),16,ink)
-	progress(Rect2(323,817,184,9),game.hero.hp/game.hero.max_hp,red)
-	progress(Rect2(323,835,184,6),game.mana/game.max_mana,Color("74a5bb"))
+	label(mana_text,Vector2(397-mana_width,776),11,Color("91bdd0"))
+	label("%d / %d" % [int(game.hero.hp),int(game.hero.max_hp)],Vector2(213,805),16,ink)
+	progress(Rect2(213,817,184,9),game.hero.hp/game.hero.max_hp,red)
+	progress(Rect2(213,835,184,6),game.mana/game.max_mana,Color("74a5bb"))
 	var names:=["Q  斩光","W  屏障","E  突进","R  灯焰","X  治疗"]
 	for i in range(5):
-		var x:=531+i*116
+		var x:=421+i*116
 		var status: String=game.skill_status(i)
 		var status_color:=red if status=="法力不足" else (amber if game.cooldowns[i]<=0 else muted)
 		box(Rect2(x,770,106,72),Color(.068,.087,.083,.9),Color("80524f") if status=="法力不足" else Color("59685f"))
 		label(names[i],Vector2(x+11,798),14,ink)
 		label(status,Vector2(x+11,824),13,status_color)
-	label("ZASD移动 · 右键寻路 · Y城内建塔 · F互动/升级 · H修塔 · G塔目标 · C集火 · T机关 · B路障",Vector2(323,854),11,muted)
-	label("U盾卫 · I弩手 · O驻守/撤回 · L白昼补员 · V铭刻 · Esc暂停",Vector2(323,870),10,muted)
+	label("ZASD移动 · Y建设 · 1塔/2兵营/3工坊 · F互动/升级 · H修塔 · G塔目标 · C集火 · T机关",Vector2(213,854),11,muted)
+	label("U盾卫 · I弩手 · N工程员 · 框选/Tab全选 · 右键指挥 · O驻守 · L补员 · V铭刻 · Esc取消/暂停",Vector2(213,870),10,muted)
 	draw_combat_rewards()
 	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
 	for core_key in core_names:
@@ -199,14 +202,33 @@ func _draw() -> void:
 	if game.phase=="ended":draw_result()
 	if game.music_credits_open:draw_music_credits()
 
+func construction_kind_rect(index: int) -> Rect2:
+	return Rect2(457+index*175,534,166,31)
+
+func training_kind_rect(index: int) -> Rect2:
+	return Rect2(1071+index*108,551,101,30)
+
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
 	var tint:=Color("85d5a5") if bool(placement.valid) else red
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
-	label("城内自由建塔 · %d零件" % int(placement.cost),Vector2(457,578),19,ink)
-	label(String(placement.reason),Vector2(457,607),16,tint)
-	label("移动鼠标选址 · 左键/F确认 · 右键/Esc取消 · Y退出",Vector2(457,637),14,amber)
+	for index in 3:
+		var kind: String=["tower","barracks","workshop"][index]
+		var rect:=construction_kind_rect(index)
+		box(rect,Color(.06,.15,.12,.95) if kind==String(placement.kind) else panel,tint if kind==String(placement.kind) else muted)
+		label(["1 防御塔","2 兵营","3 工坊"][index],rect.position+Vector2(14,22),14,ink)
+	label("%s · %d零件 · 连续建造" % [placement.title,int(placement.cost)],Vector2(457,590),18,ink)
+	label(String(placement.reason),Vector2(457,616),15,tint)
+	label("鼠标选址 · 左键/F建造 · 右键/Esc/Y退出",Vector2(457,642),14,amber)
+
+func draw_selection_rect() -> void:
+	if not game.selection_dragging or game.phase not in ["day","night"]:return
+	var factor:=Vector2(1440,900)/get_viewport_rect().size
+	var rect:=Rect2(game.selection_start*factor,(game.selection_end-game.selection_start)*factor).abs()
+	if rect.size.length()<8.0:return
+	draw_rect(rect,Color(.3,.8,.6,.12))
+	draw_rect(rect,Color("86d9b2"),false,1.5)
 
 func draw_combat_floats() -> void:
 	if game.phase!="day" and game.phase!="night":return
@@ -216,11 +238,12 @@ func draw_combat_floats() -> void:
 	var occupied: Array[Rect2]=[
 		Rect2(24,22,405,160),Rect2(1050,22,365,173),
 		Rect2(EXPLORATION_PANEL_RECT.position,Vector2(340,EXPLORATION_TOAST_TOP-EXPLORATION_PANEL_RECT.position.y+game.reward_toasts.size()*70)),
-			Rect2(1161,195,254,373),Rect2(1050,480,365,125),GROWTH_PANEL_RECT,Rect2(300,746,840,129),Rect2(492,670,456,48)
+			Rect2(1161,195,254,373),SQUAD_PANEL_RECT,GROWTH_PANEL_RECT,Rect2(190,746,840,129),Rect2(492,670,456,48)
 	]
 	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
 		occupied.append(BOSS_PANEL_RECT)
 	if game.construction.active:occupied.append(CONSTRUCTION_PANEL_RECT)
+	if game.kill_chain>0 and game.kill_chain_time>0.0:occupied.append(Rect2(370,436,254,77))
 	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
 	if game.combat_milestone_time>0.0:occupied.append(Rect2(504,259,432,65))
 	if game.beacon_alarm_time>0.0:occupied.append(Rect2(500,25,440,54))
@@ -310,7 +333,7 @@ func draw_hero_damage_feedback() -> void:
 	var border:=Color("ed756c",.75+.2*fade)
 	# Keep the actual hit confirmation persistent in the HUD even when F2
 	# reduces particles and camera trauma.
-	draw_rect(Rect2(300,746,840,129),border,false,2.4)
+	draw_rect(Rect2(190,746,840,129),border,false,2.4)
 	var text_value:=String(game.hero_damage_flash_text)
 	if text_value!="":
 		box(Rect2(520,708,600,31),Color(.13,.035,.032,.94),Color("c9665d",.9))
@@ -374,22 +397,22 @@ func draw_combat_rewards() -> void:
 	var step: int=clampi(int(game.attack_chain),0,2)
 	var charged: bool=step==2 and game.attack_chain_time>0.0
 	for i in 3:
-		var point:=Vector2(390+i*14,771)
+		var point:=Vector2(315+i*14,787)
 		var tint:=Color("eac279") if i==2 else Color("8bd0d0")
 		draw_circle(point,4.4,tint if i<step else Color("354b4e"))
 		if i==2:
 			draw_arc(point,6.2,0,TAU,20,Color("eac279") if charged else Color("62746a"),1.5 if charged else 1.0)
-	progress(Rect2(386,781,37,2),game.attack_chain_time/2.8,Color("eac279") if charged else Color("8bd0d0"))
-	label("下一击 · 破势" if charged else "普攻 %d / 3" % step,Vector2(407,805),11,amber if charged else muted)
+	progress(Rect2(311,797,37,2),game.attack_chain_time/2.8,Color("eac279") if charged else Color("8bd0d0"))
+	label("下一击 · 破势" if charged else "普攻 %d / 3" % step,Vector2(314,814),11,amber if charged else muted)
 	if game.kill_chain>0 and game.kill_chain_time>0.0:
 		var chain: int=game.kill_chain
-		box(Rect2(1161,480,254,77),Color(.028,.049,.051,.9),Color("847554"))
-		label("连斩",Vector2(1176,511),16,Color("a6dcd4"))
-		label("%d" % chain,Vector2(1235,513),28,amber,true)
+		box(Rect2(370,436,254,77),Color(.028,.049,.051,.9),Color("847554"))
+		label("连斩",Vector2(385,467),16,Color("a6dcd4"))
+		label("%d" % chain,Vector2(444,469),28,amber,true)
 		var threshold: int=3 if chain<3 else (6 if chain<6 else 10)
 		var hint: String="再斩 %d 只 · 额外零件与记忆" % (threshold-chain) if chain<10 else "继续斩击 · 保持燎原之势"
-		label(hint,Vector2(1176,535),11,muted)
-		progress(Rect2(1176,547,224,3),game.kill_chain_time/6.0,Color("dabb76"))
+		label(hint,Vector2(385,491),11,muted)
+		progress(Rect2(385,503,224,3),game.kill_chain_time/6.0,Color("dabb76"))
 	if game.combat_milestone_time>0.0:
 		var fade: float=minf(1.0,game.combat_milestone_time/.35)
 		box(Rect2(504,259,432,65),Color(.073,.064,.031,.9*fade),Color("c7a56e",fade))
@@ -463,6 +486,16 @@ func draw_minimap() -> void:
 		if pad.level>0:
 			tower_color=Color("b78be8") if pad.mode=="threat" else (Color("ed945b") if pad.mode=="breaker" else pad_color)
 		draw_circle(center+Vector2(p.x,p.z)*scale,3.2,tower_color)
+	for plot: Dictionary in game.districts.plots:
+		if int(plot.level)<=0:continue
+		var p: Vector3=plot.position
+		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),Color("a9d8cf") if String(plot.kind)=="barracks" else Color("d6b777"))
+	if is_instance_valid(game.squads):
+		for squad: Dictionary in game.squads.squads:
+			for member: BattleUnit in squad.members:
+				if not is_instance_valid(member) or member.hp<=0:continue
+				var marker:=center+Vector2(member.position.x,member.position.z)*scale
+				draw_circle(marker,2.1,Color("b6ffc8") if game.squads.selected_ids.has(int(squad.id)) else Color("83aaa6"))
 	if game.expeditions:
 		for site in game.expeditions.generators:
 			var p: Vector3=site.position
@@ -492,23 +525,49 @@ func draw_minimap() -> void:
 	if maxf(game.world.gate_light_drain[0],game.world.gate_light_drain[1])>.3:
 		label("哨灯遭噬 · 击杀紫色目标恢复",Vector2(1174,456),13,Color("b7a5ee"))
 
+func training_page_rect(direction: int) -> Rect2:
+	return Rect2(1333 if direction<0 else 1366,487,27,24)
+
 func draw_squads() -> void:
+	training_cancel_buttons.clear()
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
 	var snapshot: Dictionary=game.squads.snapshot()
-	box(Rect2(1050,480,365,125),Color(.022,.045,.047,.9),Color("5c7f76"))
-	label("防御小队",Vector2(1071,508),17,Color("a9d8cf"))
-	if int(snapshot.count)<=0:
-		label("U 盾卫 · 70零件   I 弩手 · 80零件",Vector2(1071,538),13,amber)
-		label("驻守承伤/远程输出 · 白昼可付费补员",Vector2(1071,565),12,muted)
-		return
-	label("总计 %d/%d 人 · 补员 %d 零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(1071,535),13,ink)
-	for index in snapshot.squads.size():
-		var row: Dictionary=snapshot.squads[index]
-		var order_label: String="驻守" if String(row.order)=="hold" else "撤回"
-		var kind_label: String="弩手" if String(row.kind)=="ranged" else "盾卫"
-		var kind_color: Color=Color("efcf86") if String(row.kind)=="ranged" else Color("e1d5b7")
-		label("小队%d  ·  %s %s  ·  存活 %d/%d  ·  生命 %.0f" % [index+1,kind_label,order_label,int(row.alive),int(row.capacity),float(row.hp)],Vector2(1071,558+index*18),11,kind_color if String(row.order)=="hold" else muted)
-	label("U盾卫70 · I弩手80 · O驻守/撤回 · L白昼补员",Vector2(1071,596),11,amber)
+	box(SQUAD_PANEL_RECT,Color(.022,.045,.047,.94),Color("5c7f76"))
+	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(1071,508),17,Color("a9d8cf"))
+	label("存活 %d/%d人 · L补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(1071,534),13,ink)
+	for index in 3:
+		var rect:=training_kind_rect(index)
+		box(rect,panel,Color("668a78"))
+		label(["U盾卫70","I弩手80","N工程65"][index],rect.position+Vector2(7,21),12,amber)
+	var rows: Array[Dictionary]=[]
+	var total_orders:=0
+	# First show one current order per barracks, then pending orders. Each
+	# cancellation button retains its exact barracks and queue index.
+	for barracks: Dictionary in snapshot.queues:
+		total_orders+=barracks.queue.size()
+		if barracks.queue.is_empty():continue
+		rows.append({"barracks":int(barracks.index),"queue_index":0,"order":barracks.queue[0]})
+	for barracks: Dictionary in snapshot.queues:
+		for queue_index in range(1,barracks.queue.size()):
+			rows.append({"barracks":int(barracks.index),"queue_index":queue_index,"order":barracks.queue[queue_index]})
+	var pages:=maxi(1,ceili(rows.size()/3.0))
+	training_page=clampi(training_page,0,pages-1)
+	for direction in [-1,1]:
+		var rect:=training_page_rect(direction)
+		box(rect,panel,muted)
+		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber)
+	for index in mini(3,maxi(0,rows.size()-training_page*3)):
+		var row: Dictionary=rows[index+training_page*3]
+		var order: Dictionary=row.order
+		var name: String={"shield":"盾卫","ranged":"弩手","engineer":"工程员"}.get(String(order.kind),"部队")
+		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % float(order.remaining) if int(row.queue_index)==0 else "等待"],Vector2(1071,605+index*27),13,ink)
+		var rect:=Rect2(1302,585+index*27,91,23)
+		box(rect,panel,muted)
+		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
+		training_cancel_buttons.append({"rect":rect,"barracks":row.barracks,"queue_index":row.queue_index})
+	if rows.is_empty():label("先自由建兵营 · 每营独立队列",Vector2(1071,609),13,muted)
+	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(1071,685),12,muted)
+	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(1071,706),11,amber)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
@@ -530,12 +589,12 @@ func draw_growth_guidance() -> void:
 	var snapshot: Dictionary=game.growth_snapshot()
 	var queued: bool=int(snapshot.memory.pending)>0
 	box(GROWTH_PANEL_RECT,Color(.035,.073,.067,.95),amber if queued else Color("527c6b"))
-	label(growth_memory_text(snapshot),Vector2(1071,649),14,amber if queued else ink)
+	label(growth_memory_text(snapshot),Vector2(1071,761),14,amber if queued else ink)
 	var lines: Array[String]=growth_lines(snapshot)
 	var affordable: bool=not snapshot.tower.is_empty() and bool(snapshot.tower.affordable)
-	label(lines[0],Vector2(1071,674),13,Color("a6decb"))
-	label(lines[1],Vector2(1071,695),12,amber if affordable else muted)
-	label(lines[2],Vector2(1071,716),11,muted)
+	label(lines[0],Vector2(1071,786),13,Color("a6decb"))
+	label(lines[1],Vector2(1071,807),12,amber if affordable else muted)
+	label(lines[2],Vector2(1071,828),11,muted)
 
 func draw_exploration_rewards() -> void:
 	if not game.discoveries:return
@@ -632,32 +691,47 @@ func draw_result() -> void:
 	label("按 Enter 重新开始一局",Vector2(611,675),18,muted)
 
 func _gui_input(event: InputEvent) -> void:
-	if game.phase in ["day","night"] and game.run.pending>0 and event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
-		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
-		if GROWTH_MEMORY_RECT.has_point(point):
-			game.request_upgrade();accept_event();return
+	var point: Vector2=Vector2.ZERO
+	if event is InputEventMouseButton or event is InputEventMouseMotion:
+		point=event.position*Vector2(1440,900)/get_viewport_rect().size
 	if game.music_credits_open:
 		if event is InputEventMouseButton and event.pressed:
 			if event.button_index==MOUSE_BUTTON_LEFT:
-				var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
 				var sources:=["https://rustedstudio.itch.io/free-music-dark-ambient-piano","https://rustedstudio.itch.io/free-music-apocalypse-z","https://rustedstudio.itch.io/free-music-orchestral-fantasy-war","https://creativecommons.org/licenses/by/4.0/"]
 				for i in sources.size():
 					if Rect2(300+i*210,527,190,44).has_point(point):OS.shell_open(sources[i]);break
 			accept_event()
 		return
-	if game.construction.active and game.phase in ["day","night"] and event is InputEventMouseButton and event.pressed:
-		if event.button_index==MOUSE_BUTTON_LEFT:
-			game.aim=game.ground_point(event.position)
-			game.aim_sample_pending=false
-			game.construction.confirm()
-			accept_event();return
-		if event.button_index==MOUSE_BUTTON_RIGHT:
-			game.construction.cancel()
-			accept_event();return
-	if game.phase!="draft":return
-	if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
-		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
-		for i in mode_rects.size():
-			if mode_rects[i].has_point(point):game.select_run_mode(i);accept_event();return
-		for i in card_rects.size():
-			if card_rects[i].has_point(point):game.choose_card(i);accept_event();return
+	if game.phase=="draft":
+		if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+			for i in mode_rects.size():
+				if mode_rects[i].has_point(point):game.select_run_mode(i);accept_event();return
+			for i in card_rects.size():
+				if card_rects[i].has_point(point):game.choose_card(i);accept_event();return
+		return
+	if game.phase not in ["day","night"]:return
+	if event is InputEventMouseButton:
+		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+			if GROWTH_MEMORY_RECT.has_point(point) and game.run.pending>0:
+				game.request_upgrade();accept_event();return
+			if game.construction.active:
+				for index in 3:
+					if construction_kind_rect(index).has_point(point):
+						game.construction.select_kind(["tower","barracks","workshop"][index]);accept_event();return
+			for direction in [-1,1]:
+				if training_page_rect(direction).has_point(point):
+					training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
+			for index in 3:
+				if training_kind_rect(index).has_point(point):
+					game.train_troop(["shield","ranged","engineer"][index]);accept_event();return
+			for button: Dictionary in training_cancel_buttons:
+				if (button.rect as Rect2).has_point(point):
+					game.cancel_troop_training(int(button.barracks),int(button.queue_index));accept_event();return
+		var panels: Array[Rect2]=[Rect2(24,22,405,160),Rect2(1050,22,365,173),Rect2(1161,195,254,275),SQUAD_PANEL_RECT,GROWTH_PANEL_RECT,Rect2(190,746,840,129),EXPLORATION_PANEL_RECT]
+		if game.phase=="night" or game.contracts.status!="idle":panels.append(Rect2(457,24,570,132))
+		if game.construction.active:panels.append(CONSTRUCTION_PANEL_RECT)
+		if game.kill_chain>0 and game.kill_chain_time>0.0:panels.append(Rect2(370,436,254,77))
+		for rect: Rect2 in panels:
+			if rect.has_point(point):
+				game.selection_dragging=false;accept_event();return
+	if game.handle_strategy_mouse(event):accept_event()

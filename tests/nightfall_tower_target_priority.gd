@@ -1,5 +1,8 @@
 extends SceneTree
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 func run() -> void:
 	var game: Node3D=load("res://scenes/nightfall.tscn").instantiate()
@@ -9,11 +12,13 @@ func run() -> void:
 	for enemy in game.enemies:
 		if is_instance_valid(enemy):enemy.queue_free()
 	game.enemies.clear()
-	var pad: Dictionary=game.world.tower_pads[0]
-	game.hero.position=pad.position+Vector3(.5,0,.5)
+	game.set_process(false)
+	game.hero.position=Vector3(-8,5,-5.8)
 	game.move_goal=game.hero.position
 	game.scrap=60
-	assert(game.interact() and pad.level==1)
+	assert(game.build_tower_at(Vector3(-8,5,-8)))
+	var pad: Dictionary=game.world.tower_pads.back()
+	assert(pad.level==1 and game.tower_count()==3)
 	for other: Dictionary in game.world.tower_pads:
 		if other!=pad:other.cooldown=10000.0
 	var nearest: BattleUnit=game.spawn_creature(false)
@@ -50,7 +55,7 @@ func run() -> void:
 	assert(game.toggle_tower_mode() and pad.mode=="breaker")
 	assert(game.toggle_tower_mode() and pad.mode=="threat")
 	assert(game.toggle_tower_mode() and pad.mode=="nearest")
-	game.hero.position=pad.position+Vector3(.2,0,.2)
+	game.hero.position=pad.position+Vector3(0,0,2.2)
 	game.move_goal=game.hero.position
 	pad.mode="threat"
 	var prompt: String=game.interaction_prompt()

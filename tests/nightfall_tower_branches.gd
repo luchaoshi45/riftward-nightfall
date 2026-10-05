@@ -7,6 +7,9 @@ var checks: int = 0
 var failures: int = 0
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
@@ -63,7 +66,7 @@ func capture(branch: String) -> void:
 	await RenderingServer.frame_post_draw
 	var result: Error = root.get_texture().get_image().save_png("res://build/tower-branch-%s.png" % branch)
 	check(result == OK, "Real rendered branch screenshot must save")
-	game.hero.position = pad.position
+	game.hero.position = pad.position + Vector3(0, 0, -2.0)
 	game.move_goal = game.hero.position
 
 func run() -> void:
@@ -78,7 +81,7 @@ func run() -> void:
 	pad = game.world.tower_pads[1]
 	for other: Dictionary in game.world.tower_pads:
 		other.cooldown = 10000.0 # Isolate one real built tower, preserving other defenses.
-	game.hero.position = pad.position
+	game.hero.position = pad.position + Vector3(0, 0, -2.0)
 	game.move_goal = game.hero.position
 	game.scrap = 2000
 	var before_scrap: int = game.scrap
@@ -163,7 +166,7 @@ func run() -> void:
 	var speed_before: float = walker.speed
 	for _shot in 5: shot(selected)
 	check(is_equal_approx(game.specializations.movement_multiplier(walker), .7), "Repeated hits do not stack slows")
-	game.hero.position = pad.position
+	game.hero.position = pad.position + Vector3(0, 0, -2.0)
 	walker.position = Vector3(0, 0, 32)
 	walker.set_meta("gate_lane", 0.0)
 	walker.attack_queued = false
@@ -218,4 +221,5 @@ func run() -> void:
 	await game.prepare_shutdown()
 	game.queue_free()
 	for _frame in 12: await process_frame
+	await create_timer(.5).timeout
 	quit(failures)
