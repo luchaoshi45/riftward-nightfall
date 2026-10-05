@@ -1118,12 +1118,18 @@ func move_hero(delta: float) -> void:
 		var direction:=to_goal.normalized()
 		var remaining:=minf(to_goal.length(),hero.speed*delta)
 		var moved_any:=false
+		var substeps:=0
+		var max_substeps:=maxi(4,ceili(remaining/HERO_MOVE_SUBSTEP)*4)
 		# Split a long frame into short terrain steps. At a low or uneven
 		# render cadence one large step could cross the raised ramp's wall
 		# corner, making the controller reject the whole frame and feel sticky.
 		# The substeps keep the same total distance while preserving the
 		# existing wall-slide projection in move_hero_position().
-		while remaining>.0001:
+		# A nearly blocked corner can return millimetres of progress. Bound the
+		# contact work by the requested distance instead of spending a whole
+		# render frame consuming the budget through tiny accepted corrections.
+		while remaining>.0001 and substeps<max_substeps:
+			substeps+=1
 			var step_distance:=minf(remaining,HERO_MOVE_SUBSTEP)
 			var before:=hero.position
 			var accepted:=false
@@ -1160,13 +1166,12 @@ func move_hero(delta: float) -> void:
 
 func move_hero_position(next: Vector3) -> bool:
 	# Keep movement responsive when the desired diagonal step clips a ramp
-	# wall. Try both component orders first so a corner keeps its diagonal
-	# progress, then project the full step onto a free axis for a true slide.
+	# wall. Resolve onto a continuously reachable component or free tangent.
 	var origin:=hero.position
 	var requested:=Vector2(next.x-origin.x,next.z-origin.z)
 	var requested_distance:=requested.length()
 	var unclamped_next:=next
-	next=hero_safe_destination(next)
+	next=hero_safe_destination(next,origin)
 	var ramp_motion:=hero_ramp_motion(origin,unclamped_next)
 	var platform_x_clamped:=not is_equal_approx(next.x,unclamped_next.x)
 	var platform_z_clamped:=not is_equal_approx(next.z,unclamped_next.z)
@@ -1238,14 +1243,11 @@ func move_hero_position(next: Vector3) -> bool:
 	var z_reachable:=absf(delta.z)>.0001 and can_traverse(origin,z_step)
 	if x_reachable:
 		candidates.append(x_step)
-		if absf(delta.z)>.0001:
-			var x_then_z:=Vector3(next.x,origin.y,next.z)
-			if can_traverse(x_step,x_then_z):candidates.append(x_then_z)
 	if z_reachable:
 		candidates.append(z_step)
-		if absf(delta.x)>.0001:
-			var z_then_x:=Vector3(next.x,origin.y,next.z)
-			if can_traverse(z_step,z_then_x):candidates.append(z_then_x)
+	# Two individually clear axis legs must not reintroduce the diagonal
+	# endpoint that was rejected above. The hero moves directly to the selected
+	# candidate, so that diagonal would still clip the solid wall's outer corner.
 	# A diagonal input has a normalized step. If one component is blocked,
 	# retain that step length along the free tangent instead of slowing to the
 	# smaller component length at the wall.
@@ -1291,7 +1293,17 @@ func move_hero_position(next: Vector3) -> bool:
 	hero.position=best
 	return true
 
-func hero_safe_destination(point: Vector3) -> Vector3:
+func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vector3:
+	# Visual clearance belongs to the side of the wall that the hero occupies.
+	# Applying the courtyard's inner clamp to the outer south slope pulled an
+	# exterior hero towards z=6.16 through the wall. The bounded correction then
+	# reversed its free-axis slide, producing alternating steps and tiny retries.
+	# Standalone route goals use their own region; movement and dashes also
+	# check their origin so a blocked request cannot change sides of a wall.
+	var reference:=point if origin==Vector3.INF else origin
+	var ramp_clearance: bool=absf(reference.x)<=2.65 and reference.z>6.5 and reference.z<18.6
+	var courtyard_clearance: bool=absf(reference.x)<6.5 and absf(reference.z)<6.5
+	if absf(point.x)<6.5 and absf(point.z)<6.5:courtyard_clearance=true
 	# The raised south ramp is only 5.2 m wide between its side walls. The
 	# imported hero has a broader visual footprint than the gameplay ring, so a
 	# centre position at x=±2.6 visibly intersects the wall and feels sticky.
@@ -1301,7 +1313,7 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 	# beside the ramp is intentionally open; applying this to every point in
 	# the ramp's z range pulled an outer-ground hero across the retaining wall
 	# or left it unable to move along that side.
-	if point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6 and absf(point.x)<3.9:
+	if ramp_clearance and point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6 and absf(point.x)<3.9:
 		var limit:=hero_ramp_side_limit(point.z)
 		point.x=clampf(point.x,-limit,limit)
 	# The raised courtyard has three solid retaining walls. Apply the same
@@ -1309,6 +1321,7 @@ func hero_safe_destination(point: Vector3) -> Vector3:
 	# player can transition onto the ramp without a second hard stop. The two
 	# passes handle a diagonal step that first enters the south wall band and
 	# then reaches an east/west wall corner in the same frame.
+	if not courtyard_clearance:return point
 	for _pass in 2:
 		if absf(point.z)<6.5 and absf(point.x)<6.5:
 			point.x=clampf(point.x,-HERO_FORT_SAFE_EDGE,HERO_FORT_SAFE_EDGE)
@@ -2293,7 +2306,7 @@ func cast(slot: int, feedback: bool = false) -> bool:
 			# movement. Without this resolution, a diagonal E from the raised
 			# ramp or courtyard can place the hero's cape inside a retaining wall,
 			# which makes the next ordinary frame look like terrain snagging.
-			var target:=hero_safe_destination(requested_target)
+			var target:=hero_safe_destination(requested_target,origin)
 			if can_traverse(origin,target):
 				target.y=outpost_height(target)
 				hero.position=target;move_goal=target;hero_path.clear()

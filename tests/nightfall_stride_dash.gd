@@ -57,6 +57,21 @@ func run() -> void:
 	check(game.can_traverse(wall_before,game.hero.position),"E must not cross a retaining wall")
 	check(Vector2(game.hero.position.x-wall_before.x,game.hero.position.z-wall_before.z).length()<=game.dash_distance()+.001,"A blocked longer E must not overshoot its requested distance")
 
+	# A dash starting inside the ramp keeps that corridor's clearance even
+	# when its raw endpoint lies in a side wall. Resolve using its real origin.
+	for side in [-1.0,1.0]:
+		reset_case(game,0,Vector3(side*2.5,0,7.6),Vector3(side*.2,0,.98))
+		var ramp_before: Vector3=game.hero.position
+		check(game.cast(2),"Ramp-edge E must cast on side %.0f" % side)
+		check(game.can_traverse(ramp_before,game.hero.position),"Ramp-edge E must remain on its side of the wall")
+		check(absf(game.hero.position.x)<=game.hero_ramp_side_limit(game.hero.position.z)+.001,"Ramp-edge E must arrive inside the visual corridor")
+		check(Vector2(game.hero.position.x-ramp_before.x,game.hero.position.z-ramp_before.z).length()>5.4,"Ramp-edge E must preserve useful travel instead of consuming mana in place")
+	reset_case(game,0,Vector3(5,0,1),Vector3.BACK)
+	var courtyard_before: Vector3=game.hero.position
+	check(game.cast(2),"Courtyard E towards the south wall must cast")
+	check(game.can_traverse(courtyard_before,game.hero.position),"Courtyard E must not cross the south retaining wall")
+	check(absf(game.hero.position.z-game.HERO_FORT_SAFE_EDGE)<.001 and game.hero.position.z-courtyard_before.z>5.0,"Courtyard E must shorten to the inner safe edge instead of stopping in place")
+
 	print("NIGHTFALL_STRIDE_DASH_OK layers=0/1/2 distances=6.0/6.8/7.6, pause and wall clearance")
 	await game.prepare_shutdown()
 	game.free()

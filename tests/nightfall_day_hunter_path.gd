@@ -92,4 +92,8 @@ func run() -> void:
 	if not check(entered_courtyard and reached_hero,"Night pursuer got stuck before reaching a high-ground hero"):return
 	if not check(not night_hunter.attack_queued or night_hunter.attack_target_hero,"A high-ground waypoint must never queue a non-hero attack"):return
 	print("NIGHTFALL_DAY_HUNTER_PATH_OK both fortress sides, south-gate pursuit, target replanning, continuous wall checks, unchanged night lane")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	quit()
