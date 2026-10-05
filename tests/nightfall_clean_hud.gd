@@ -13,7 +13,7 @@ const CLOSE := Rect2(428, 692, 112, 30)
 const MINI := Rect2(1252, 106, 164, 164)
 const CONSTRUCTION := Rect2(435, 642, 570, 140)
 const RunSession = preload("res://scripts/run_session.gd")
-const RECORDING_HUD := """extends \"res://scripts/nightfall_hud.gd\"
+const RECORDING_HUD := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_labels: Array[Dictionary] = []
 var recording_drawer := false
 func _draw() -> void:
@@ -168,7 +168,7 @@ func capture(label: String) -> void:
 		await process_frame
 		await RenderingServer.frame_post_draw
 	var picture: Image = root.get_texture().get_image()
-	check(picture.get_size() == root.size, "Actual clean-HUD capture must use the requested viewport size")
+	check(picture.get_size() == root.content_scale_size and Vector2(picture.get_size()) == game.hud.get_viewport_rect().size, "Actual clean-HUD capture must use the requested content viewport size")
 	check(picture.save_png("res://build/clean-hud-%s.png" % label) == OK, "Save the actual clean HUD " + label)
 
 func api_ready() -> bool:
