@@ -152,6 +152,8 @@ func live_panel_rects() -> Array[Rect2]:
 		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT,minimap_rect()])
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
+	var active_tags:=CleanHud.active_tags_rect(self,game)
+	if active_tags.has_area():areas.append(active_tags)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
 	if game.phase in ["day","night"] and game.notice_time>0.0 and not game.construction.active and game.hero_damage_flash_time<=0.0:areas.append(Rect2(344,740,752,48))
 	if game.phase in ["day","night"] and not game.construction.active and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())

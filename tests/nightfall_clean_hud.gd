@@ -16,13 +16,16 @@ const RunSession = preload("res://scripts/run_session.gd")
 const RECORDING_HUD := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_labels: Array[Dictionary] = []
 var all_labels: Array[String] = []
+var drawn_boxes: Array[Rect2] = []
 var recording_drawer := false
 func _draw() -> void:
 	drawn_labels.clear()
 	all_labels.clear()
+	drawn_boxes.clear()
 	recording_drawer = false
 	super._draw()
 func box(rect: Rect2, fill: Color = Color(.022,.035,.045,.88), outline: Color = Color(\"435455\")) -> void:
+	drawn_boxes.append(rect)
 	if rect == Rect2(24,112,540,622): recording_drawer = true
 	if rect == Rect2(428,692,112,30): recording_drawer = false
 	super.box(rect,fill,outline)
@@ -324,6 +327,142 @@ func rich_exploration_page() -> void:
 		check(required in all_text, "The real full exploration page must draw " + required)
 	await capture("details-exploration-full-rewards")
 	press(KEY_ESCAPE)
+	await redraw()
+	check(active_tag_box().has_area(), "Closing the real exploration drawer must expose its active tags")
+
+func active_tag_box() -> Rect2:
+	# Observe the actual production box; never duplicate its text/width logic.
+	for rect: Rect2 in game.hud.drawn_boxes:
+		if rect.position == Vector2(24,100) and is_equal_approx(rect.size.y,29.0): return rect
+	return Rect2()
+
+func tag_selection_state() -> Dictionary:
+	return {"dragging": game.selection_dragging, "start": game.selection_start,
+		"end": game.selection_end, "additive": game.selection_additive,
+		"selected": game.squads.selected_ids.duplicate()}
+
+func tag_mouse_button(logical: Vector2, button: int, pressed: bool) -> void:
+	var event := InputEventMouseButton.new()
+	event.position = logical * game.hud.get_viewport_rect().size / Vector2(1440,900)
+	event.global_position = event.position
+	event.button_index = button
+	event.button_mask = (MOUSE_BUTTON_MASK_LEFT if button == MOUSE_BUTTON_LEFT else MOUSE_BUTTON_MASK_RIGHT) if pressed else 0
+	event.pressed = pressed
+	root.push_input(event,true)
+	await process_frame
+
+func tag_command_snapshot() -> Dictionary:
+	var members: Array[Dictionary] = []
+	var formations: Array[int] = []
+	for squad: Dictionary in game.squads.squads:
+		formations.append(int(squad.formation_index))
+		for member: BattleUnit in squad.members:
+			members.append({"node": member, "target": member.target, "queued": member.attack_queued,
+				"windup": member.attack_windup, "path": member.path.duplicate(), "timer": member.path_timer})
+	return {"orders": orders(), "selection": tag_selection_state(), "members": members,
+		"formations": formations, "aim": game.aim, "notice": game.notice,
+		"notice_time": game.notice_time, "keyboard": game.hero_keyboard_active}
+
+func restore_tag_commands(saved: Dictionary) -> void:
+	game.move_goal = saved.orders.goal
+	game.hero_path = saved.orders.path
+	game.hero_keyboard_active = saved.keyboard
+	game.aim = saved.aim
+	game.notice = saved.notice
+	game.notice_time = saved.notice_time
+	game.selection_dragging = saved.selection.dragging
+	game.selection_start = saved.selection.start
+	game.selection_end = saved.selection.end
+	game.selection_additive = saved.selection.additive
+	game.squads.selected_ids.assign(saved.selection.selected)
+	game.squads._refresh_selection()
+	for index in game.squads.squads.size():
+		var squad: Dictionary = game.squads.squads[index]
+		var previous: Dictionary = saved.orders.army[index]
+		squad.order = previous.order
+		squad.destination = previous.destination
+		squad.attack_target = previous.target
+		squad.formation_index = saved.formations[index]
+	for row: Dictionary in saved.members:
+		var member: BattleUnit = row.node
+		member.target = row.target
+		member.attack_queued = row.queued
+		member.attack_windup = row.windup
+		member.path = row.path
+		member.path_timer = row.timer
+
+func assert_tag_buttons(rect: Rect2, label: String) -> void:
+	var saved := tag_command_snapshot()
+	var selection := tag_selection_state()
+	await tag_mouse_button(rect.get_center(),MOUSE_BUTTON_LEFT,true)
+	check(tag_selection_state() == selection, label + ": actual left press must not start/change a world selection")
+	await tag_mouse_button(rect.get_center(),MOUSE_BUTTON_LEFT,false)
+	check(tag_selection_state() == selection, label + ": actual left release must preserve the prior troop selection")
+	check(orders() == saved.orders, label + ": left press/release must retain hero and troop orders")
+	restore_tag_commands(saved)
+	await assert_no_command(rect.get_center(),label)
+	restore_tag_commands(saved)
+
+func active_exploration_tag_inputs() -> void:
+	var original_size: Vector2i = root.size
+	var original_content: Vector2i = root.content_scale_size
+	var commands := tag_command_snapshot()
+	var timers: Dictionary = {}
+	for property: String in ["streak","streak_time","speed_time","speed_bonus","network_time","affinity_time","affinity_kinds"]:
+		var value: Variant = game.exploration.get(property)
+		timers[property] = value.duplicate() if value is Array else value
+	check(game.exploration.streak > 0 and game.exploration.affinity_active(), "The real prior exploration actions must retain both active tags")
+	check(game.squads.squads.size() == 1, "Active-tag input must include the actual GUI-trained squad")
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		await redraw()
+		var tag := active_tag_box()
+		var label := "Active exploration tags %dx%d" % [size.x,size.y]
+		check(game.hud.get_viewport_rect().size == Vector2(size) and tag.has_area(),label + ": observe the actual scaled viewport and drawn tag box")
+		if not tag.has_area(): continue
+		check(game.hud.visible_hud_rects().has(tag),label + ": every actually drawn tag panel must participate in visible-UI input coverage")
+		var text := " ".join(game.hud.all_labels)
+		check("换类" in text and "共鸣" in text,label + ": the visible state must contain both real exploration effects")
+		game.squads.cancel_selection()
+		await assert_tag_buttons(tag,label + " hero")
+		press(KEY_TAB)
+		check(game.squads.selected_count() == 1,label + ": actual Tab must select the trained squad")
+		await assert_tag_buttons(tag,label + " selected squad")
+		game.squads.cancel_selection()
+		if size == Vector2i(1920,1200): await capture("active-exploration-tags")
+		# The top edge of the former tag lies outside the drawer; it must become
+		# usable world space immediately when that conditional tag is hidden.
+		var free_point := tag.position + Vector2(8,2)
+		press(KEY_F3)
+		await redraw()
+		check(not active_tag_box().has_area() and not game.hud.visible_hud_rects().has(tag),label + ": opening details must remove the actual tag and its old hitbox")
+		await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,true)
+		check(game.selection_dragging,label + ": the exposed former tag edge must accept a real world-selection press")
+		await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,false)
+		restore_tag_commands(commands)
+		press(KEY_ESCAPE)
+		press(KEY_Y)
+		await redraw()
+		check(game.construction.active and not active_tag_box().has_area() and not game.hud.visible_hud_rects().has(tag),label + ": construction must hide both the tag panel and old hitbox")
+		await click_at(free_point,MOUSE_BUTTON_RIGHT)
+		check(not game.construction.active,label + ": right-click on the now-free former tag must reach the actual construction cancel action")
+		restore_tag_commands(commands)
+		game.exploration.tick(maxf(float(game.exploration.streak_time),float(game.exploration.affinity_time)) + .1)
+		await redraw()
+		check(not active_tag_box().has_area() and not game.hud.visible_hud_rects().has(tag),label + ": real effect expiry must remove the tag and old hitbox")
+		await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,true)
+		check(game.selection_dragging,label + ": an expired tag must restore real world-selection input")
+		await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,false)
+		restore_tag_commands(commands)
+		for property: String in timers:
+			var value: Variant = timers[property]
+			game.exploration.set(property,value.duplicate() if value is Array else value)
+	root.size = original_size
+	root.content_scale_size = original_content
+	restore_tag_commands(commands)
+	await redraw()
+	check(game.hud.detail_tab == "" and not game.construction.active and game.phase == "day", "Active-tag regression must restore the original live HUD state for later fixtures")
 
 func check_live_data() -> void:
 	var before := finances()
@@ -633,6 +772,7 @@ func run() -> void:
 	await rich_exploration_page()
 	await build_barracks()
 	await army_gui()
+	await active_exploration_tag_inputs()
 	await defense_and_memory_gui()
 	await scale_and_hit_testing()
 	await urgent_feedback()

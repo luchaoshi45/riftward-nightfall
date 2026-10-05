@@ -167,19 +167,29 @@ static func _draw_notice(ui: Control, game: Node3D) -> void:
 	for index in count:
 		ui.label(lines[index],Vector2(362,759+index*20),15,ui.ink)
 
-static func _draw_active_tags(ui: Control, game: Node3D) -> void:
-	if not is_instance_valid(game.exploration):return
+static func _active_tags_text(game: Node3D) -> String:
+	if not is_instance_valid(game.exploration):return ""
 	var exploration: Node=game.exploration
 	var labels: Array[String]=[]
 	if int(exploration.streak)>0 and float(exploration.streak_time)>0.0:
 		labels.append("换类%d连 · %.0f秒" % [int(exploration.streak),ceilf(float(exploration.streak_time))])
 	if exploration.affinity_active():labels.append("共鸣 +8零件 · %.0f秒" % ceilf(float(exploration.affinity_time)))
-	if labels.is_empty():return
-	var text:=" · ".join(labels)
+	return " · ".join(labels)
+
+static func active_tags_rect(ui: Control, game: Node3D) -> Rect2:
+	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return Rect2()
+	if game.music_credits_open or game.construction.active or not String(ui.get("detail_tab")).is_empty():return Rect2()
+	var text:=_active_tags_text(game)
+	if text.is_empty():return Rect2()
 	var font: Font=ui.get("font") as Font
 	var width:=minf(380.0,font.get_string_size(text,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x+26.0)
-	ui.box(Rect2(24,100,width,29),Color(.028,.050,.045,.80),Color("4e6b5c"))
-	ui.label(text,Vector2(37,120),13,GREEN)
+	return Rect2(24,100,width,29)
+
+static func _draw_active_tags(ui: Control, game: Node3D) -> void:
+	var rect:=active_tags_rect(ui,game)
+	if not rect.has_area():return
+	ui.box(rect,Color(.028,.050,.045,.80),Color("4e6b5c"))
+	ui.label(_active_tags_text(game),rect.position+Vector2(13,20),13,GREEN)
 
 static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 	ui.box(DRAWER_RECT,Color(.021,.037,.040,.97),Color("62776a"))
