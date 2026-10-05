@@ -51,6 +51,8 @@ func run() -> void:
 	check(queries<=11,"High-ground guidance must throttle repeated A* queries while moving (queries=%d)" % queries)
 	check(game.discoveries.motivation_cache_cell==Vector2i(floori(game.hero.position.x/2.0),floori(game.hero.position.z/2.0)),"Guidance cache must track the coarse ground cell")
 	print("NIGHTFALL_TERRAIN_SMOOTHNESS_OK guidance_ASTAR_queries=",queries," first=",first_queries)
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
+	await create_timer(.5).timeout
 	quit()

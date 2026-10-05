@@ -10,6 +10,9 @@ var render_test := false
 var route_seconds: Dictionary = {}
 
 func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	render_test = DisplayServer.get_name()!="headless" or "--render-test" in OS.get_cmdline_user_args()
 	call_deferred("run")
 
@@ -103,12 +106,23 @@ func start_day(wanted: String, respawn_wait: bool = false) -> bool:
 		game._unhandled_input(key)
 		check(game.contracts.selected_offer == 1 and before_offer != game.contracts.selected_offer,
 			"Production 5 key must switch to the second untouched contract offer")
+		key.keycode = KEY_4
+		game._unhandled_input(key)
+		check(game.contracts.selected_offer == 0 and game.contracts.kind == wanted,
+			"Production 4 key must restore the requested safe route before its actual movement test")
 	return game.contracts.status == "active" and game.contracts.kind == wanted
+
+func choose_return() -> void:
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_4
+	game._unhandled_input(key)
+	check(game.contracts.status == "returning", "Production 4 must explicitly choose the primary guarantee and actual return route")
 
 func close_game() -> void:
 	if not is_instance_valid(game): return
 	await game.prepare_shutdown()
-	game.queue_free(); await process_frame; await create_timer(.15).timeout
+	game.queue_free(); await process_frame; await create_timer(.5).timeout
 
 func travel(destination: Vector3) -> bool:
 	check(game.contract_goal().is_equal_approx(destination), "Production guidance must point to the actual remaining action or return goal")
@@ -189,7 +203,8 @@ func check_early_salvage() -> void:
 		"Actual fifty-five-second cache respawn must preserve already completed contract progress")
 	check(game.scrap == before_scrap and game.essence == before_memory, "Cache respawn and waiting cannot grant a contract payout")
 	if not collect_target(selected[1]): await close_game(); return
-	check(game.contracts.done.size() == 2 and game.contracts.status == "active", "Completed field actions still require actual return through the gate")
+	check(game.contracts.done.size() == 2 and game.contracts.status == "bonus_offer", "Completed field actions must offer the optional detour without pretending delivery occurred")
+	choose_return()
 	before_scrap = game.scrap; before_memory = game.essence
 	if not travel(HOME): await close_game(); return
 	check(game.phase_time >= 15.0, "Selected real route plus respawn must retain the fifteen-second early-return margin")
@@ -220,7 +235,8 @@ func check_generator() -> void:
 	wait_day(6.1)
 	check(site.state == "complete" and game.generator_cells == 1 and game.contracts.done.size() == 1,
 		"Actual twelve-second charge and defeated guards must complete the field action")
-	check(game.contracts.status == "active", "Field energy reward must not pretend the contract has already returned")
+	check(game.contracts.status == "bonus_offer", "Field energy reward must offer a detour without pretending the contract has already returned")
+	choose_return()
 	var before_scrap: int = game.scrap
 	var before_memory: int = game.essence
 	if not travel(HOME): await close_game(); return
@@ -232,16 +248,20 @@ func check_late_or_dusk(dusk: bool) -> void:
 	if not await start_day("salvage"): await close_game(); return
 	for target: Dictionary in game.contracts.targets:
 		if not collect_target(target): await close_game(); return
-	check(game.contracts.done.size() == 2 and game.contracts.status == "active", "Both caches away from home must leave a return requirement")
+	check(game.contracts.done.size() == 2 and game.contracts.status == "bonus_offer", "Both caches away from home must offer the explicit primary-or-detour decision")
 	var before_scrap: int = game.scrap
 	var before_memory: int = game.essence
 	if dusk:
 		wait_day(game.phase_time + .1)
-		check(game.phase == "night" and game.contracts.status == "expired", "Actual day deadline must close the unreturned contract")
+		check(game.phase == "night" and game.contracts.status == "completed", "Actual dusk must preserve a genuinely completed primary contract as a guarantee")
+		check(game.scrap == before_scrap + 30 and game.essence == before_memory + 8,
+			"Dusk must grant the completed primary guarantee without early-return or extra-supply rewards")
+		before_scrap = game.scrap; before_memory = game.essence
 		game.update_day_contracts(20.0)
 		check(game.scrap == before_scrap and game.essence == before_memory and game.contracts.pending_reward.is_empty(),
-			"Dusk and later production updates must not award field-only completed work")
+			"Dusk and later production updates must never duplicate the guaranteed primary payout")
 	else:
+		choose_return()
 		var return_seconds: float = route_length(game.hero.position, HOME) / game.hero.speed
 		wait_day(maxf(0.0, game.phase_time - return_seconds - 6.0))
 		if not travel(HOME): await close_game(); return
@@ -249,11 +269,28 @@ func check_late_or_dusk(dusk: bool) -> void:
 		check(game.scrap == before_scrap + 30 and game.essence == before_memory + 8, "Late arrival must pay thirty supplies, eight memory, and no ten-supply early bonus")
 	await close_game()
 
+func check_incomplete_dusk() -> void:
+	if not await start_day("salvage"): await close_game(); return
+	if not collect_target(game.contracts.targets[0]): await close_game(); return
+	check(game.contracts.status == "active" and game.contracts.done.size() == 1,
+		"Only one of two real caches must leave the primary contract incomplete")
+	var before_scrap: int = game.scrap
+	var before_memory: int = game.essence
+	wait_day(game.phase_time + .1)
+	check(game.phase == "night" and game.contracts.status == "expired",
+		"Actual dusk must expire an incomplete primary contract")
+	check(game.scrap == before_scrap and game.essence == before_memory and game.contracts.pending_reward.is_empty(),
+		"Partial primary field work must not receive the completed-work guarantee")
+	await close_game()
+
 func run() -> void:
 	await check_early_salvage()
 	await check_generator()
 	await check_late_or_dusk(false)
 	await check_late_or_dusk(true)
+	await check_incomplete_dusk()
+	check(route_seconds.has("salvage") and route_seconds.has("generator"),
+		"The production regression must actually travel both requested route kinds rather than silently skip its cases")
 	print("NIGHTFALL_DAY_CONTRACTS_", "OK" if failures.is_empty() else "FAILED", " actual_routes=", route_seconds,
 		" production_rewards respawn_progress pause_draft early_late dusk", " rendered" if render_test else "")
 	quit(0 if failures.is_empty() else 1)
