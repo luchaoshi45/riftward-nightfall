@@ -1,3 +1,7 @@
+## 当前源码：投蚀体玩法原型
+
+2026-10-06投蚀体复用已追踪的原创`assets/models/night_stalker_v2.glb`及原关节动作，不修改该GLB或Blender源；`scripts/nightfall_lobber.gd`在完整原模型上附加原生蚀液囊、背刺与抛物弹几何，使远程角色可辨认。落点危险圈和进度、弹体及小地图三角标记由程序生成，没有引入第三方模型、贴图或音效。本轮交付是有真实远程行为的可玩原型，不声明已完成专业新角色GLB、PBR纹理或蒙皮动画。
+
 ## 当前源码：扩建城堡地形
 
 2026-10-05按城内自由建塔需求新增原创`assets/models/castle_ground.glb`，可编辑源为`art_source/outpost/castle_ground.blend`，定向生成器为`art_source/create_castle_ground.py`。使用Blender4.5.3制作；生成器只制作这张地形，不重生成其他资产，直接读取`scripts/outpost_layout.gd`的数值。城内地面26×26、5米高地，保留三面封闭、正Z唯一南门、12米长坡及两侧挡墙；灰烬地表、Weathered concrete/Concrete fracture材质仍走原风化着色流程。旧`outpost_ground`源和运行资源作为历史输入保留，当前世界加载`castle_ground`。

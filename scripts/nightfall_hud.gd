@@ -208,6 +208,7 @@ func _draw() -> void:
 	draw_combat_rewards()
 	draw_hero_damage_feedback()
 	draw_target_warnings()
+	draw_lobber_warnings()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
@@ -395,6 +396,34 @@ func draw_target_warnings() -> void:
 		var width:=font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x
 		label(detail,Vector2(831-width*.5,628),16,Color("ffd1a0"))
 
+func draw_lobber_warnings() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	for warning: Dictionary in game.lobber_warning_snapshot():
+		var point: Vector3=warning.position
+		var screen: Variant=_world_screen(point+Vector3.UP*.18)
+		if screen==null:continue
+		var center: Vector2=screen as Vector2
+		if center.x<0 or center.x>1440 or center.y<0 or center.y>900:continue
+		# Label the fixed landing point, never the target's new position. F2
+		# reduces world decoration while this essential timer stays readable.
+		var text_value: String="投蚀 %.1f秒" % maxf(0.0,float(warning.remaining))
+		var width: float=font.get_string_size(text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+		var position:=Vector2(clampf(center.x-width*.5,10,1430-width),clampf(center.y-28,110,790))
+		var free_position:=false
+		var footprint: Rect2
+		for _attempt in 10:
+			footprint=Rect2(position-Vector2(3,14),Vector2(width+6,19))
+			var overlaps:=false
+			for rect: Rect2 in occupied:
+				if rect.intersects(footprint):overlaps=true;break
+			if not overlaps:free_position=true;break
+			position.y-=22
+		if not free_position or position.y<96:continue
+		occupied.append(footprint)
+		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
+		label(text_value,position,13,Color("eed897"))
+
 func draw_hero_damage_feedback() -> void:
 	if game.phase not in ["day","night","paused"]:return
 	if float(game.get("hero_damage_flash_time"))<=0.0:return
@@ -566,7 +595,11 @@ func draw_minimap() -> void:
 		if not is_instance_valid(creature) or not creature.alive:continue
 		if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
 		var threat: String=creature.get_meta("threat","")
-		draw_circle(center+Vector2(creature.position.x,creature.position.z)*scale,3.5 if threat=="breaker" else 2.3,Color("ed945b") if threat=="breaker" else (Color("83d8d9") if threat=="runner" else (Color("a794eb") if threat=="light_eater" else red)))
+		var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
+		if threat=="lobber":
+			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-3.5),enemy_marker+Vector2(3.5,3),enemy_marker+Vector2(-3.5,3),enemy_marker+Vector2(0,-3.5)]),Color("ced78b"),1.8)
+		else:
+			draw_circle(enemy_marker,3.5 if threat=="breaker" else 2.3,Color("ed945b") if threat=="breaker" else (Color("83d8d9") if threat=="runner" else (Color("a794eb") if threat=="light_eater" else red)))
 	draw_circle(center,5.0,amber)
 	if game.beacon_alarm_time>0:
 		draw_arc(center,11.0,0,TAU,32,Color("f16d58"),2.5)

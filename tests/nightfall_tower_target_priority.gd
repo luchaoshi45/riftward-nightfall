@@ -13,7 +13,8 @@ func run() -> void:
 		if is_instance_valid(enemy):enemy.queue_free()
 	game.enemies.clear()
 	game.set_process(false)
-	game.hero.position=Vector3(-8,5,-5.8)
+	# Keep the hero's full live footprint outside the new three-by-three tower.
+	game.hero.position=Vector3(-8,5,-4.2)
 	game.move_goal=game.hero.position
 	game.scrap=60
 	assert(game.build_tower_at(Vector3(-8,5,-8)))
@@ -24,20 +25,29 @@ func run() -> void:
 	var nearest: BattleUnit=game.spawn_creature(false)
 	var eater: BattleUnit=game.spawn_creature(false)
 	var sapper: BattleUnit=game.spawn_creature(false)
+	var lobber: BattleUnit=game.spawn_creature(true,"lobber")
 	nearest.position=pad.position+Vector3(2.0,0,0)
 	eater.position=pad.position+Vector3(8.0,0,0)
 	sapper.position=pad.position+Vector3(9.0,0,0)
+	lobber.position=pad.position+Vector3(7.0,0,0)
 	eater.set_meta("threat","light_eater")
 	sapper.set_meta("threat","sapper")
 	var nearest_hp: float=nearest.hp
 	var eater_hp: float=eater.hp
 	var sapper_hp: float=sapper.hp
+	var lobber_hp: float=lobber.hp
 	pad.mode="threat"
 	game.update_towers(1.2)
-	assert(eater.hp<eater_hp and nearest.hp==nearest_hp and sapper.hp==sapper_hp,
+	assert(eater.hp<eater_hp and nearest.hp==nearest_hp and sapper.hp==sapper_hp and lobber.hp==lobber_hp,
 		"Threat mode must prioritize the light eater over a nearby normal enemy")
 	eater.alive=false
 	eater.hp=0.0
+	pad.cooldown=0.0
+	game.update_towers(1.2)
+	assert(lobber.hp<lobber_hp and sapper.hp==sapper_hp and nearest.hp==nearest_hp,
+		"Threat mode must prioritize a real ranged lobber after the light eater dies")
+	lobber.alive=false
+	lobber.hp=0.0
 	pad.cooldown=0.0
 	game.update_towers(1.2)
 	assert(sapper.hp<sapper_hp and nearest.hp==nearest_hp,
@@ -52,6 +62,8 @@ func run() -> void:
 	assert(breaker.hp<breaker_hp,
 		"Breaker mode must preserve breaker priority")
 	pad.mode="nearest"
+	game.hero.position=pad.position+Vector3(0,0,2.2)
+	game.move_goal=game.hero.position
 	assert(game.toggle_tower_mode() and pad.mode=="breaker")
 	assert(game.toggle_tower_mode() and pad.mode=="threat")
 	assert(game.toggle_tower_mode() and pad.mode=="nearest")
@@ -72,6 +84,7 @@ func run() -> void:
 	assert(nearest.hp<focused_hp,"Focus order must override automatic threat priority")
 	print("NIGHTFALL_TOWER_TARGET_PRIORITY_OK")
 	await game.prepare_shutdown()
+	current_scene=null
 	game.queue_free()
 	await process_frame
 	await create_timer(.5).timeout

@@ -556,7 +556,7 @@ func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
 		if not _in_range(soldier, enemy): continue
 		var candidate_score := -_ground_distance(soldier.position, enemy.position)
 		if str(soldier.get_meta("squad_kind")) in ["ranged", "ballista"]:
-			candidate_score += float({"breaker": 4, "sapper": 3, "light_eater": 2}.get(str(enemy.get_meta("threat", "")), 0)) * 10.0
+			candidate_score += float({"breaker": 4, "sapper": 3, "lobber": 3, "light_eater": 2}.get(str(enemy.get_meta("threat", "")), 0)) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected
 
@@ -565,7 +565,7 @@ func _in_range(soldier: BattleUnit, enemy: BattleUnit) -> bool:
 
 func blocker_for(enemy: Variant) -> BattleUnit:
 	if not _active() or str(game.get("phase")) != "night" or not _enemy(enemy): return null
-	if str(enemy.get_meta("threat", "")) in ["sapper", "light_eater"]: return null
+	if str(enemy.get_meta("threat", "")) in ["sapper", "light_eater", "lobber"]: return null
 	var closest: BattleUnit
 	var distance := 3.2
 	for squad in squads:
@@ -581,7 +581,7 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 	if not _enemy(enemy): return false
 	var key: int = enemy.get_instance_id()
 	if not _active(): return _intercepts.has(key) # An accidental paused call must not mutate combat.
-	if str(game.get("phase")) != "night" or str(enemy.get_meta("threat", "")) in ["sapper", "light_eater"]:
+	if str(game.get("phase")) != "night" or str(enemy.get_meta("threat", "")) in ["sapper", "light_eater", "lobber"]:
 		_cancel_enemy_intercept(enemy)
 		return false
 	var blocker: BattleUnit

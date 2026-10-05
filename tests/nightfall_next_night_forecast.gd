@@ -3,11 +3,16 @@ extends SceneTree
 
 var game: Node3D
 var failures: Array[String] = []
+var checks := 0
 
 func _initialize() -> void:
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
+		root.hide()
 	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
+	checks += 1
 	if condition:return
 	failures.append(message)
 	push_error(message)
@@ -52,6 +57,10 @@ func run() -> void:
 	check(game.choose_card(0) and game.phase=="day","The second-night draft must enter daytime planning")
 	check(game.night_plan.size()==5,"Daytime must save all five waves before the next night")
 	var saved_plan: Array[Dictionary]=game.night_plan.duplicate(true)
+	check(saved_plan[2].roles.count("lobber")==1 and saved_plan[4].roles.count("lobber")==1,
+		"The actual second-day forecast must preserve both planned lobber arrivals")
+	check(saved_plan[2].threat=="lobber" and String(saved_plan[2].advice).contains("2米") and String(saved_plan[2].advice).contains("集火"),
+		"Saved lobber preview must explain moving out of the landing area and ranged focus")
 	check(game.forecast_primary_threat()!="基础夜行体" and game.forecast_specialist_count()>0,"Forecast must expose a real specialist threat")
 	check(game.countermeasure_recommended(0) or game.countermeasure_recommended(1) or game.countermeasure_recommended(2),"One countermeasure must match the saved threat plan")
 
@@ -71,6 +80,12 @@ func run() -> void:
 	check(actual_roles()==expected_roles(game.night_plan[0]),"Actual first wave must match the daytime forecast roles")
 	check(game.countermeasure_selected==1,"Night HUD state must retain which order was consumed")
 	clear_enemies()
+	for wave in range(1,5):
+		await process_frame
+		game.spawn_night_wave()
+		check(actual_roles()==expected_roles(saved_plan[wave]),"Every actual later wave must consume the exact daytime roles including lobbers")
+		check(game.night_plan==saved_plan,"Consuming a planned wave must not reroll later warnings or their advice")
+		clear_enemies()
 
 	# The next daytime plan is generated from the new day number, not silently
 	# reused from the previous night.
@@ -116,9 +131,40 @@ func run() -> void:
 	game.countermeasure_light_time=0.0;game.simulate(.1)
 	var normal_drain: float=game.world.gate_light_drain[0]
 	check(guarded_drain<normal_drain*.7,"Light guard order must reduce the real light-eater drain")
+	clear_enemies();await process_frame
+	# Isolate a genuine fourth iron-tide plan, where progressive replacement
+	# makes lobbers the most numerous specialist without inventing forecast roles.
+	game.run_mode="siege";game.day_number=4;game.phase="day"
+	for nest in game.world.nests:nest.cleansed=false
+	game.prepare_next_night_plan(true)
+	var lobber_plan: Array[Dictionary]=game.night_plan.duplicate(true)
+	var specialist_total:=0
+	var lobber_total:=0
+	for entry: Dictionary in lobber_plan:
+		for role in entry.roles:
+			if String(role)!="basic":specialist_total+=1
+			if String(role)=="lobber":lobber_total+=1
+		if bool(entry.boss_entry):specialist_total+=1
+	check(lobber_total==10,"Fourth-night iron-tide forecast must expose the actual ten planned lobbers")
+	check(game.forecast_primary_threat_id()=="lobber" and game.forecast_primary_threat()=="投蚀体",
+		"Primary threat selection and Chinese title must recognize the dominant real lobber role")
+	check(game.forecast_specialist_count()==specialist_total,"The daytime specialist count must include real lobbers and the original boss exactly once")
+	check(game.countermeasure_recommended(2) and not game.countermeasure_recommended(0) and not game.countermeasure_recommended(1),
+		"The actual dominant lobber plan must recommend the visible tower-fire order")
+	check(game.night_plan==lobber_plan,"Reading names, counts and recommendations must preserve the saved plan")
+	check(game.select_countermeasure(2),"The lobber-recommended order must remain available through the production selection API")
+	game.start_night()
+	check(game.night_plan==lobber_plan and game.countermeasure_active=="tower_barrage",
+		"Night start must consume the same lobber forecast and activate its selected order once")
+	clear_enemies()
+	for wave in range(1,5):
+		await process_frame
+		game.spawn_night_wave()
+		check(actual_roles()==expected_roles(lobber_plan[wave]),"The dominant-lobber forecast must match its real later births and final boss")
+		clear_enemies()
 	await game.prepare_shutdown();game.queue_free();await process_frame;await create_timer(.15).timeout
 	if failures.is_empty():
-		print("NIGHTFALL_NEXT_NIGHT_FORECAST_OK")
+		print("NIGHTFALL_NEXT_NIGHT_FORECAST_OK checks=",checks)
 		quit(0)
 	else:
 		print("NIGHTFALL_NEXT_NIGHT_FORECAST_FAILED ",failures)

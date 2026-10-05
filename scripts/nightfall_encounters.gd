@@ -2,9 +2,10 @@ extends RefCounted
 ## 保存实际敌群计划；预告读取同一份计划，不另行随机生成文案。
 
 const WAVE_TIMES: Array[float] = [0.0, 20.0, 40.0, 65.0, 85.0]
-const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater"]
+const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber"]
 const MAX_NEST_REDUCTION: int = 6
 const MIN_WAVE_COUNT: int = 4
+const LOBBER_ADVICE := "移出2米落点，弩手/重弩集火；射程11.2米，蓄力1.15秒＋飞行0.75秒。"
 
 func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -> Array[Dictionary]:
 	var night: int = clampi(night_index, 1, 4)
@@ -18,6 +19,9 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 	var plan: Array[Dictionary] = []
 	for index in range(WAVE_TIMES.size()):
 		var composition: Dictionary = _first_night(index, random) if night == 1 else _later_night(index, night, theme, random)
+		if night >= 2:
+			var lobber_count := night - 1 if index in [2, 4] else (night - 2 if index in [1, 3] else 0)
+			composition = _with_lobbers(composition, lobber_count, index == 2)
 		var roles: Array[String] = []
 		var specialists: Array = composition.roles
 		for role in specialists:
@@ -59,7 +63,7 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 		})
 		if boss_entry:
 			plan[plan.size() - 1].title = "末夜首领 · 灯噬巨兽 · %s" % String(composition.title)
-			plan[plan.size() - 1].advice = "灯噬巨兽将在本波压门 · 打断蓄力后清理增援与残敌"
+			plan[plan.size() - 1].advice = "打断首领蓄力，移出2米投蚀落点后远程集火。" if composition.roles.has("lobber") else "灯噬巨兽将在本波压门 · 打断蓄力后清理增援与残敌"
 	return plan
 
 ## index 是已经生成的波数（0表示尚未生成）；返回值可供HUD自由修改。
@@ -112,6 +116,27 @@ func _later_night(index: int, night: int, theme: String, random: RandomNumberGen
 
 func _composition(title: String, threat: String, advice: String, roles: Array) -> Dictionary:
 	return {"title": title, "threat": threat, "advice": advice, "roles": roles}
+
+func _with_lobbers(composition: Dictionary, requested_count: int, primary: bool) -> Dictionary:
+	if requested_count <= 0: return composition
+	var roles: Array = composition.roles
+	var counts: Dictionary = {}
+	for role: String in roles: counts[role] = int(counts.get(role, 0)) + 1
+	var replaced := 0
+	# Replace specialists without changing population or consuming extra RNG.
+	# Keep at least one of every original identity, including mixed-role themes.
+	for index in range(roles.size() - 1, -1, -1):
+		if replaced >= requested_count: break
+		var role := String(roles[index])
+		if role == "basic" or int(counts[role]) <= 1: continue
+		counts[role] = int(counts[role]) - 1
+		roles[index] = "lobber"
+		replaced += 1
+	if replaced > 0:
+		composition.title = String(composition.title) + " · 投蚀落点"
+		composition.advice = LOBBER_ADVICE
+		if primary: composition.threat = "lobber"
+	return composition
 
 func _repeat(role: String, count: int) -> Array[String]:
 	var roles: Array[String] = []

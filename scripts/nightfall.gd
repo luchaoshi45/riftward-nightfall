@@ -10,6 +10,7 @@ const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
+const LobberScript = preload("res://scripts/nightfall_lobber.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -97,6 +98,7 @@ var squads: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var siege_boss: Node
+var lobbers: Array[Node3D] = []
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -327,6 +329,27 @@ func simulate(delta: float) -> void:
 	if phase=="night" and is_instance_valid(siege_boss):
 		boss_action_handled=siege_boss.advance(delta)
 		if phase!="day" and phase!="night":return
+	if phase=="day" and not lobbers.is_empty():clear_lobbers()
+	# A committed projectile outlives a defeated thrower. Advance controllers
+	# once even when that host has already left the living enemy list.
+	var lobber_actions: Dictionary={}
+	for index in range(lobbers.size()-1,-1,-1):
+		var lobber: Node3D=lobbers[index]
+		if not is_instance_valid(lobber):
+			lobbers.remove_at(index)
+			continue
+		var source_value: Variant=lobber.get("host")
+		var source: BattleUnit=null
+		if is_instance_valid(source_value):source=source_value as BattleUnit
+		var source_id: int=source.get_instance_id() if is_instance_valid(source) else -1
+		var handled: bool=lobber.advance(delta)
+		if phase not in ["day","night"]:return
+		if source_id>=0:lobber_actions[source_id]=handled
+		var state: String=String(lobber.snapshot().get("phase","idle"))
+		if (not is_instance_valid(source) or not source.alive) and state not in ["flight","impact"]:
+			lobber.clear()
+			lobber.queue_free()
+			lobbers.remove_at(index)
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -335,6 +358,8 @@ func simulate(delta: float) -> void:
 			continue
 		creature.tick(delta)
 		if creature.get_meta("siege_boss",false) and boss_action_handled:
+			continue
+		if creature.get_meta("threat","")=="lobber" and bool(lobber_actions.get(creature.get_instance_id(),false)):
 			continue
 		if squads and squads.intercept_enemy(creature,delta):
 			continue
@@ -386,6 +411,7 @@ func simulate(delta: float) -> void:
 		else:finish_night()
 
 func start_night() -> void:
+	clear_lobbers()
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
@@ -457,9 +483,26 @@ func register_active_wave_enemy(enemy: Variant) -> bool:
 	return registered
 
 func _has_living_night_enemies() -> bool:
+	for lobber: Node3D in lobbers:
+		if is_instance_valid(lobber) and String(lobber.snapshot().get("phase",""))=="flight":return true
 	for creature in enemies:
 		if is_instance_valid(creature) and not creature.is_queued_for_deletion() and creature.alive:return true
 	return false
+
+func lobber_warning_snapshot() -> Array[Dictionary]:
+	var warnings: Array[Dictionary]=[]
+	for lobber: Node3D in lobbers:
+		if not is_instance_valid(lobber):continue
+		var warning: Dictionary=lobber.snapshot()
+		if String(warning.get("phase","")) in ["windup","flight"]:warnings.append(warning)
+	return warnings
+
+func clear_lobbers() -> void:
+	for lobber: Node3D in lobbers:
+		if not is_instance_valid(lobber):continue
+		lobber.clear()
+		lobber.queue_free()
+	lobbers.clear()
 
 func begin_final_clearance() -> void:
 	if final_clearance_active or phase!="night":return
@@ -493,6 +536,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	clear_lobbers()
 	clear_exploration_marker()
 	cores.clear()
 	specializations.reset_effects()
@@ -589,14 +633,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["light_eater","sapper","breaker","runner"]:
+	for role in ["light_eater","lobber","sapper","breaker","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"light_eater":"噬灯蛾", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -616,7 +660,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper":recommended_index=2
+		"sapper","lobber":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -767,6 +811,7 @@ func settle_contract_reward() -> void:
 		notify("委托已交回 · +%d零件" % int(reward.scrap),3)
 
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
+	var is_lobber: bool=night and role=="lobber"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
@@ -796,7 +841,22 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	creature.attack_range=1.6
 	creature.attack_interval=1.1
 	if night:
-		if roll<.06+day_number*.025:
+		if is_lobber:
+			creature.set_meta("threat","lobber")
+			creature.title="投蚀体"
+			creature.max_hp*=.92
+			creature.hp=creature.max_hp
+			creature.damage=22.0
+			creature.speed=3.15
+			creature.attack_range=LobberScript.RANGE
+			creature.attack_interval=LobberScript.ATTACK_INTERVAL
+			creature.visual.scale=Vector3.ONE*1.08
+			var lobber: Node3D=LobberScript.new()
+			lobber.name="LobberController"
+			add_child(lobber)
+			lobber.setup(self,creature)
+			lobbers.append(lobber)
+		elif roll<.06+day_number*.025:
 			creature.set_meta("threat","breaker")
 			creature.title="破城体"
 			creature.max_hp*=2.35
@@ -887,6 +947,11 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	var hero_attackable: bool=pursuing_hero and final_target
 	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_district or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
 	var unreachable_target:=not final_target or not can_attack_line(creature.position,selected_position)
+	if threat=="lobber" and final_target:
+		# Stop relative to the target centre, not its nearer approach surface.
+		# The latter can otherwise leave a thrower stalled beyond launch range.
+		distance=Vector2(creature.position.x-selected_position.x,creature.position.z-selected_position.z).length()
+		unreachable_target=unreachable_target or absf(creature.position.y-selected_position.y)>LobberScript.HEIGHT_TOLERANCE
 	if distance>reach or unreachable_target:
 		creature.attack_queued=false
 		creature.attack_windup=0
@@ -904,6 +969,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	else:
 		creature.moving=false
 		creature.face(target,delta)
+		# Cooldown/cancelled casts must never fall through to instant melee.
+		if threat=="lobber":return
 		if creature.attack_queued and creature.attack_windup<=0:
 			creature.attack_queued=false
 			creature.attack_timer=creature.attack_interval
@@ -1028,7 +1095,7 @@ func target_warning_snapshot() -> Array[Dictionary]:
 	var warnings: Array[Dictionary]=[]
 	if phase not in ["day","night","paused"]:return warnings
 	for creature: BattleUnit in enemies:
-		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false):continue
+		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber":continue
 		if not creature.attack_queued or creature.attack_windup<=0.0:continue
 		var target:=attack_target_node(creature)
 		var target_kind:=String(creature.get_meta("attack_target_kind",""))
@@ -1844,7 +1911,7 @@ func _on_hero_damaged(_unit: BattleUnit, source: BattleUnit) -> void:
 		source.hurt(18+hero.armor*.25,hero)
 
 func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: float, shield_loss: float) -> void:
-	var source_title: String=source.title if is_instance_valid(source) else "未知攻击"
+	var source_title: String=source.title if is_instance_valid(source) else String(_unit.get_meta("delayed_enemy_hit_title","未知攻击"))
 	var losses: Array[String]=[]
 	if shield_loss>0.0:losses.append("护盾 -%d" % maxi(1,roundi(shield_loss)))
 	if hp_loss>0.0:losses.append("生命 -%d" % maxi(1,roundi(hp_loss)))
@@ -1854,6 +1921,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	clear_lobbers()
 	cores.clear()
 	specializations.reset_effects()
 	if squads:squads.clear()
@@ -1926,7 +1994,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"light_eater":0,"sapper":1,"breaker":2}.get(threat,99)
+	return {"light_eater":0,"lobber":1,"sapper":2,"breaker":3}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
@@ -2828,6 +2896,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 	return stream
 
 func _exit_tree() -> void:
+	clear_lobbers()
 	if is_instance_valid(effects):
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
@@ -2854,6 +2923,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	clear_lobbers()
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()
