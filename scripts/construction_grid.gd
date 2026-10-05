@@ -6,15 +6,12 @@ const ORIGIN := Vector2(-13.0, -13.0)
 const CASTLE_CELLS := Rect2i(0, 0, 26, 26)
 const MAX_GRID_INDEX := 1073741820
 const MAX_RASTER_CELLS := 65536
-const BUILDING_SIZES := {
-	"tower": Vector2i(3, 3),
-	"barracks": Vector2i(4, 3),
-	"workshop": Vector2i(3, 2),
-	"core": Vector2i(6, 6),
-}
+const Catalog := preload("res://scripts/outpost_catalog.gd")
+const CORE_SIZE := Vector2i(6, 6)
 
 static func sizes(kind: String) -> Vector2i:
-	return BUILDING_SIZES.get(kind, Vector2i.ZERO)
+	if kind == "core": return CORE_SIZE
+	return Catalog.building(kind).get("size", Vector2i.ZERO)
 
 static func placement(point: Vector3, kind: String) -> Dictionary:
 	var cells: Array[Vector2i] = []

@@ -2,6 +2,8 @@ extends Control
 ## Compact dark-fantasy HUD for the outpost loop.
 const Layout = preload("res://scripts/outpost_layout.gd")
 const CleanHud = preload("res://scripts/nightfall_clean_hud.gd")
+const Catalog = preload("res://scripts/outpost_catalog.gd")
+const CATALOG_PAGE_SIZE := 3
 const CONSTRUCTION_PANEL_RECT := Rect2(435,642,570,140)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
@@ -18,6 +20,8 @@ var card_rects: Array[Rect2] = []
 var mode_rects: Array[Rect2] = []
 var training_cancel_buttons: Array[Dictionary] = []
 var training_page := 0
+var construction_page := 0
+var troop_page := 0
 const BOSS_PANEL_RECT := Rect2(457,24,570,110)
 const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
 const EXPLORATION_TOAST_TOP := 451.0
@@ -82,6 +86,7 @@ func progress(rect: Rect2,ratio: float,color: Color) -> void:
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(game):return
+	if game.construction.active:construction_page=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
 	if game.construction.active and (not detail_tab.is_empty() or map_expanded):dismiss_details()
 	if detail_tab != "contract":return
 	budget_refresh_time-=delta
@@ -147,7 +152,7 @@ func live_panel_rects() -> Array[Rect2]:
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
-	if game.notice_time>0.0 and not game.construction.active and game.hero_damage_flash_time<=0.0:areas.append(Rect2(344,740,752,48))
+	if game.phase in ["day","night"] and game.notice_time>0.0 and not game.construction.active and game.hero_damage_flash_time<=0.0:areas.append(Rect2(344,740,752,48))
 	if game.phase in ["day","night"] and not game.construction.active and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
 	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
 	if game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
@@ -226,20 +231,74 @@ func construction_kind_rect(index: int) -> Rect2:
 func training_kind_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,230,160,32)
 
+func construction_page_rect(direction: int) -> Rect2:
+	return Rect2(922 if direction<0 else 960,696,29,26)
+
+func troop_page_rect(direction: int) -> Rect2:
+	return Rect2(456 if direction<0 else 493,267,29,26)
+
+func visible_construction_kinds() -> Array[String]:
+	var kinds: Array[String]=[]
+	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
+	for index in range(page*CATALOG_PAGE_SIZE,mini((page+1)*CATALOG_PAGE_SIZE,Catalog.BUILDING_IDS.size())):
+		kinds.append(Catalog.BUILDING_IDS[index])
+	return kinds
+
+func visible_training_kinds() -> Array[String]:
+	var kinds: Array[String]=[]
+	var page:=clampi(troop_page,0,ceili(Catalog.TROOP_IDS.size()/float(CATALOG_PAGE_SIZE))-1)
+	for index in range(page*CATALOG_PAGE_SIZE,mini((page+1)*CATALOG_PAGE_SIZE,Catalog.TROOP_IDS.size())):
+		kinds.append(Catalog.TROOP_IDS[index])
+	return kinds
+
+func select_construction_slot(index: int) -> bool:
+	if not is_instance_valid(game) or game.phase not in ["day","night"]:return false
+	var kinds:=visible_construction_kinds()
+	if not game.construction.active:kinds.assign(Catalog.BUILDING_IDS.slice(0,CATALOG_PAGE_SIZE))
+	if index<0 or index>=kinds.size():return false
+	if not game.construction.select_kind(kinds[index]):return false
+	construction_page=Catalog.BUILDING_IDS.find(kinds[index])/CATALOG_PAGE_SIZE
+	game.selection_dragging=false
+	dismiss_details()
+	return true
+
+func change_construction_page(direction: int) -> void:
+	if not game.construction.active or game.phase not in ["day","night"]:return
+	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
+	var next:=clampi(page+direction,0,ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))-1)
+	if next==page:return
+	if game.construction.select_kind(Catalog.BUILDING_IDS[next*CATALOG_PAGE_SIZE]):
+		construction_page=next
+		queue_redraw()
+
+func change_troop_page(direction: int) -> void:
+	if detail_tab!="army" or game.phase not in ["day","night","paused"]:return
+	troop_page=clampi(troop_page+direction,0,ceili(Catalog.TROOP_IDS.size()/float(CATALOG_PAGE_SIZE))-1)
+	queue_redraw()
+
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
 	var tint:=Color("85d5a5") if bool(placement.valid) else (amber if bool(placement.space_valid) else red)
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
-	for index in 3:
-		var kind: String=["tower","barracks","workshop"][index]
+	var kinds:=visible_construction_kinds()
+	for index in kinds.size():
+		var kind: String=kinds[index]
 		var rect:=construction_kind_rect(index)
 		box(rect,Color(.06,.15,.12,.95) if kind==String(placement.kind) else panel,tint if kind==String(placement.kind) else muted)
-		label(["1 防御塔","2 兵营","3 工坊"][index],rect.position+Vector2(14,22),14,ink)
+		label("%d %s" % [index+1,String(Catalog.building(kind).title)],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
 	label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
+	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(placement.kind)))/CATALOG_PAGE_SIZE
+	var pages:=ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))
+	label("%d/%d" % [page+1,pages],Vector2(877,716),13,muted,true)
+	for direction in [-1,1]:
+		var rect:=construction_page_rect(direction)
+		var available: bool=page+direction>=0 and page+direction<pages
+		box(rect,panel,muted)
+		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber if available else muted)
 	label(String(placement.reason),Vector2(457,740),15,tint)
-	label("吸附格子 · 左键/F连续建造 · 右键/Esc/Y退出",Vector2(457,766),14,amber)
+	label("PgUp/PgDn翻页 · 左键/F建造 · 右键/Esc/Y退出",Vector2(457,766),14,amber)
 
 func draw_selection_rect() -> void:
 	if not game.selection_dragging or game.phase not in ["day","night"]:return
@@ -481,7 +540,8 @@ func draw_minimap() -> void:
 	for plot: Dictionary in game.districts.plots:
 		if int(plot.level)<=0:continue
 		var p: Vector3=plot.position
-		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),Color("a9d8cf") if String(plot.kind)=="barracks" else Color("d6b777"))
+		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0")}.get(String(plot.kind),muted)
+		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),color)
 	if is_instance_valid(game.squads):
 		for squad: Dictionary in game.squads.squads:
 			for member: BattleUnit in squad.members:
@@ -520,10 +580,20 @@ func draw_squads() -> void:
 	var snapshot: Dictionary=game.squads.snapshot()
 	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(46,184),17,Color("a9d8cf"))
 	label("存活 %d/%d人 · L补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
-	for index in 3:
+	var kinds:=visible_training_kinds()
+	for index in kinds.size():
+		var kind:=kinds[index]
+		var definition:=Catalog.troop(kind)
+		var eligibility: Dictionary=game.squads.training_eligibility(kind)
 		var rect:=training_kind_rect(index)
-		box(rect,panel,Color("668a78"))
-		label(["U盾卫70","I弩手80","N工程65"][index],rect.position+Vector2(9,22),14,amber)
+		box(rect,panel,Color("668a78") if bool(eligibility.available) else muted)
+		var hotkey: String={"shield":"U","ranged":"I","engineer":"N"}.get(kind,"")
+		label("%s%s%d" % [hotkey,definition.title,int(definition.cost)],rect.position+Vector2(9,22),14,amber if bool(eligibility.available) else muted)
+	label("兵种 %d/%d · PgUp/PgDn翻页" % [troop_page+1,ceili(Catalog.TROOP_IDS.size()/float(CATALOG_PAGE_SIZE))],Vector2(46,285),12,muted)
+	for direction in [-1,1]:
+		var rect:=troop_page_rect(direction)
+		box(rect,panel,muted)
+		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber)
 	var rows: Array[Dictionary]=[]
 	var total_orders:=0
 	# First show one current order per barracks, then pending orders. Each
@@ -544,7 +614,7 @@ func draw_squads() -> void:
 	for index in mini(3,maxi(0,rows.size()-training_page*3)):
 		var row: Dictionary=rows[index+training_page*3]
 		var order: Dictionary=row.order
-		var name: String={"shield":"盾卫","ranged":"弩手","engineer":"工程员"}.get(String(order.kind),"部队")
+		var name:=String(Catalog.troop(String(order.kind)).get("title","部队"))
 		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % float(order.remaining) if int(row.queue_index)==0 else "等待"],Vector2(46,321+index*44),13,ink)
 		var rect:=Rect2(422,300+index*44,110,28)
 		box(rect,panel,muted)
@@ -554,6 +624,11 @@ func draw_squads() -> void:
 	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(46,465),12,muted)
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
+	if troop_page>0:
+		var eligibility: Dictionary=game.squads.training_eligibility("ballista")
+		CleanHud._paragraph(self,"重弩组 · "+("研究所已解锁" if bool(eligibility.available) else String(eligibility.reason)),Vector2(46,562),496,15,amber,21,2)
+		label("射程12.8米 · 重击46 · 每3.2秒一次",Vector2(46,613),14,ink)
+		label("训练10秒 · 三人一组 · 移速较慢",Vector2(46,639),14,muted)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
@@ -723,16 +798,21 @@ func _gui_input(event: InputEvent) -> void:
 				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
 				for index in CleanHud.TAB_IDS.size():
 					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
+				if detail_tab=="army":
+					for direction in [-1,1]:
+						if troop_page_rect(direction).has_point(point):change_troop_page(direction);accept_event();return
+						if training_page_rect(direction).has_point(point):training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
 			if game.phase in ["day","night"]:
 				if MEMORY_BUTTON_RECT.has_point(point):game.request_upgrade();accept_event();return
 				if game.construction.active:
-					for index in 3:
-						if construction_kind_rect(index).has_point(point):game.construction.select_kind(["tower","barracks","workshop"][index]);accept_event();return
-				elif detail_tab=="army":
 					for direction in [-1,1]:
-						if training_page_rect(direction).has_point(point):training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
-					for index in 3:
-						if training_kind_rect(index).has_point(point):game.train_troop(["shield","ranged","engineer"][index]);accept_event();return
+						if construction_page_rect(direction).has_point(point):change_construction_page(direction);accept_event();return
+					for index in visible_construction_kinds().size():
+						if construction_kind_rect(index).has_point(point):select_construction_slot(index);accept_event();return
+				elif detail_tab=="army":
+					var kinds:=visible_training_kinds()
+					for index in kinds.size():
+						if training_kind_rect(index).has_point(point):game.train_troop(kinds[index]);accept_event();return
 					for button: Dictionary in training_cancel_buttons:
 						if (button.rect as Rect2).has_point(point):game.cancel_troop_training(int(button.barracks),int(button.queue_index));training_cancel_buttons.clear();queue_redraw();accept_event();return
 				elif detail_tab=="defense" and game.phase=="day":

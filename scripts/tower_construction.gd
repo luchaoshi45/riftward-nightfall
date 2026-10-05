@@ -3,18 +3,17 @@ extends Node3D
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Grid := preload("res://scripts/construction_grid.gd")
 const GridPreview := preload("res://scripts/construction_grid_preview.gd")
+const Catalog := preload("res://scripts/outpost_catalog.gd")
 const TOWER_SCENE: PackedScene = preload("res://assets/models/auto_turret.glb")
 const PAD_SCENE: PackedScene = preload("res://assets/models/tower_pad.glb")
 const CORE_SCENE: PackedScene = preload("res://assets/models/watch_beacon.glb")
-const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
-const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const TITLES := {"tower": "防御塔", "barracks": "兵营", "workshop": "工坊"}
 const BOUNDARY_EPSILON := 0.00001
 const NAVIGATION_MARGIN := 0.05
 const UNIT_BODY_RADIUS := 0.25
 const VALID_COLOR := Color(0.35, 0.9, 0.58, 0.32)
 const INVALID_COLOR := Color(0.95, 0.3, 0.28, 0.32)
 const BUDGET_COLOR := Color(0.95, 0.68, 0.28, 0.32)
+const TECH_COLOR := Color(0.57, 0.56, 0.94, 0.32)
 
 var game: Node3D
 var active := false
@@ -43,7 +42,7 @@ func setup(owner_game: Node3D) -> void:
 		if String(property.name) == "expeditions": _has_expeditions = true
 
 func begin(structure_kind: String = "tower") -> bool:
-	if not is_instance_valid(game) or game.phase not in ["day", "night"] or not TITLES.has(structure_kind): return false
+	if not is_instance_valid(game) or game.phase not in ["day", "night"] or not Catalog.BUILDING_IDS.has(structure_kind): return false
 	kind = structure_kind
 	active = true
 	_ensure_preview()
@@ -90,10 +89,15 @@ func tick(_delta: float) -> void:
 	ghost.position = point
 	ghost.visible = true
 	grid_preview.show_placement(placement)
-	var state := 1 if bool(placement.valid) else (2 if bool(placement.space_valid) else 0)
+	var state := 0
+	if bool(placement.valid): state = 1
+	elif bool(placement.space_valid): state = 2 if bool(placement.tech_valid) else 3
 	if state != _preview_state:
 		_preview_state = state
-		var tint: Color = VALID_COLOR if state == 1 else (BUDGET_COLOR if state == 2 else INVALID_COLOR)
+		var tint := INVALID_COLOR
+		if state == 1: tint = VALID_COLOR
+		elif state == 2: tint = BUDGET_COLOR
+		elif state == 3: tint = TECH_COLOR
 		ghost_material.albedo_color = tint
 		tint.a = 0.95
 		ring_material.albedo_color = tint
@@ -106,16 +110,20 @@ func snapshot() -> Dictionary:
 	return placement
 
 func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String = "tower", ignore_plot_index: int = -1) -> Dictionary:
+	var definition := Catalog.building(structure_kind)
 	var result := Grid.placement(point, structure_kind)
-	result.merge({"valid": false, "space_valid": false, "reason": "", "cost": 0,
-		"kind": structure_kind, "title": String(TITLES.get(structure_kind, "建筑")), "cell_states": []})
+	result.merge({"valid": false, "space_valid": false, "tech_valid": false, "missing": [], "reason": "", "cost": 0,
+		"kind": structure_kind, "title": String(definition.get("title", "建筑")), "cell_states": []})
 	if not is_instance_valid(game):
 		result.reason = "建设系统尚未初始化"
 		return result
-	if not TITLES.has(structure_kind):
+	if definition.is_empty():
 		result.reason = "未知建筑"
 		return result
-	result.cost = game.districts.tower_cost(int(game.TOWER_COSTS[0])) if structure_kind == "tower" else int(game.districts.BUILD_COST)
+	result.cost = game.districts.tower_cost(int(definition.cost)) if structure_kind == "tower" else int(definition.cost)
+	var technology: Dictionary = game.districts.build_eligibility(structure_kind)
+	result.tech_valid = bool(technology.available)
+	result.missing = technology.missing
 	if not point.is_finite() or (result.cells as Array).is_empty():
 		result.reason = "放置位置无效"
 		return result
@@ -150,6 +158,9 @@ func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String
 		result.reason = rejection
 		return result
 	result.space_valid = true
+	if not bool(result.tech_valid):
+		result.reason = String(technology.reason)
+		return result
 	if int(game.scrap) < int(result.cost):
 		result.reason = "零件不足 · 需要%d" % int(result.cost)
 		return result
@@ -199,7 +210,7 @@ func model_footprint(structure_kind: String) -> Vector2:
 		var half := _named_footprint(core, "Generator footing")
 		_footprints[structure_kind] = Vector2.ONE * maxf(half.x, half.y)
 		core.free()
-	elif is_instance_valid(game) and structure_kind in ["barracks", "workshop"]:
+	elif is_instance_valid(game) and Catalog.BUILDING_IDS.has(structure_kind):
 		_footprints[structure_kind] = game.districts.footprint(structure_kind)
 	else: return Vector2.ZERO
 	return _footprints[structure_kind]
@@ -313,10 +324,8 @@ func _ensure_preview() -> void:
 	if _preview_kind == kind: return
 	for child: Node in ghost.get_children():
 		if child != ring: child.free()
-	var scene: PackedScene = TOWER_SCENE if kind == "tower" else (BARRACKS_SCENE if kind == "barracks" else WORKSHOP_SCENE)
-	var model := scene.instantiate() as Node3D
+	var model: Node3D = TOWER_SCENE.instantiate() as Node3D if kind == "tower" else game.districts.create_model(kind)
 	ghost.add_child(model)
-	if kind != "tower": game.districts.prepare_model(model)
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.material_override = ghost_material
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

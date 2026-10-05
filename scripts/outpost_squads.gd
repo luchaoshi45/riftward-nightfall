@@ -4,11 +4,12 @@ extends Node3D
 
 const UnitScript = preload("res://scripts/unit.gd")
 const Layout := preload("res://scripts/outpost_layout.gd")
+const Catalog := preload("res://scripts/outpost_catalog.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32}
 const HOLD := "hold"
 const RECALL := "recall"
 const MOVE := "move"
@@ -42,7 +43,7 @@ func set_health_multiplier(value: float) -> void:
 	health_multiplier = next
 
 func _base_max_hp(kind: String) -> float:
-	return float({"shield": 200.0, "ranged": 110.0, "engineer": 90.0}.get(kind, 110.0))
+	return float(Catalog.troop(kind).get("hp", 110.0))
 
 func _active() -> bool:
 	return is_instance_valid(game) and str(game.get("phase")) in ["day", "night"]
@@ -52,17 +53,39 @@ func _result(ok: bool, reason: String, cost: int = 0, squad_id: int = -1) -> Dic
 		"scrap": int(game.get("scrap")) if is_instance_valid(game) else 0}
 
 func _kind_allowed(kind: String) -> bool:
-	return HIRE_COST.has(kind) and (kind != "ranged" or ranged_enabled)
+	return bool(training_eligibility(kind).available)
+
+func training_eligibility(kind: String) -> Dictionary:
+	# Read the live prerequisite state instead of trusting a previous HUD snapshot.
+	if kind not in Catalog.TROOP_IDS:
+		return {"available": false, "reason": "未知兵种", "missing": []}
+	if kind == "ranged" and not ranged_enabled:
+		return {"available": false, "reason": "弩手尚未开放", "missing": []}
+	var requirements: Array = Catalog.troop(kind).get("requires", [])
+	var districts: Node = game.get("districts") as Node if is_instance_valid(game) else null
+	if is_instance_valid(districts) and districts.has_method("training_eligibility"):
+		return districts.call("training_eligibility", kind)
+	# Existing isolated fixtures can train basic troops without a city module.
+	# Advanced troops still require explicit live technology in every entry path.
+	var missing: Array[String] = []
+	for required in requirements:
+		if not is_instance_valid(districts) or not districts.has_method("has_live") or not bool(districts.call("has_live", String(required))):
+			missing.append(String(required))
+	if not missing.is_empty():
+		return {"available": false, "reason": "先建造存活研究所才能训练重弩组", "missing": missing}
+	return {"available": true, "reason": "", "missing": []}
 
 func hire(kind: String) -> Dictionary:
 	# 即时工厂只供明确的低层行为用例；生产输入使用enqueue。
 	if not _active(): return _result(false, "暂停或选卡时不能招募")
-	if not _kind_allowed(kind): return _result(false, "未知或尚未开放的兵种")
-	var cost := int(HIRE_COST[kind])
+	var eligibility := training_eligibility(kind)
+	if not bool(eligibility.available): return _result(false, String(eligibility.reason))
+	var troop: Dictionary = Catalog.troop(kind)
+	var cost := int(troop.cost)
 	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	var id := _create_squad(kind, Vector3(0, 5, 3.9))
-	return _result(true, "%s编组抵达" % TITLES[kind], cost, id)
+	return _result(true, "%s编组抵达" % String(troop.title), cost, id)
 
 func _create_squad(kind: String, origin: Vector3) -> int:
 	var id := squads.size()
@@ -90,7 +113,8 @@ func _barracks_row(id: int) -> Dictionary:
 
 func enqueue(kind: String, barracks_id: int = -1) -> Dictionary:
 	if not _active(): return _result(false, "暂停或选卡时不能训练")
-	if not _kind_allowed(kind): return _result(false, "未知或尚未开放的兵种")
+	var eligibility := training_eligibility(kind)
+	if not bool(eligibility.available): return _result(false, String(eligibility.reason))
 	var active_barracks := _barracks()
 	if active_barracks.is_empty(): return _result(false, "先建造兵营才能生产部队")
 	var chosen := barracks_id
@@ -101,12 +125,13 @@ func enqueue(kind: String, barracks_id: int = -1) -> Dictionary:
 			for item: Dictionary in training_queues.get(int(row.index), []): duration += float(item.remaining)
 			if duration < shortest: shortest = duration; chosen = int(row.index)
 	if _barracks_row(chosen).is_empty(): return _result(false, "该兵营无法训练")
-	var cost := int(HIRE_COST[kind])
+	var troop: Dictionary = Catalog.troop(kind)
+	var cost := int(troop.cost)
 	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	if not training_queues.has(chosen): training_queues[chosen] = []
-	training_queues[chosen].append({"kind": kind, "remaining": float(TRAIN_TIME[kind]), "total": float(TRAIN_TIME[kind]), "cost": cost})
-	var result := _result(true, "%s已加入兵营训练队列" % TITLES[kind], cost)
+	training_queues[chosen].append({"kind": kind, "title": String(troop.title), "remaining": float(troop.time), "total": float(troop.time), "cost": cost})
+	var result := _result(true, "%s已加入兵营训练队列" % String(troop.title), cost)
 	result.barracks_id = chosen
 	return result
 
@@ -151,15 +176,15 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.name = "Outpost_%s_%d_%d" % [squad.kind, squad.id, slot]
 	soldier.set_meta("outpost_squad", true)
 	soldier.set_meta("squad_kind", squad.kind)
-	soldier.title = str(TITLES[squad.kind])
+	soldier.title = String(Catalog.troop(String(squad.kind)).title)
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3}[squad.kind])
-	soldier.attack_interval = 1.45 if squad.kind == "shield" else 1.65
-	soldier.speed = 3.6
-	soldier.windup_duration = .18 if squad.kind == "shield" else .26
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8}[squad.kind])
+	soldier.attack_interval = 3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)
+	soldier.speed = 3.06 if squad.kind == "ballista" else 3.6
+	soldier.windup_duration = .55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)
 	soldier.visual.scale *= .85
 	soldier.selection.visible = int(squad.id) in selected_ids
 	soldier.position = _resolve_destination(squad.origin + Vector3((slot - 1) * 1.2, 0, 0))
@@ -198,7 +223,7 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -207,6 +232,9 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 		if "shield" in label or "polearm" in label or "spear" in label: part.visible = false
 	var right_arm := soldier.visual.find_child("ArmR", true, false) as Node3D
 	if not is_instance_valid(right_arm): right_arm = soldier.visual
+	if kind == "ballista":
+		_style_heavy_crossbow(right_arm)
+		return
 	var tool := MeshInstance3D.new()
 	var tool_mesh := BoxMesh.new()
 	tool_mesh.size = Vector3(.7, .1, .16) if kind == "ranged" else Vector3(.18, .58, .12)
@@ -220,6 +248,27 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	head.mesh = head_mesh; head.material_override = tool.material_override
 	tool.add_child(head)
 	head.position.y = .2 if kind == "engineer" else 0.0
+
+func _style_heavy_crossbow(arm: Node3D) -> void:
+	# Native tool geometry on the original guard; no new imported character asset.
+	var tool := Node3D.new()
+	tool.name = "HeavyCrossbow"
+	arm.add_child(tool)
+	tool.position = Vector3(0, -.38, -.17)
+	var wood := BattleVisuals.material(Color("735440"), 0.0)
+	var iron := BattleVisuals.material(Color("9fadb2"), 0.0)
+	for piece in [
+		["Stock", Vector3(.22, .16, 1.12), Vector3(0, 0, -.15), wood],
+		["Bow", Vector3(1.04, .13, .15), Vector3(0, 0, -.53), iron],
+		["Rail", Vector3(.10, .06, .86), Vector3(0, .105, -.18), iron],
+		["Grip", Vector3(.15, .31, .19), Vector3(0, -.17, .10), wood],
+		["Sight", Vector3(.08, .18, .09), Vector3(0, .20, .18), iron]]:
+		var node := MeshInstance3D.new()
+		node.name = piece[0]
+		var mesh := BoxMesh.new()
+		mesh.size = piece[1]
+		node.mesh = mesh; node.material_override = piece[3]
+		tool.add_child(node); node.position = piece[2]
 
 func _ground_height(point: Vector3) -> float:
 	var world: Node = game.get("world") as Node
@@ -483,7 +532,9 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 		soldier.attack_queued = false; soldier.attack_timer = soldier.attack_interval
 		soldier.attack_pose = 1.0
 		victim.hurt(soldier.damage, soldier) # Never source hero or mark a player attack.
-		if str(soldier.get_meta("squad_kind")) == "ranged": _beam(soldier.position + Vector3.UP, impact)
+		if str(soldier.get_meta("squad_kind")) == "ballista":
+			_beam(soldier.position + Vector3.UP, impact, Color("efb774"), .065, .24, .95)
+		elif str(soldier.get_meta("squad_kind")) == "ranged": _beam(soldier.position + Vector3.UP, impact)
 		return
 	if soldier.attack_timer > 0.0: return
 	var target := designated if _enemy(designated) and _in_range(soldier, designated) else _pick_enemy(soldier)
@@ -504,7 +555,7 @@ func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
 		var enemy := candidate as BattleUnit
 		if not _in_range(soldier, enemy): continue
 		var candidate_score := -_ground_distance(soldier.position, enemy.position)
-		if str(soldier.get_meta("squad_kind")) == "ranged":
+		if str(soldier.get_meta("squad_kind")) in ["ranged", "ballista"]:
 			candidate_score += float({"breaker": 4, "sapper": 3, "light_eater": 2}.get(str(enemy.get_meta("threat", "")), 0)) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected
@@ -634,18 +685,19 @@ func _animate_member(soldier: BattleUnit) -> void:
 	var arm := soldier.visual.find_child("ArmR", true, false) as Node3D
 	if arm: arm.rotation.x = -soldier.attack_pose * .7 - (.2 if soldier.attack_queued else 0.0)
 
-func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86")) -> void:
+func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86"), width: float = .035, lifetime: float = .18, emission: float = 1.2) -> void:
 	var node := MeshInstance3D.new()
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = .035; mesh.bottom_radius = .035
+	mesh.top_radius = width; mesh.bottom_radius = width
 	mesh.radial_segments = 6; mesh.height = maxf(.01, from.distance_to(to))
 	node.mesh = mesh
-	node.material_override = BattleVisuals.material(tint, 1.2)
+	node.material_override = BattleVisuals.material(tint, emission)
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
 	node.position = (from + to) * .5
 	var direction := (to - from).normalized()
 	if absf(direction.dot(Vector3.UP)) < .999: node.quaternion = Quaternion(Vector3.UP, direction)
-	shots.append({"node": node, "time": .18})
+	shots.append({"node": node, "time": lifetime, "duration": lifetime})
 
 func _advance_shots(delta: float) -> void:
 	for i in range(shots.size() - 1, -1, -1):
@@ -654,7 +706,9 @@ func _advance_shots(delta: float) -> void:
 		if not is_instance_valid(node): shots.remove_at(i); continue
 		if float(shots[i].time) <= 0.0:
 			node.queue_free(); shots.remove_at(i)
-		else: node.scale = Vector3(maxf(.01, float(shots[i].time) / .18), 1, maxf(.01, float(shots[i].time) / .18))
+		else:
+			var width_scale := maxf(.01, float(shots[i].time) / float(shots[i].get("duration", .18)))
+			node.scale = Vector3(width_scale, 1, width_scale)
 
 func snapshot() -> Dictionary:
 	_refresh_selection()
@@ -666,7 +720,7 @@ func snapshot() -> Dictionary:
 		for soldier: BattleUnit in squad.members:
 			if _living(soldier): count += 1; hp += soldier.hp
 		total_alive += count
-		rows.append({"id": squad.id, "kind": squad.kind, "order": squad.order,
+		rows.append({"id": squad.id, "kind": squad.kind, "title": String(Catalog.troop(String(squad.kind)).title), "order": squad.order,
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
 			"position": _squad_position(squad), "selected": int(squad.id) in selected_ids})
 	var queues: Array[Dictionary] = []

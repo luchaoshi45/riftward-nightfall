@@ -1,6 +1,7 @@
 extends Node3D
 ## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
 const Layout = preload("res://scripts/outpost_layout.gd")
+const Catalog = preload("res://scripts/outpost_catalog.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
@@ -321,6 +322,7 @@ func simulate(delta: float) -> void:
 	if squads:
 		squads.set_health_multiplier(districts.squad_health_multiplier())
 		squads.advance(delta)
+	districts.tick(delta)
 	var boss_action_handled:=false
 	if phase=="night" and is_instance_valid(siege_boss):
 		boss_action_handled=siege_boss.advance(delta)
@@ -396,6 +398,7 @@ func start_night() -> void:
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
+	districts.begin_night(day_number)
 	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
 		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	activate_countermeasure()
@@ -1791,6 +1794,7 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	var scrap_gain: int=5
 	if combat_phase=="night":
 		scrap_gain=8 if run_mode=="teaching" else wave_rewards.defeat(creature)
+		if phase=="night":districts.register_wreck(creature.get_instance_id(),creature.position)
 	scrap+=scrap_gain
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
@@ -1961,7 +1965,7 @@ func upgrade_district() -> bool:
 	var result: Dictionary=districts.upgrade(districts.nearest())
 	if not result.ok:notify(result.reason,2);return false
 	if squads:squads.set_health_multiplier(districts.squad_health_multiplier())
-	notify("城区升至二级 · 收益增强",3)
+	notify("%s升至二级 · 耐久恢复" % String(Catalog.building(String(result.kind)).title),3)
 	return true
 
 func near_squad_controls() -> bool:
@@ -1978,7 +1982,7 @@ func train_troop(kind: String) -> bool:
 	if phase not in ["day","night"]:return false
 	var result: Dictionary=squads.enqueue(kind)
 	if not result.ok:notify(String(result.reason),2);return false
-	notify("%s加入兵营训练队列 · -%d零件" % [{"shield":"盾卫","ranged":"弩手","engineer":"工程员"}.get(kind,"部队"),int(result.cost)],3)
+	notify("%s加入兵营训练队列 · -%d零件" % [String(Catalog.troop(kind).get("title","部队")),int(result.cost)],3)
 	return true
 
 func cancel_troop_training(barracks_id: int, queue_index: int) -> bool:
@@ -2220,8 +2224,9 @@ func interaction_prompt() -> String:
 	var district_index: int=districts.nearest()
 	if district_index>=0:
 		var plot: Dictionary=districts.plots[district_index]
-		var title: String="兵营" if String(plot.kind)=="barracks" else "工坊"
-		if int(plot.level)==0:return "F 重建%s · 60零件" % title
+		var definition:=Catalog.building(String(plot.kind))
+		var title:=String(definition.title)
+		if int(plot.level)==0:return "F 重建%s · %d零件" % [title,int(definition.cost)]
 		return "%s %d/%d · %s" % [title,ceili(plot.hp),ceili(plot.max_hp),"F升级80" if int(plot.level)<2 else "已满级"]
 	if squads and squads.selected_count()>0:return "已选%d队 · 右键移动/攻击 · O光标驻守 · Esc取消选择" % squads.selected_count()
 	return "Y 自由建设 · 兵营训练U盾卫 / I弩手 / N工程员"
@@ -2340,7 +2345,7 @@ func toggle_tower_construction() -> bool:
 	if not construction.begin():return false
 	hud.dismiss_details()
 	selection_dragging=false
-	notify("格子建设 · 1塔3×3 / 2兵营4×3 / 3工坊3×2 · 左键/F连续建造",3)
+	notify("格子建设 · 1/2/3选择当前页 · PgUp/PgDn翻页 · 左键/F建造",3)
 	return true
 
 func build_structure_at(point: Vector3, kind: String) -> bool:
@@ -2715,10 +2720,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not select_countermeasure(countermeasure_index):
 				notify("当前没有可用的下一夜反制选择",2)
 			return
+		if event.keycode in [KEY_PAGEUP,KEY_PAGEDOWN] and phase in ["day","night","paused"]:
+			var direction:= -1 if event.keycode==KEY_PAGEUP else 1
+			if construction.active:hud.change_construction_page(direction)
+			elif hud.detail_tab=="army":hud.change_troop_page(direction)
+			return
 		match event.keycode:
-			KEY_1:selection_dragging=false;construction.select_kind("tower");hud.dismiss_details()
-			KEY_2:selection_dragging=false;construction.select_kind("barracks");hud.dismiss_details()
-			KEY_3:selection_dragging=false;construction.select_kind("workshop");hud.dismiss_details()
+			KEY_1,KEY_2,KEY_3:hud.select_construction_slot(int(event.keycode)-KEY_1)
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()
 			KEY_N:train_troop("engineer")

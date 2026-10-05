@@ -13,6 +13,7 @@ const BLOCKED_FILL := Color(0.90, 0.20, 0.14, 0.34)
 const FREE_EDGE := Color(0.36, 0.91, 0.56, 0.76)
 const BLOCKED_EDGE := Color(0.98, 0.32, 0.22, 0.90)
 const BUDGET_EDGE := Color(0.98, 0.70, 0.22, 0.90)
+const TECH_EDGE := Color(0.63, 0.60, 0.98, 0.90)
 const TERRAIN_STEP := 0.25
 
 var grid_node: MeshInstance3D
@@ -21,6 +22,7 @@ var border_node: MeshInstance3D
 var fill_rebuilds := 0
 var border_rebuilds := 0
 var budget_limited := false
+var tech_limited := false
 var current_cells: Array[Vector2i] = []
 var current_states: Array[bool] = []
 var _space_signature := ""
@@ -49,11 +51,12 @@ func show_placement(placement: Dictionary) -> void:
 		current_cells.append(cell)
 		current_states.append(free)
 		signature += "%d,%d,%d;" % [cell.x, cell.y, int(free)]
-	budget_limited = bool(placement.get("space_valid", false)) and not bool(placement.get("valid", false))
+	tech_limited = bool(placement.get("space_valid", false)) and not bool(placement.get("tech_valid", true))
+	budget_limited = bool(placement.get("space_valid", false)) and not tech_limited and not bool(placement.get("valid", false))
 	if signature != _space_signature:
 		_space_signature = signature
 		_update_fill()
-	var edge_signature := signature + str(budget_limited)
+	var edge_signature := signature + str(budget_limited) + str(tech_limited)
 	if edge_signature != _border_signature:
 		_border_signature = edge_signature
 		_update_border()
@@ -128,7 +131,9 @@ func _update_border() -> void:
 		var start := Grid.ORIGIN + Vector2(key.x, key.y) * Grid.CELL_SIZE
 		var direction := Vector2.RIGHT if key.z == 0 else Vector2.DOWN
 		var color := FREE_EDGE if bool(edge.free) else BLOCKED_EDGE
-		if budget_limited and int(edge.count) == 1: color = BUDGET_EDGE
+		if bool(edge.free) and int(edge.count) == 1:
+			if tech_limited: color = TECH_EDGE
+			elif budget_limited: color = BUDGET_EDGE
 		_append_strip(vertices, colors, start, start + direction * Grid.CELL_SIZE, EDGE_WIDTH, EDGE_LIFT, color, true)
 	_write_mesh(border_node.mesh as ArrayMesh, vertices, colors)
 	border_rebuilds += 1
