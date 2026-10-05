@@ -13,6 +13,14 @@ void vertex() {
     world_pos=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
     world_normal=normalize(MODEL_NORMAL_MATRIX*NORMAL);
 }
+// The procedural palette below is linear. Compatibility shades in sRGB,
+// while Forward+ consumes linear values, as do native source_color inputs.
+vec3 encode_linear_color(vec3 color) {
+    vec3 high=1.055*pow(max(color,vec3(0.0)),vec3(1.0/2.4))-.055;
+    return vec3(color.r<=.0031308?color.r*12.92:high.r,
+        color.g<=.0031308?color.g*12.92:high.g,
+        color.b<=.0031308?color.b*12.92:high.b);
+}
 void fragment() {
     vec2 p=world_pos.xz;
     vec3 geometric_normal=normalize(world_normal);
@@ -45,6 +53,7 @@ void fragment() {
     float rim_dust=smoothstep(4.25,5.10,world_pos.y);
     rock=mix(rock,vec3(.130,.118,.095),rim_dust*.11);
     ALBEDO=mix(earth,rock,cliff);
+    if (OUTPUT_IS_SRGB) { ALBEDO=encode_linear_color(ALBEDO); }
     METALLIC=0.0;
     SPECULAR=.10;
     ROUGHNESS=.98-cliff*.03;
