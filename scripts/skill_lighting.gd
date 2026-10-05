@@ -2,6 +2,8 @@ extends Node3D
 ## Real, local skill lighting. Simulation time owns lifetime, movement and pause.
 const MAX_LIGHTS := 6
 const MAX_SHADOW_LIGHTS := 1
+const LIGHT_RISE_SECONDS := .045
+const INITIAL_ENVELOPE := .04
 var game: Node3D
 var lights: Array[Dictionary] = []
 
@@ -35,7 +37,7 @@ func emit_skill(slot: int, origin: Vector3, direction: Vector3, endpoint: Vector
 func add_light(kind: String, origin: Vector3, endpoint: Vector3, color: Color,
 		energy: float, radius: float, duration: float, follow: bool = false, shadows: bool = false) -> void:
 	while lights.size() >= MAX_LIGHTS:
-		retire(0)
+		retire(eviction_index())
 	# Only the newest ultimate spends the single dynamic shadow budget.
 	if shadows:
 		for item in lights:
@@ -68,19 +70,38 @@ func add_light(kind: String, origin: Vector3, endpoint: Vector3, color: Color,
 func feedback_scale() -> float:
 	return .45 if game.combat and game.combat.reduced_effects else 1.0
 
+func eviction_index() -> int:
+	# Preserve a live shield instead of removing it just because it was cast
+	# first. The brief, nearly expired travel lamps give up the budget first.
+	var chosen := 0
+	var lowest := INF
+	for index in lights.size():
+		var item: Dictionary = lights[index]
+		if not is_instance_valid(item.node): return index
+		var remaining := maxf(0.0, float(item.duration) - float(item.time))
+		var contribution := remaining * float(item.energy) * (4.0 if item.kind == "shield" else 1.0)
+		if contribution < lowest:
+			lowest = contribution
+			chosen = index
+	return chosen
+
+func envelope(kind: String, age: float, duration: float) -> float:
+	var progress := clampf(age / maxf(duration, .001), 0.0, 1.0)
+	var rise := lerpf(INITIAL_ENVELOPE, 1.0, smoothstep(0.0, LIGHT_RISE_SECONDS, age))
+	var fall := pow(1.0 - progress, 1.4)
+	if kind == "shield": fall = smoothstep(0.0, .65, duration - age)
+	return rise * fall
+
 func apply_light(item: Dictionary) -> void:
 	var light := item.node as OmniLight3D
 	var age: float = item.time
 	var duration: float = item.duration
-	var progress := clampf(age / duration, 0.0, 1.0)
 	if item.follow:
 		light.global_position = game.hero.global_position + (item.offset as Vector3)
 	elif item.kind in ["slash", "dash"]:
 		var travel := clampf(age / (duration * .62), 0.0, 1.0)
 		light.global_position = (item.origin as Vector3).lerp(item.endpoint, 1.0 - pow(1.0 - travel, 2.0))
-	var envelope := pow(1.0 - progress, 1.4)
-	if item.kind == "shield": envelope = minf(1.0, (duration - age) / .65)
-	light.light_energy = float(item.energy) * maxf(0.0, envelope) * feedback_scale()
+	light.light_energy = float(item.energy) * envelope(String(item.kind), age, duration) * feedback_scale()
 	light.visible = light.light_energy > .001
 
 func tick(delta: float, phase: String) -> void:

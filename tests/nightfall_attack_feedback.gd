@@ -183,6 +183,15 @@ func run() -> void:
 	check(game.hero.attack_timer<.8,"Local pose hold must not freeze the attack cooldown")
 	for i in 32:game.combat.impact(game.hero.position+Vector3.UP,Vector3.RIGHT,10.0,false,false)
 	check(game.combat.floats.size()<=16,"Crowded combat must cap damage floats at 16")
+	for effect in game.combat.effects:
+		for mesh in effect.node.find_children("*","MeshInstance3D",true,false):
+			check(mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Melee feedback geometry must not cast moving sliver shadows")
+	var last_offset: Vector3=game.combat.camera_offset()
+	for frame_index in 45:
+		game.combat.tick(1.0/120.0)
+		var offset: Vector3=game.combat.camera_offset()
+		check(offset.length()<.075 and offset.distance_to(last_offset)<.016,"The strongest impact must keep low-frequency camera translation smooth and bounded")
+		last_offset=offset
 	game.combat.tick(5.0)
 	check(game.combat.floats.is_empty(),"Damage floats must expire instead of accumulating permanently")
 	reset_case();enemy=target()

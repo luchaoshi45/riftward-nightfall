@@ -96,8 +96,8 @@ func check_casts_and_balance() -> void:
 	check(not game.cast(-1) and not game.cast(5), "Invalid slots must be rejected")
 	check(game.skill_lights.lights.is_empty() and game.mana == 300.0, "Invalid slots must not light")
 	# A legal-origin dash blocked by the fortress wall has no travelled light.
-	game.hero.position = Vector3(7, 0, 11)
-	game.aim = Vector3(7, 5, 3)
+	game.hero.position = Vector3(7, 0, OutpostLayout.FORT_OUTER + 2.0)
+	game.aim = Vector3(7, OutpostLayout.FORT_HEIGHT, OutpostLayout.FORT_INNER - 3.0)
 	var direction: Vector3 = (game.aim - game.hero.position).normalized()
 	check(not game.can_traverse(game.hero.position, game.hero.position + direction * 6.0), "Blocked-dash fixture must cross the south parapet")
 	var blocked_origin: Vector3 = game.hero.position
@@ -107,7 +107,8 @@ func check_casts_and_balance() -> void:
 	# corridor as ordinary movement instead of parking the hero's mesh in the
 	# retaining wall.
 	reset_case()
-	game.hero.position = Vector3(2.5, game.outpost_height(Vector3(2.5, 0, 7.6)), 7.6)
+	var ramp_point := Vector3(2.5, 0, OutpostLayout.RAMP_TOP + .6)
+	game.hero.position = Vector3(ramp_point.x, game.outpost_height(ramp_point), ramp_point.z)
 	game.move_goal = game.hero.position
 	var ramp_dash_origin: Vector3 = game.hero.position
 	game.aim = game.hero.position + Vector3(.2, 0, .98).normalized() * 10.0
@@ -183,7 +184,7 @@ func check_budget_and_reduction() -> void:
 	check(is_equal_approx(inside.hp, 2740.0) and game.mana == 215.0 and game.cooldowns[3] == 28.0, "Reduced lighting must not reduce R damage or change its cost/cooldown")
 	await press(KEY_F2)
 	game.skill_lights.tick(0.0, "day")
-	check(not game.combat.reduced_effects and is_equal_approx(game.skill_lights.lights.back().node.light_energy, 4.8), "F2 must restore normal current light intensity")
+	check(not game.combat.reduced_effects and is_equal_approx(game.skill_lights.lights.back().node.light_energy, full_energy), "F2 must restore the current onset intensity without creating a full-bright flash")
 	var retired_nodes: Array[Node] = []
 	for item in game.skill_lights.lights: retired_nodes.append(item.node)
 	game.skill_lights.clear()
@@ -192,6 +193,31 @@ func check_budget_and_reduction() -> void:
 	await process_frame
 	for light in retired_nodes:
 		check(not is_instance_valid(light), "Retiring lights must actually release their nodes")
+
+func check_smooth_envelopes_and_retirement() -> void:
+	reset_case(); game.cast(3)
+	var item := item_of("inferno")
+	var light := item.node as OmniLight3D
+	check(light.light_energy > 0.0 and light.light_energy < .25, "A real R lamp must begin softly instead of flashing at peak intensity")
+	var previous := light.light_energy
+	var peak := previous
+	for index in 90:
+		game.skill_lights.tick(1.0 / 120.0, "day")
+		if not is_instance_valid(light): break
+		var current := light.light_energy
+		check(absf(current - previous) < 1.2, "The skill light must change continuously over rendered frames")
+		if index > 6: check(current <= previous + .001, "The light tail must fade monotonically without a second flash")
+		peak = maxf(peak, current)
+		previous = current
+	check(peak > 3.8 and peak <= 4.8, "Soft onset must retain useful local illumination within its authored peak")
+	reset_case()
+	for slot in [1, 4, 2, 0, 3]: game.cast(slot)
+	var shield := item_of("shield").node as OmniLight3D
+	var short_travel := item_of("dash_start").node as OmniLight3D
+	game.skill_lights.tick(.12, "day")
+	game.cooldowns[3] = 0.0; game.mana = 300.0; game.cast(3)
+	check(game.skill_lights.lights.size() == 6 and item_of("shield").node == shield, "A new effect must respect the six-lamp budget while preserving a live shield")
+	check(short_travel.is_queued_for_deletion() and short_travel.light_energy == 0.0 and not short_travel.visible, "The shortest-lived travel light must retire cleanly when the budget is full")
 
 func check_echo() -> void:
 	reset_case()
@@ -223,6 +249,7 @@ func run() -> void:
 	check(is_instance_valid(game.skill_lights), "The production scene must install its skill lighting manager")
 	check_casts_and_balance()
 	check_motion_and_pause()
+	check_smooth_envelopes_and_retirement()
 	await check_budget_and_reduction()
 	check_echo()
 	await game.prepare_shutdown()

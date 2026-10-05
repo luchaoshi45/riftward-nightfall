@@ -5,7 +5,13 @@ var failures: Array[String] = []
 var observations: Dictionary = {}
 const ORIGIN := Vector3(35,0,30)
 
-func _initialize() -> void: call_deferred("run")
+func _initialize() -> void:
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
+	root.content_scale_mode=Window.CONTENT_SCALE_MODE_VIEWPORT
+	root.content_scale_size=Vector2i(1920,1200)
+	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
 	if condition: return
@@ -18,7 +24,7 @@ func frame() -> void:
 func photograph(name: String) -> Image:
 	for i in 4:await frame()
 	var picture:=root.get_texture().get_image()
-	check(not picture.is_empty() and picture.get_width()==1440,"Use the actual gameplay-resolution renderer")
+	check(not picture.is_empty() and picture.get_size()==Vector2i(1920,1200),"Use the actual 1920 × 1200 gameplay-resolution renderer")
 	check(picture.save_png("res://build/skill-light-"+name+".png")==OK,"Save real "+name+" frame")
 	return picture
 
@@ -161,6 +167,7 @@ func run() -> void:
 	await clean_effects();game.effects.visible=false;game.hud.visible=false
 	observations["no_skill_timing"]=await timing()
 	for i in 6:game.skill_lights.emit_skill(3,ORIGIN+Vector3(float(i%3)*3,0,float(i/3)*3),Vector3.RIGHT,Vector3.INF,8)
+	game.skill_lights.tick(.08,"night")
 	check(game.skill_lights.lights.size()==6,"Worst case must respect the six-light budget")
 	observations["six_light_timing"]=await timing()
 	await photograph("six-lights")
@@ -168,7 +175,7 @@ func run() -> void:
 	var entry: Dictionary=game.skill_lights.lights[-1]
 	var energy: float=entry.node.light_energy
 	game.skill_lights.tick(3,"paused")
-	check(entry.time==0.0 and is_equal_approx(entry.node.light_energy,energy),"Paused lights must not animate behind the pause UI")
+	check(is_equal_approx(entry.time,.08) and is_equal_approx(entry.node.light_energy,energy),"Paused lights must not animate behind the pause UI")
 	game.skill_lights.tick(1.1,"night")
 	await frame();check(game.skill_lights.lights.is_empty(),"All six lights must expire")
 	game.effects.visible=true;game.hud.visible=true
@@ -177,6 +184,6 @@ func run() -> void:
 	output.store_string(JSON.stringify(observations,"  "));output.close()
 	print("SKILL_LIGHT_OBSERVATIONS ",JSON.stringify(observations))
 	await game.prepare_shutdown();game.queue_free();await process_frame
-	await create_timer(.15).timeout
+	await create_timer(.5).timeout
 	print("NIGHTFALL_SKILL_LIGHTING_VISUAL_","OK" if failures.is_empty() else "FAILED")
 	quit(0 if failures.is_empty() else 1)

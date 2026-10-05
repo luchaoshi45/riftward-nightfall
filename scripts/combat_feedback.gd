@@ -86,7 +86,13 @@ func tick(delta: float) -> void:
 			ring.scale=Vector3(expansion,1.0,expansion)
 		if effect.has("light"):
 			var light:=effect.light as OmniLight3D
-			light.light_energy=0.0 if reduced_effects else float(effect.energy)*pow(maxf(0.0,1.0-age/.17),2.0)
+			light.light_energy=0.0 if reduced_effects else float(effect.energy)*light_envelope(age)
+
+func light_envelope(age: float) -> float:
+	# A rounded onset and longer, quiet tail keep repeated impacts local and
+	# avoid a full-bright one-frame pop across the nearby floor.
+	var rise:=lerpf(.04,1.0,smoothstep(0.0,.035,age))
+	return rise*pow(maxf(0.0,1.0-age/.24),2.0)
 
 func swing(origin: Vector3, direction: Vector3, step: int, contact_delay: float=.14) -> void:
 	if not active():return
@@ -124,9 +130,9 @@ func impact(point: Vector3, direction: Vector3, amount: float, critical: bool, f
 	# Put contact sparks on the facing surface rather than inside the chest,
 	# where the opaque creature mesh would hide them at the normal game zoom.
 	add_child(root);root.global_position=point-forward*.55+Vector3(0,.95,0)
-	var gold:=glow_material(Color(GOLD.r,GOLD.g,GOLD.b,.91),2.0 if strong else 1.3)
-	var cyan:=glow_material(Color(CYAN.r,CYAN.g,CYAN.b,.88),1.7)
-	var white:=glow_material(Color(1.0,.96,.79,.82),2.0)
+	var gold:=glow_material(Color(GOLD.r,GOLD.g,GOLD.b,.91),1.5 if strong else 1.1)
+	var cyan:=glow_material(Color(CYAN.r,CYAN.g,CYAN.b,.88),1.0)
+	var white:=glow_material(Color(1.0,.96,.79,.68),1.15)
 	var count: int=(10+4*tier) if not reduced_effects else 5
 	var parts:=shards(root,forward,count,[gold,cyan],2.6+.55*float(tier))
 	var flare:=MeshInstance3D.new()
@@ -134,13 +140,14 @@ func impact(point: Vector3, direction: Vector3, amount: float, critical: bool, f
 	sphere.radius=.13 if not strong else .21;sphere.height=sphere.radius*2.0
 	sphere.radial_segments=12;sphere.rings=6
 	flare.mesh=sphere;flare.material_override=white;root.add_child(flare)
+	flare.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flare.visible=not reduced_effects
 	var light:=OmniLight3D.new()
 	light.name="MeleeImpactLight";light.light_color=GOLD
 	light.omni_range=3.0 if strong else 2.0
 	light.shadow_enabled=false
-	var energy: float=.8+float(tier)*.55
-	light.light_energy=0.0 if reduced_effects else energy
+	var energy: float=.55+float(tier)*.30
+	light.light_energy=0.0 if reduced_effects else energy*light_envelope(0.0)
 	root.add_child(light)
 	add_effect({"node":root,"kind":"impact","time":0.0,"duration":.39 if strong else .30,"materials":[gold,cyan,white],"parts":parts,"flash":flare,"light":light,"energy":energy})
 	var label: String=str(maxi(0,roundi(amount)))
@@ -170,9 +177,9 @@ func damage_confirmed(point: Vector3, hp_loss: float, shield_loss: float, source
 	light.light_color=color
 	light.omni_range=2.4
 	light.shadow_enabled=false
-	light.light_energy=0.0 if reduced_effects else .75
+	light.light_energy=0.0 if reduced_effects else .45*light_envelope(0.0)
 	root.add_child(light)
-	add_effect({"node":root,"kind":"damage_confirmed","time":0.0,"duration":.34,"materials":[mat],"parts":[],"ring":ring,"light":light,"energy":.75})
+	add_effect({"node":root,"kind":"damage_confirmed","time":0.0,"duration":.34,"materials":[mat],"parts":[],"ring":ring,"light":light,"energy":.45})
 	add_float(point+Vector3(0,2.15,0)," · ".join(parts),color,.78,1.05)
 	trauma=clampf(trauma+.16,0.0,.50)
 	if not reduced_effects:
@@ -229,7 +236,7 @@ func kill_reward_text(count: int, scrap_gain: int, memory_gain: int) -> String:
 func camera_offset() -> Vector3:
 	if reduced_effects or not active() or trauma<=0.0:return Vector3.ZERO
 	var strength:=trauma*trauma
-	return Vector3(sin(shake_age*72.0)*.37*strength,sin(shake_age*57.0)*.16*strength,sin(shake_age*65.0+1.8)*.24*strength)
+	return Vector3(sin(shake_age*25.0)*.22*strength,sin(shake_age*20.0)*.09*strength,sin(shake_age*23.0+1.8)*.15*strength)
 
 func add_float(point: Vector3, text: String, color: Color, duration: float, scale: float) -> void:
 	while floats.size()>=MAX_FLOATS:floats.pop_front()
