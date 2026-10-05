@@ -518,10 +518,7 @@ func draw_exploration_rewards() -> void:
 		if game.exploration.speed_time>0.0:
 			label("探索加速 +0.8 · 剩余 %.1f秒" % game.exploration.speed_time,Vector2(43,426),10,Color("a6decb"))
 		var target: Dictionary=game.discoveries.motivation_target()
-		if not target.is_empty():
-			var target_name: String=game.discoveries.TITLES.get(String(target.kind),"下一种发现")
-			var shortcut: String="P优先委托" if game.phase=="day" and game.contract_goal()!=Vector3.INF else "P跟随"
-			label("下一站 %s · 可达路线 %.0f米 · %s" % [target_name,float(target.distance),shortcut],Vector2(43,390),10,amber)
+		label(game.discoveries.motivation_target_text(target),Vector2(43,390),10,amber)
 	for i in game.reward_toasts.size():
 		var reward: Dictionary=game.reward_toasts[game.reward_toasts.size()-1-i]
 		var fade: float=minf(1.0,reward.time/.45)

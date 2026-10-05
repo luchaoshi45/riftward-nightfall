@@ -660,7 +660,8 @@ func follow_exploration() -> bool:
 	if target.is_empty():return false
 	plan_hero_path(target.position)
 	if hero_path.is_empty():return false
-	notify("沿路线寻找%s · 约%.0f米" % [discoveries.TITLES.get(String(target.kind),"下一种发现"),float(target.distance)],2)
+	var route_name: String="沿共鸣路线" if target.get("reason","")=="affinity" else "沿路线"
+	notify("%s寻找%s · 约%.0f米" % [route_name,discoveries.TITLES.get(String(target.kind),"下一种发现"),float(target.distance)],2)
 	return true
 
 func follow_route() -> bool:

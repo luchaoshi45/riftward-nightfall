@@ -24,7 +24,7 @@ var elapsed := 0.0
 var motivation_revision := 0
 var motivation_cache_revision := -1
 var motivation_cache_cell := Vector2i(9999,9999)
-var motivation_cache_kind := ""
+var motivation_cache_request := ""
 var motivation_cache: Dictionary = {}
 var motivation_refresh_time := 0.0
 var motivation_route_queries := 0
@@ -273,9 +273,16 @@ func _refresh_motivation_lights() -> void:
 func motivation_target() -> Dictionary:
 	if not game or not game.get("exploration"):return {}
 	var kind: String=game.exploration.next_kind()
-	if kind.is_empty():return {}
+	var affinity_active: bool=game.exploration.affinity_active()
+	var affinity_kinds: Array[String]=[]
+	# Normalize the set so reordering equivalent contract categories cannot
+	# invalidate the cache, while activation, consumption and expiry do.
+	if affinity_active:
+		for candidate: String in KINDS:
+			if candidate in game.exploration.affinity_kinds:affinity_kinds.append(candidate)
+	var request: String=kind+"|"+str(affinity_active)+"|"+",".join(affinity_kinds)
 	var cell:=Vector2i(floori(game.hero.position.x/MOTIVATION_CELL_SIZE),floori(game.hero.position.z/MOTIVATION_CELL_SIZE))
-	var cache_matches:=motivation_cache_revision==motivation_revision and motivation_cache_kind==kind
+	var cache_matches:=motivation_cache_revision==motivation_revision and motivation_cache_request==request
 	# Guidance is presentation only. Do not make the movement frame wait for a
 	# fresh A* query every metre while the hero crosses the raised terrain. A
 	# short stale window keeps the marker responsive while collapsing repeated
@@ -283,25 +290,38 @@ func motivation_target() -> Dictionary:
 	# an exact route on demand.
 	if cache_matches and motivation_refresh_time>0.0 and motivation_cache_cell==cell:
 		return motivation_cache.duplicate(true)
-	var selected: Dictionary={}
-	var distance:=INF
-	var selected_index:=-1
-	for index in items.size():
-		var item: Dictionary=items[index]
-		if item.kind!=kind or item.state!="ready":continue
-		var candidate: float=route_distance(game.hero.position,item.position)
-		if not is_finite(candidate):continue
-		if candidate<distance:
-			distance=candidate;selected=item;selected_index=index
-	if selected.is_empty():
-		motivation_cache={}
-	else:
-		motivation_cache={"index":selected_index,"serial":int(selected.serial),"kind":kind,"distance":distance,"position":selected.position}
+	# The one-shot contract reward can target an already collected category.
+	# Search it even after the four-type route is complete, then honestly fall
+	# back to the ordinary route if no matching ready discovery is reachable.
+	motivation_cache=nearest_motivation_target(affinity_kinds,"affinity")
+	if motivation_cache.is_empty() and not kind.is_empty():
+		motivation_cache=nearest_motivation_target([kind],"route")
 	motivation_cache_revision=motivation_revision
 	motivation_cache_cell=cell
-	motivation_cache_kind=kind
+	motivation_cache_request=request
 	motivation_refresh_time=MOTIVATION_REFRESH_SECONDS
 	return motivation_cache.duplicate(true)
+
+func nearest_motivation_target(kinds: Array[String], reason: String) -> Dictionary:
+	var selected: Dictionary={}
+	var distance:=INF
+	for index in items.size():
+		var item: Dictionary=items[index]
+		if item.kind not in kinds or item.state!="ready":continue
+		if not game.outpost_walkable(item.position):continue
+		var candidate: float=route_distance(game.hero.position,item.position)
+		if not is_finite(candidate) or candidate>=distance:continue
+		distance=candidate
+		selected={"index":index,"serial":int(item.serial),"kind":String(item.kind),"distance":distance,"position":item.position,"reason":reason}
+	return selected
+
+func motivation_target_text(target: Dictionary) -> String:
+	if target.is_empty():
+		return "暂无可达共鸣点 · 等待刷新" if game.exploration.affinity_active() else ""
+	var title: String=TITLES.get(String(target.kind),"下一种发现")
+	var prefix: String="共鸣目标" if target.get("reason","")=="affinity" else "下一站"
+	var shortcut: String="P优先委托" if game.phase=="day" and game.contract_goal()!=Vector3.INF else "P跟随"
+	return "%s %s · 可达路线 %.0f米 · %s" % [prefix,title,float(target.distance),shortcut]
 
 func route_distance(from: Vector3, to: Vector3) -> float:
 	if game.can_traverse(from,to):return flat_distance(from,to)
