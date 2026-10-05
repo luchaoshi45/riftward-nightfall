@@ -450,10 +450,20 @@ func run() -> void:
 	camera_at(Vector3(0, 5, 0))
 	await capture("expanded-day")
 	await capture("expanded-night", true)
-	await game.prepare_shutdown()
+	var previous_scene_id: int = game.get_instance_id()
 	game.phase = "ended"
 	await press(KEY_ENTER)
-	for _frame in 6: await process_frame
+	# Restart retires real audio for .15 seconds before replacing the scene.
+	# A fixed frame count can still inspect the old run on fast headless hosts.
+	var restart_elapsed := 0.0
+	while (current_scene == null or current_scene.get_instance_id() == previous_scene_id) and restart_elapsed < 12.0:
+		await create_timer(.02).timeout
+		restart_elapsed += .02
+	check(current_scene != null and current_scene.get_instance_id() != previous_scene_id,
+		"Actual Enter must replace the real scene before the restart deadline")
+	if current_scene == null or current_scene.get_instance_id() == previous_scene_id:
+		await finish()
+		return
 	game = current_scene as Node3D
 	game.set_process(false)
 	game.world.set_process(false)
