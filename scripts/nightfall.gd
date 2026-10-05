@@ -246,12 +246,13 @@ func _process(delta: float) -> void:
 	flush_pending_aim()
 	if construction:construction.tick(delta)
 	if phase=="day" or phase=="night":simulate(delta)
-	update_beacon_alarm(delta)
+	if phase in ["day","night"]:
+		update_beacon_alarm(delta)
+		hero_damage_flash_time=maxf(0.0,hero_damage_flash_time-delta)
 	for i in range(reward_toasts.size()-1,-1,-1):
 		reward_toasts[i].time-=delta
 		if reward_toasts[i].time<=0:reward_toasts.remove_at(i)
 	if notice_time>0:notice_time=maxf(0,notice_time-delta)
-	hero_damage_flash_time=maxf(0.0,hero_damage_flash_time-delta)
 	if is_instance_valid(hero):
 		world.follow_ashfall(hero.position)
 		var target:=hero.position+Vector3(0,25,29)
@@ -1637,7 +1638,8 @@ func update_focus(delta: float) -> void:
 	if not is_instance_valid(focus_target) or not focus_target.alive or focus_time<=0:
 		clear_focus()
 	elif is_instance_valid(focus_ring):
-		focus_ring.scale=Vector3.ONE*(1.0+sin(float(Time.get_ticks_msec())*.01)*.08)
+		var pulse:=0.0 if combat and combat.reduced_effects else sin(world.light_time*2.4)*.025
+		focus_ring.scale=Vector3.ONE*(1.0+pulse)
 
 func clear_focus() -> void:
 	if is_instance_valid(focus_ring):focus_ring.queue_free()

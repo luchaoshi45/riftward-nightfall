@@ -204,16 +204,39 @@ func run() -> void:
 	view(Vector3(0,5,0))
 	lighting_samples()
 	if game.hud.has_method("alarm_outline_alpha"):
+		var original_enemy_position: Vector3 = enemy.position
+		enemy.position = game.hero.position + Vector3.RIGHT*2.0
+		game.aim = enemy.position
+		check(game.issue_focus_order(),"Stable focus artwork must use the real tower focus order")
+		game.update_focus(0.0)
+		var held_focus_scale: Vector3 = game.focus_ring.scale
 		var prior_alpha: float = game.hud.alarm_outline_alpha()
 		game.phase = "paused"
+		game.record_beacon_hit(20.0)
+		game.hero_damage_flash_time = .62
+		game._process(3.0)
 		game.world._process(3.0)
+		game.update_focus(0.0)
 		check(is_equal_approx(prior_alpha,game.hud.alarm_outline_alpha()),"Paused warning outline must remain stable")
+		check(game.focus_ring.scale == held_focus_scale,"Pause freezes the real focus ring clock")
+		check(game.beacon_alarm_time == 3.0 and game.hero_damage_flash_time == .62,"Pause must retain the visible alarm and hit confirmation, not only their color")
+		game.phase = "draft"
+		game._process(3.0)
+		check(game.beacon_alarm_time == 3.0 and game.hero_damage_flash_time == .62,"Card selection must retain the remaining alarm and hit confirmation time")
 		game.phase = "night"
 		game.combat.reduced_effects = true
 		prior_alpha = game.hud.alarm_outline_alpha()
 		game.world._process(.35)
+		game.update_focus(0.0)
 		check(is_equal_approx(prior_alpha,game.hud.alarm_outline_alpha()),"F2 keeps the necessary warning steadily visible")
+		check(game.focus_ring.scale == Vector3.ONE,"F2 keeps the focus ring steady without cancelling the order")
+		check(game.focus_target == enemy and game.focus_time > 0,"Visual feedback must preserve the real focus target and duration")
 		game.combat.reduced_effects = false
+		game.clear_focus()
+		enemy.position = original_enemy_position
+		game.notice_time = 0.0
+		game.beacon_alarm_time = 0.0
+		game.hero_damage_flash_time = 0.0
 	if render_test: await actual_frames()
 	observations["renderer"] = RenderingServer.get_current_rendering_method()
 	observations["quality"] = {"msaa":root.msaa_3d,"camera_near":game.camera.near,"shadow_mode":game.world.sun.directional_shadow_mode}

@@ -50,8 +50,18 @@ func box(rect: Rect2,fill: Color=Color(.022,.035,.045,.88),outline: Color=Color(
 	style.bg_color=fill
 	style.border_color=outline
 	style.set_border_width_all(1)
-	style.set_corner_radius_all(5)
+	style.set_corner_radius_all(6)
+	style.shadow_color=Color(0,0,0,.20)
+	style.shadow_size=3
+	style.shadow_offset=Vector2(0,2)
 	draw_style_box(style,rect)
+
+func alarm_outline_alpha() -> float:
+	# Read the same simulation clock as world lights: no wall-clock flashing
+	# behind pause/cards, and reduced effects retain a steady readable warning.
+	if not is_instance_valid(game) or not is_instance_valid(game.world):return .76
+	if game.combat and game.combat.reduced_effects:return .76
+	return .76+.08*sin(game.world.light_time*2.4)
 
 func progress(rect: Rect2,ratio: float,color: Color) -> void:
 	draw_rect(rect,Color("202c32"))
@@ -124,7 +134,7 @@ func _draw() -> void:
 	label("C 塔群集火  %s" % ("进行中 %.0fs" % game.focus_time if game.focus_time>0 else ("就绪" if game.focus_cooldown<=0 else "冷却 %.0fs" % game.focus_cooldown)),Vector2(1071,168),12,amber if game.focus_time>0 else muted)
 	label("灯下同伴 %d/2 · 协作修灯 %d 零件" % [game.survivors_rescued,game.beacon_repair_cost()],Vector2(1071,188),12,Color("a3c7b7"))
 	if game.beacon_alarm_time>0:
-		var flash:=.72+.22*sin(float(Time.get_ticks_msec())*.018)
+		var flash:=alarm_outline_alpha()
 		draw_rect(Rect2(1051,23,363,171),Color("ef6b56",flash),false,2.4)
 		box(Rect2(500,25,440,54),Color(.14,.025,.024,.93),Color("c46c58"))
 		var alarm_text: String="灯塔遭攻击  -%d  ·  立即回防" % int(game.beacon_alarm_damage)
@@ -306,9 +316,9 @@ func draw_target_warnings() -> void:
 		var remaining:=maxf(0.0,float(warning.get("remaining",0.0)))
 		var progress_value:=clampf(float(warning.get("progress",0.0)),0.0,1.0)
 		var danger:=Color("f08b67") if String(warning.get("threat","stalker"))!="runner" else Color("e5bb70")
-		var radius:=16.0+3.0*sin(float(Time.get_ticks_msec())*.012)
-		draw_arc(position,radius,0.0,TAU,28,danger,2.4)
-		draw_arc(position,radius+4.0,-PI*.5,-PI*.5+TAU*progress_value,24,Color("ffe0a1"),2.5)
+		var radius:=16.0+1.5*progress_value
+		draw_arc(position,radius,0.0,TAU,48,danger,2.4,true)
+		draw_arc(position,radius+4.0,-PI*.5,-PI*.5+TAU*progress_value,48,Color("ffe0a1"),2.5,true)
 		draw_line(position+Vector2(-4,-radius-8),position+Vector2(4,-radius-8),Color(.04,.02,.015,.88),5.0)
 		draw_line(position+Vector2(-4,-radius-8),position+Vector2(-4+8.0*progress_value,-radius-8),danger,3.0)
 		var label_text: String="蓄力 %.1f" % remaining
