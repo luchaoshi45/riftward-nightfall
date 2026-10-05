@@ -2,6 +2,7 @@ extends SceneTree
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Districts := preload("res://scripts/outpost_districts.gd")
 const Construction := preload("res://scripts/tower_construction.gd")
+const Grid := preload("res://scripts/construction_grid.gd")
 
 class FixtureWorld extends RefCounted:
 	var tower_pads: Array[Dictionary] = []
@@ -71,7 +72,8 @@ func run() -> void:
 	game.scrap = 5000
 	var paid: Dictionary = districts.build_at(Vector3(-8, 0, -8), "barracks")
 	check(bool(paid.ok) and paid.cost == 60 and game.scrap == 4940, "Remote nighttime building pays exactly once")
-	check(districts.plots.size() == 1 and districts.plots[0].position == Vector3(-8, 5, -8), "Building keeps the freely selected floor position")
+	var selected_barracks: Vector3 = Grid.placement(Vector3(-8, 5, -8), "barracks").point
+	check(districts.plots.size() == 1 and districts.plots[0].position == selected_barracks, "Building snaps the freely selected point to its grid footprint on the castle floor")
 	check(districts.plots[0].hp == 600.0 and districts.plots[0].max_hp == 600.0, "Barracks has real 600 health")
 	check(game.navigation_updates == 1 and game.squads.refreshes == 1, "Building refreshes actual navigation and barracks training")
 	check(not bool(districts.build_at(Vector3(-8, 5, -8), "workshop").ok) and game.scrap == 4940, "Repeated placement cannot double-spend or change a live building")
@@ -81,8 +83,10 @@ func run() -> void:
 	check(districts.guard_regen(Vector3(0, 0, 6)) == 0.0 and districts.guard_regen(Vector3(18, 5, 0)) == 0.0, "Regeneration applies only on actual city floor")
 	var bounds: AABB = districts.model_bounds(districts.plots[0].model)
 	var factor: float = (districts.plots[0].model as Node3D).scale.x
-	var half: Vector2 = districts.footprint("barracks")
-	check(half.distance_to(Vector2(bounds.size.x, bounds.size.z) * factor * .5) < .001, "Placement footprint matches the displayed scaled model")
+	var model_half: Vector2 = game.construction.model_footprint("barracks")
+	var half: Vector2 = game.construction.footprint("barracks")
+	check(model_half.distance_to(Vector2(bounds.size.x, bounds.size.z) * factor * .5) < .001, "Displayed scaled model retains its measured footprint")
+	check(half == Vector2(Grid.sizes("barracks")) * .5 and half.x >= model_half.x and half.y >= model_half.y, "Whole grid footprint encloses the actual barracks model")
 	game.scrap = 79
 	check(not bool(districts.upgrade(0).ok) and game.scrap == 79, "Upgrade rechecks the real balance")
 	game.scrap = 4940
@@ -119,8 +123,8 @@ func run() -> void:
 	districts.damage(2, 450)
 	districts.damage(3, 450)
 	check(districts.tower_cost(60) == 60 and game.scrap == balance, "Destroying all workshops removes discounts and does not invent refunds")
-	for z: float in [-10.0, -7.0, -4.0, -1.0, 2.0, 5.0, 8.0, 11.0]:
-		for x: float in [-10.0, -7.0, -4.0, -1.0, 2.0, 5.0, 8.0, 11.0]:
+	for z: float in [-11.5, -8.5, -5.5, -2.5, .5, 3.5, 6.5, 9.5]:
+		for x: float in [-11.0, -7.0, -3.0, 1.0, 5.0, 9.0]:
 			if districts.active_barracks().size() >= 12: break
 			var point := Vector3(x, 5, z)
 			if not bool(game.construction.validity(point, -1, "barracks").valid): continue

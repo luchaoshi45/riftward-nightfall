@@ -2331,7 +2331,7 @@ func toggle_tower_construction() -> bool:
 		return true
 	if not construction.begin():return false
 	selection_dragging=false
-	notify("城内自由建设 · 1塔 / 2兵营 / 3工坊 · 左键/F连续建造",3)
+	notify("格子建设 · 1塔3×3 / 2兵营4×3 / 3工坊3×2 · 左键/F连续建造",3)
 	return true
 
 func build_structure_at(point: Vector3, kind: String) -> bool:

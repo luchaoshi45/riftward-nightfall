@@ -1,6 +1,7 @@
 extends SceneTree
 ## Freely built districts: visible assets, actual recovery/discounts, engineering repairs and gate routes.
 const Layout := preload("res://scripts/outpost_layout.gd")
+const Grid := preload("res://scripts/construction_grid.gd")
 var game: Node3D
 var failures: Array[String] = []
 var checks := 0
@@ -37,6 +38,7 @@ func route_home(start: Vector3) -> void:
 func construct(point: Vector3, kind: String) -> bool:
 	stand(Vector3(0, 5, 3.9))
 	check(game.outpost_walkable(point), "A freely chosen district site starts as ordinary walkable castle ground")
+	var expected: Vector3 = Grid.placement(point, kind).point
 	check(game.build_district(kind), "The real controller must enter the requested building preview")
 	game.aim = point
 	game.aim_sample_pending = false
@@ -49,8 +51,8 @@ func construct(point: Vector3, kind: String) -> bool:
 	game.construction.cancel()
 	if not built: return false
 	var plot: Dictionary = game.districts.plots[before_count]
-	check((plot.position as Vector3).distance_to(point) < .01 and is_equal_approx(plot.position.y, 5.0),
-		"Construction must retain the selected position on the five-metre castle")
+	check((plot.position as Vector3).distance_to(expected) < .01 and is_equal_approx(plot.position.y, 5.0),
+		"Construction must snap the selected point to whole grid cells on the five-metre castle")
 	check((plot.ring as MeshInstance3D).visible and (plot.model as Node3D).is_visible_in_tree(),
 		"The real district model and ground marker must be visible")
 	var bounds: AABB = game.districts.model_bounds(plot.model)
@@ -62,7 +64,7 @@ func construct(point: Vector3, kind: String) -> bool:
 
 func capture() -> void:
 	if DisplayServer.get_name() == "headless": return
-	stand(Vector3(0, 5, 1))
+	stand(Vector3(0, 5, 4))
 	game.camera.position = game.hero.position + Vector3(0, 25, 29)
 	game.notice_time = 0.0
 	game.phase_time = game.DAY_LENGTH

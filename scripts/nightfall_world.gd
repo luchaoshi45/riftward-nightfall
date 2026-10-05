@@ -2,6 +2,7 @@ class_name NightfallWorld
 extends Node3D
 ## Ash outpost and explorable ruin perimeter; no lanes or opposing bases.
 const Layout = preload("res://scripts/outpost_layout.gd")
+const Grid = preload("res://scripts/construction_grid.gd")
 const FORT_HEIGHT := Layout.FORT_HEIGHT
 const LIGHT_TRANSITION_SECONDS := 6.0
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
@@ -143,7 +144,7 @@ func build() -> void:
 		nests.append({"node":nest,"sealed_node":sealed,"light":nest_light,"sealed_light":sealed_light,"position":point,"cleansed":false})
 	# Only the two actual opening defenses have foundations. Every later
 	# tower is authored by the player; there are no empty fixed construction slots.
-	for point in [Vector3(5,0,10),Vector3(-5,0,10)]:
+	for point in [Vector3(5.5,0,10.5),Vector3(-5.5,0,10.5)]:
 		add_tower_pad(point)
 	var salvage_scene := load("res://assets/models/salvage_crate.glb") as PackedScene
 	for i in range(36):
@@ -326,7 +327,9 @@ func add_tower_pad(point: Vector3, zone: String="castle") -> int:
 	# The controller validates spacing and construction cost. The world still
 	# refuses points outside the protected yard so every runtime tower remains
 	# on the castle plane, including dynamically appended positions.
-	if not point.is_finite() or not Layout.contains_castle(point,1.15):return -1
+	var placement := Grid.placement(point,"tower")
+	if not point.is_finite() or not bool(placement.inside):return -1
+	point=placement.point
 	if tower_pad_scene==null:tower_pad_scene=load("res://assets/models/tower_pad.glb") as PackedScene
 	point.y=terrain_height(point)
 	var core_zone := zone=="core"

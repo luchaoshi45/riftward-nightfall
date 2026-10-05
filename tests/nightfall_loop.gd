@@ -1,5 +1,6 @@
 extends SceneTree
 const Layout = preload("res://scripts/outpost_layout.gd")
+const Grid = preload("res://scripts/construction_grid.gd")
 
 func _initialize() -> void:
 	if DisplayServer.get_name()!="headless":
@@ -13,10 +14,10 @@ func verify_close_building_approach(game: Node3D) -> void:
 	game.hero.position=Vector3(80,0,80)
 	game.move_goal=game.hero.position
 	game.scrap=1000
-	var wall_point:=Vector3(11.7,5,-8)
+	var wall_point: Vector3=Grid.placement(Vector3(11.5,5,-7.5),"tower").point
 	assert(game.build_tower_at(wall_point))
 	var wall_index: int=game.world.tower_pads.size()-1
-	assert(game.build_tower_at(Vector3(9.14,5,-8)))
+	assert(game.build_tower_at(wall_point-Vector3(3,0,0)))
 	var neighbour_index: int=game.world.tower_pads.size()-1
 	for index in game.world.tower_pads.size():
 		if index not in [wall_index,neighbour_index] and int(game.world.tower_pads[index].level)>0:game.damage_tower(index,100000.0)
@@ -92,7 +93,8 @@ func run() -> void:
 	assert(game.interact())
 	assert(game.scrap>=35 and first.collected)
 	game.scrap=120
-	game.hero.position=Vector3(-8,5,-5.8)
+	var selected_tower: Vector3=Grid.placement(Vector3(-8,5,-8),"tower").point
+	game.hero.position=selected_tower+Vector3(0,0,2.2)
 	game.move_goal=game.hero.position
 	assert(game.build_tower_at(Vector3(-8,5,-8)))
 	var pad: Dictionary=game.world.tower_pads.back()

@@ -221,16 +221,17 @@ func training_kind_rect(index: int) -> Rect2:
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
-	var tint:=Color("85d5a5") if bool(placement.valid) else red
+	var tint:=Color("85d5a5") if bool(placement.valid) else (amber if bool(placement.space_valid) else red)
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
 	for index in 3:
 		var kind: String=["tower","barracks","workshop"][index]
 		var rect:=construction_kind_rect(index)
 		box(rect,Color(.06,.15,.12,.95) if kind==String(placement.kind) else panel,tint if kind==String(placement.kind) else muted)
 		label(["1 防御塔","2 兵营","3 工坊"][index],rect.position+Vector2(14,22),14,ink)
-	label("%s · %d零件 · 连续建造" % [placement.title,int(placement.cost)],Vector2(457,590),18,ink)
+	var grid_size: Vector2i=placement.size
+	label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,590),18,ink)
 	label(String(placement.reason),Vector2(457,616),15,tint)
-	label("鼠标选址 · 左键/F建造 · 右键/Esc/Y退出",Vector2(457,642),14,amber)
+	label("吸附格子 · 左键/F连续建造 · 右键/Esc/Y退出",Vector2(457,642),14,amber)
 
 func draw_selection_rect() -> void:
 	if not game.selection_dragging or game.phase not in ["day","night"]:return

@@ -1,6 +1,8 @@
 extends Node3D
 ## Shared construction selection. The controller owns payment and building lifetime.
 const Layout := preload("res://scripts/outpost_layout.gd")
+const Grid := preload("res://scripts/construction_grid.gd")
+const GridPreview := preload("res://scripts/construction_grid_preview.gd")
 const TOWER_SCENE: PackedScene = preload("res://assets/models/auto_turret.glb")
 const PAD_SCENE: PackedScene = preload("res://assets/models/tower_pad.glb")
 const CORE_SCENE: PackedScene = preload("res://assets/models/watch_beacon.glb")
@@ -12,11 +14,13 @@ const NAVIGATION_MARGIN := 0.05
 const UNIT_BODY_RADIUS := 0.25
 const VALID_COLOR := Color(0.35, 0.9, 0.58, 0.32)
 const INVALID_COLOR := Color(0.95, 0.3, 0.28, 0.32)
+const BUDGET_COLOR := Color(0.95, 0.68, 0.28, 0.32)
 
 var game: Node3D
 var active := false
 var kind := "tower"
 var ghost: Node3D
+var grid_preview: Node3D
 var ring: MeshInstance3D
 var ghost_material: StandardMaterial3D
 var ring_material: StandardMaterial3D
@@ -25,6 +29,8 @@ var _preview_kind := ""
 var _footprints: Dictionary = {}
 var _has_hero := false
 var _has_squads := false
+var _has_enemies := false
+var _has_expeditions := false
 
 func setup(owner_game: Node3D) -> void:
 	clear()
@@ -33,6 +39,8 @@ func setup(owner_game: Node3D) -> void:
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) == "hero": _has_hero = true
 		if String(property.name) == "squads": _has_squads = true
+		if String(property.name) == "enemies": _has_enemies = true
+		if String(property.name) == "expeditions": _has_expeditions = true
 
 func begin(structure_kind: String = "tower") -> bool:
 	if not is_instance_valid(game) or game.phase not in ["day", "night"] or not TITLES.has(structure_kind): return false
@@ -48,11 +56,14 @@ func select_kind(structure_kind: String) -> bool:
 func cancel() -> void:
 	active = false
 	if is_instance_valid(ghost): ghost.visible = false
+	if is_instance_valid(grid_preview): grid_preview.hide()
 
 func clear() -> void:
 	cancel()
 	if is_instance_valid(ghost): ghost.queue_free()
+	if is_instance_valid(grid_preview): grid_preview.queue_free()
 	ghost = null
+	grid_preview = null
 	ring = null
 	ghost_material = null
 	ring_material = null
@@ -60,24 +71,29 @@ func clear() -> void:
 	_preview_kind = ""
 	_has_hero = false
 	_has_squads = false
+	_has_enemies = false
+	_has_expeditions = false
 	game = null
 
 func tick(_delta: float) -> void:
 	if not active or not is_instance_valid(game) or game.phase not in ["day", "night"]:
 		if is_instance_valid(ghost): ghost.visible = false
+		if is_instance_valid(grid_preview): grid_preview.hide()
 		return
 	_ensure_preview()
 	var placement := validity(game.aim, -1, kind)
 	var point: Vector3 = placement.point
-	if not point.is_finite():
+	if not point.is_finite() or (placement.cells as Array).is_empty():
 		ghost.visible = false
+		grid_preview.hide()
 		return
 	ghost.position = point
 	ghost.visible = true
-	var state := 1 if bool(placement.valid) else 0
+	grid_preview.show_placement(placement)
+	var state := 1 if bool(placement.valid) else (2 if bool(placement.space_valid) else 0)
 	if state != _preview_state:
 		_preview_state = state
-		var tint: Color = VALID_COLOR if state == 1 else INVALID_COLOR
+		var tint: Color = VALID_COLOR if state == 1 else (BUDGET_COLOR if state == 2 else INVALID_COLOR)
 		ghost_material.albedo_color = tint
 		tint.a = 0.95
 		ring_material.albedo_color = tint
@@ -90,8 +106,9 @@ func snapshot() -> Dictionary:
 	return placement
 
 func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String = "tower", ignore_plot_index: int = -1) -> Dictionary:
-	var result := {"valid": false, "space_valid": false, "reason": "", "cost": 0, "point": point,
-		"kind": structure_kind, "title": String(TITLES.get(structure_kind, "建筑"))}
+	var result := Grid.placement(point, structure_kind)
+	result.merge({"valid": false, "space_valid": false, "reason": "", "cost": 0,
+		"kind": structure_kind, "title": String(TITLES.get(structure_kind, "建筑")), "cell_states": []})
 	if not is_instance_valid(game):
 		result.reason = "建设系统尚未初始化"
 		return result
@@ -99,61 +116,74 @@ func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String
 		result.reason = "未知建筑"
 		return result
 	result.cost = game.districts.tower_cost(int(game.TOWER_COSTS[0])) if structure_kind == "tower" else int(game.districts.BUILD_COST)
-	if not point.is_finite():
+	if not point.is_finite() or (result.cells as Array).is_empty():
 		result.reason = "放置位置无效"
 		return result
 	if game.phase not in ["day", "night"]:
 		result.reason = "暂停或选卡时不能建造"
 		return result
-	if not Layout.contains_castle(point):
-		result.reason = "建筑只能建在城内"
-		return result
-	var half := footprint(structure_kind)
-	if absf(point.x) + half.x > Layout.FORT_INNER + BOUNDARY_EPSILON or absf(point.z) + half.y > Layout.FORT_INNER + BOUNDARY_EPSILON:
-		result.reason = "建筑底座不能覆盖城墙"
-		return result
+	point = result.point
 	var height: float = game.outpost_height(point)
-	if not is_finite(height) or absf(height - Layout.FORT_HEIGHT) > 0.05:
-		result.reason = "需要城内平坦地面"
-		return result
 	result.point = Vector3(point.x, height, point.z)
-	var flat := Vector2(point.x, point.z)
-	if _overlaps(flat, half, structure_kind == "tower", Vector2.ZERO, footprint("core"), true):
-		result.reason = "不能覆盖灯塔核心底座"
+	var occupied := occupied_cells(ignore_pad_index, ignore_plot_index)
+	var units := _living_units()
+	var cell_states: Array[Dictionary] = []
+	var rejection := ""
+	for cell: Vector2i in result.cells:
+		var reason := ""
+		var rect := Grid.cell_rect(cell)
+		var center := rect.get_center()
+		if not Grid.CASTLE_CELLS.has_point(cell): reason = "占地格超出城内或覆盖城墙"
+		elif not is_finite(height) or absf(height - Layout.FORT_HEIGHT) > .05: reason = "需要城内平坦地面"
+		elif occupied.has(cell): reason = String(occupied[cell])
+		else:
+			for unit: Node3D in units:
+				var position := unit.position
+				if absf(position.y - height) > 1.0: continue
+				if _overlaps(center, Vector2.ONE * (Grid.CELL_SIZE * .5 + NAVIGATION_MARGIN), false, Vector2(position.x, position.z), Vector2.ONE * UNIT_BODY_RADIUS, true):
+					reason = "占地格有正在这里的单位"
+					break
+		cell_states.append({"cell": cell, "space_valid": reason.is_empty(), "reason": reason})
+		if rejection.is_empty() and not reason.is_empty(): rejection = reason
+	result.cell_states = cell_states
+	if not rejection.is_empty():
+		result.reason = rejection
 		return result
-	for index in game.districts.plots.size():
-		if index == ignore_plot_index: continue
-		var plot: Dictionary = game.districts.plots[index]
-		if int(plot.get("level", 0)) <= 0 or float(plot.get("hp", 0.0)) <= 0.0: continue
-		var district_point: Vector3 = plot.position
-		if _overlaps(flat, half, structure_kind == "tower", Vector2(district_point.x, district_point.z), footprint(String(plot.kind)), false):
-			result.reason = "不能覆盖已有建筑"
-			return result
-	for index in game.world.tower_pads.size():
-		if index == ignore_pad_index: continue
-		var pad: Dictionary = game.world.tower_pads[index]
-		if int(pad.get("level", 0)) <= 0 and not bool(pad.get("free_built", false)): continue
-		var tower_point: Vector3 = pad.position
-		if _overlaps(flat, half, structure_kind == "tower", Vector2(tower_point.x, tower_point.z), footprint("tower"), true):
-			result.reason = "不能覆盖防御塔或残基"
-			return result
-	for unit: Node3D in _living_units():
-		var position := unit.position
-		if absf(position.y - height) > 1.0: continue
-		# Navigation uses a small expanded AABB, including a tower's circular
-		# corners. Never allow its new movement block to trap an existing unit.
-		if _overlaps(flat, half + Vector2.ONE * NAVIGATION_MARGIN, false, Vector2(position.x, position.z), Vector2.ONE * UNIT_BODY_RADIUS, true):
-			result.reason = "不能覆盖正在这里的单位"
-			return result
 	result.space_valid = true
 	if int(game.scrap) < int(result.cost):
 		result.reason = "零件不足 · 需要%d" % int(result.cost)
 		return result
 	result.valid = true
-	result.reason = "可建造%s" % String(result.title)
+	result.reason = "可建造%s · %d×%d格" % [String(result.title), Grid.sizes(structure_kind).x, Grid.sizes(structure_kind).y]
 	return result
 
+func occupied_cells(ignore_pad_index: int = -1, ignore_plot_index: int = -1) -> Dictionary:
+	var occupied: Dictionary = {}
+	_reserve_cells(occupied, Vector3.ZERO, "core", "占地格覆盖灯塔核心底座")
+	if not is_instance_valid(game): return occupied
+	for index in game.districts.plots.size():
+		if index == ignore_plot_index: continue
+		var plot: Dictionary = game.districts.plots[index]
+		if int(plot.get("level", 0)) <= 0 or float(plot.get("hp", 0.0)) <= 0.0: continue
+		_reserve_cells(occupied, plot.position, String(plot.kind), "占地格已有建筑")
+	for index in game.world.tower_pads.size():
+		if index == ignore_pad_index: continue
+		var pad: Dictionary = game.world.tower_pads[index]
+		if int(pad.get("level", 0)) <= 0 and not bool(pad.get("free_built", false)): continue
+		_reserve_cells(occupied, pad.position, "tower", "占地格有防御塔或残基")
+	return occupied
+
+func _reserve_cells(occupied: Dictionary, point: Vector3, structure_kind: String, reason: String) -> void:
+	# Live construction stores snapped centers. Conservatively rasterize any
+	# legacy/test off-grid structure at its actual position instead of moving it.
+	var half := footprint(structure_kind)
+	for cell: Vector2i in Grid.cells_for_rect(Rect2(Vector2(point.x, point.z) - half, half * 2.0)):
+		if not occupied.has(cell): occupied[cell] = reason
+
 func footprint(structure_kind: String) -> Vector2:
+	return Vector2(Grid.sizes(structure_kind)) * Grid.CELL_SIZE * .5
+
+func model_footprint(structure_kind: String) -> Vector2:
 	if _footprints.has(structure_kind): return _footprints[structure_kind]
 	if structure_kind == "tower":
 		var pad := PAD_SCENE.instantiate() as Node3D
@@ -212,14 +242,23 @@ func _overlaps(a: Vector2, a_half: Vector2, a_circle: bool, b: Vector2, b_half: 
 func _living_units() -> Array[Node3D]:
 	var units: Array[Node3D] = []
 	if _has_hero:
-		var hero := game.get("hero") as Node3D
-		if is_instance_valid(hero) and _unit_alive(hero): units.append(hero)
+		var hero: Variant = game.get("hero")
+		if is_instance_valid(hero) and hero is Node3D and _unit_alive(hero): units.append(hero)
 	if _has_squads:
 		var squads: Node = game.get("squads") as Node
 		if is_instance_valid(squads):
 			for squad: Dictionary in squads.get("squads"):
-				for member: Node3D in squad.members:
-					if is_instance_valid(member) and _unit_alive(member): units.append(member)
+				for member in squad.members:
+					if is_instance_valid(member) and member is Node3D and _unit_alive(member): units.append(member)
+	if _has_enemies:
+		for enemy in game.get("enemies"):
+			if is_instance_valid(enemy) and enemy is Node3D and _unit_alive(enemy): units.append(enemy)
+	if _has_expeditions:
+		var expeditions: Node = game.get("expeditions") as Node
+		if is_instance_valid(expeditions):
+			for camp: Dictionary in expeditions.get("camps"):
+				var scout: Variant = camp.get("npc")
+				if is_instance_valid(scout) and scout is Node3D and _unit_alive(scout): units.append(scout)
 	return units
 
 func _unit_alive(unit: Node3D) -> bool:
@@ -240,6 +279,11 @@ func _named_footprint(model: Node3D, part_name: String) -> Vector2:
 	return Vector2(maxf(absf(bounds.position.x), absf(bounds.end.x)), maxf(absf(bounds.position.z), absf(bounds.end.z)))
 
 func _ensure_preview() -> void:
+	if not is_instance_valid(grid_preview):
+		grid_preview = GridPreview.new()
+		add_child(grid_preview)
+		grid_preview.setup()
+		grid_preview.hide()
 	if not is_instance_valid(ghost):
 		ghost = Node3D.new()
 		ghost.name = "ConstructionPreview"
@@ -264,6 +308,7 @@ func _ensure_preview() -> void:
 		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		ring.position.y = 0.1
 		ghost.add_child(ring)
+		ring.visible = false
 		ghost.visible = false
 	if _preview_kind == kind: return
 	for child: Node in ghost.get_children():
