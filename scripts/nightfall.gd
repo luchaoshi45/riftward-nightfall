@@ -1431,12 +1431,12 @@ func refresh_construction_navigation() -> void:
 	construction_blocks=construction.navigation_blocks()
 	building_approach_cache.clear()
 	build_hero_navigation()
-	for creature: BattleUnit in enemies:
-		if is_instance_valid(creature):creature.path.clear();creature.path_timer=0.0
+	for creature in enemies:
+		if is_instance_valid(creature) and creature is BattleUnit:creature.path.clear();creature.path_timer=0.0
 	if is_instance_valid(squads):
 		for squad: Dictionary in squads.squads:
-			for member: BattleUnit in squad.members:
-				if is_instance_valid(member):member.path.clear();member.path_timer=0.0
+			for member in squad.members:
+				if is_instance_valid(member) and member is BattleUnit:member.path.clear();member.path_timer=0.0
 	if is_instance_valid(hero) and not hero_path.is_empty():plan_hero_path(move_goal)
 
 func nearest_navigation_cell(point: Vector3, require_reachable: bool) -> Vector2i:

@@ -3,6 +3,7 @@ extends SceneTree
 ## troop commands in the actual Nightfall controller and terrain.
 ## Graphics: --windowed --position 10000,10000 --audio-driver Dummy -- --render-test.
 const Layout := preload("res://scripts/outpost_layout.gd")
+const Grid := preload("res://scripts/construction_grid.gd")
 const FAR := Vector3(105, 0, 95)
 const STEP := 1.0 / 30.0
 var game: Node3D
@@ -158,6 +159,7 @@ func squad_id(soldier: BattleUnit) -> int:
 	return -1
 
 func build(kind: String, point: Vector3, mouse: bool = true) -> int:
+	var snapped: Vector3 = Grid.placement(point, kind).point
 	# Keep the actual world click in the unobscured centre of the viewport;
 	# the construction panel correctly consumes clicks within its own bounds.
 	camera_at(ground(point))
@@ -167,7 +169,7 @@ func build(kind: String, point: Vector3, mouse: bool = true) -> int:
 	var preview: Dictionary = game.construction.snapshot()
 	check(game.construction.active and String(preview.get("kind", "")) == kind,
 		"Y and 1/2/3 must select the actual %s preview" % kind)
-	check(bool(preview.valid) and planar(preview.point, point) < .06,
+	check(bool(preview.valid) and planar(preview.point, snapped) < .06,
 		"A freely chosen %s point must have a fresh legal terrain preview: %s" % [kind, preview])
 	var balance: int = game.scrap
 	var before: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
@@ -179,8 +181,8 @@ func build(kind: String, point: Vector3, mouse: bool = true) -> int:
 	check(game.construction.active, "Successful construction must retain continuous placement")
 	if after != before + 1: return -1
 	var placed: Dictionary = game.world.tower_pads[before] if kind == "tower" else game.districts.plots[before]
-	check(planar(placed.position, point) < .06 and absf(placed.position.y - Layout.FORT_HEIGHT) < .001,
-		"A real %s must remain at the cursor on the city floor" % kind)
+	check(planar(placed.position, snapped) < .06 and absf(placed.position.y - Layout.FORT_HEIGHT) < .001,
+		"A real %s must remain at the grid-snapped cursor on the city floor" % kind)
 	return before
 
 func capture(state: String, night: bool = false) -> void:
@@ -206,13 +208,13 @@ func construction_and_economy() -> void:
 		"The production opening must contain only its two real towers")
 	check(game.districts.plots.is_empty(), "New cities must not reserve two hardcoded district plots")
 	# Deliberately build in the old south passage and at arbitrary city
-	# positions, while retaining collisions against actual model footprints.
-	var near_core := Vector3(-4.5, 5, 0)
-	var corridor := Vector3(0, 5, 8)
+	# positions, while retaining collisions against complete grid footprints.
+	var near_core := Vector3(-4.5, 5, -.5)
+	var corridor := Vector3(.5, 5, 7.5)
 	await build("tower", near_core, false)
 	await build("tower", corridor)
-	barracks.append(await build("barracks", Vector3(-7.5, 5, -7.0)))
-	barracks.append(await build("barracks", Vector3(7.5, 5, -7.0), false))
+	barracks.append(await build("barracks", Vector3(-7, 5, -7.5)))
+	barracks.append(await build("barracks", Vector3(7, 5, -7.5), false))
 	workshop = await build("workshop", Vector3(-7.5, 5, 1.0))
 	check(game.districts.plots.size() == 3 and game.districts.active_barracks().size() == 2,
 		"Free construction must support three buildings and two independent barracks")
@@ -231,12 +233,12 @@ func construction_and_economy() -> void:
 			check(is_equal_approx(float(game.districts.plots[index].hp), 600.0), "A barracks must start at 600 durability")
 	if not game.construction.active: await press(KEY_Y)
 	await press(KEY_2)
-	await aim_at(Vector3(7.5, 5, -7.0))
+	await aim_at(Vector3(7, 5, -7.5))
 	var balance: int = game.scrap
 	var plots: int = game.districts.plots.size()
 	check(not bool(game.construction.snapshot().space_valid), "Real overlapping building footprints must remain forbidden")
 	await press(KEY_F)
-	await click(Vector3(7.5, 5, -7.0))
+	await click(Vector3(7, 5, -7.5))
 	check(game.scrap == balance and game.districts.plots.size() == plots,
 		"Failed F and mouse placement must neither charge nor create a duplicate building")
 	var towers: int = game.world.tower_pads.size()

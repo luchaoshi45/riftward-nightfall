@@ -2,6 +2,7 @@ extends SceneTree
 ## Production unrestricted castle placement and live tower combat.
 ## Graphics: --windowed --position 10000,10000 --audio-driver Dummy -- --render-test.
 const Layout = preload("res://scripts/outpost_layout.gd")
+const Grid := preload("res://scripts/construction_grid.gd")
 const FAR := Vector3(105, 0, 95)
 const STEP := 1.0 / 60.0
 var game: Node3D
@@ -112,7 +113,8 @@ func free_point() -> Vector3:
 	for zi in 22:
 		for xi in 22:
 			var point := Vector3(-11.0 + float(xi), 5, -11.0 + float(zi))
-			if bool(game.construction.validity(point).valid): return point
+			var placement: Dictionary = game.construction.validity(point)
+			if bool(placement.valid): return placement.point
 	return Vector3.INF
 
 func capture(state: String, night: bool = false) -> void:
@@ -133,6 +135,7 @@ func capture(state: String, night: bool = false) -> void:
 	print("CASTLE_FREE_BUILD_FRAME ", ProjectSettings.globalize_path(output))
 
 func build_with_input(point: Vector3, use_mouse: bool, expected_cost: int) -> int:
+	var snapped: Vector3 = Grid.placement(point, "tower").point
 	camera_at(Vector3(point.x, game.outpost_height(point), point.z))
 	if not game.construction.active: await press(KEY_Y)
 	await press(KEY_1)
@@ -140,8 +143,8 @@ func build_with_input(point: Vector3, use_mouse: bool, expected_cost: int) -> in
 	var preview: Dictionary = game.construction.snapshot()
 	check(bool(preview.active) and bool(preview.valid) and String(preview.kind) == "tower",
 		"The real tower cursor must show a valid continuous-placement preview")
-	check(int(preview.cost) == expected_cost and ground_distance(preview.point, point) < .06,
-		"The preview must use the fresh terrain position and actual workshop fee")
+	check(int(preview.cost) == expected_cost and ground_distance(preview.point, snapped) < .06,
+		"The preview must use the fresh grid-snapped terrain position and actual workshop fee")
 	var balance: int = game.scrap
 	var count: int = game.world.tower_pads.size()
 	var towers: int = game.tower_count()
@@ -155,8 +158,8 @@ func build_with_input(point: Vector3, use_mouse: bool, expected_cost: int) -> in
 	var pad: Dictionary = game.world.tower_pads[count]
 	check(int(pad.level) == 1 and is_equal_approx(float(pad.hp), 280.0) and is_instance_valid(pad.turret),
 		"The free foundation must contain a real level-one turret with 280 durability")
-	check(ground_distance(pad.position, point) < .06 and absf(pad.position.y - 5.0) < .001,
-		"Construction must preserve the chosen cursor location on the real city floor")
+	check(ground_distance(pad.position, snapped) < .06 and absf(pad.position.y - 5.0) < .001,
+		"Construction must preserve the chosen snapped footprint on the real city floor")
 	built_indices.append(count)
 	balance = game.scrap
 	check(not game.build_tower_at(point), "Repeated construction must reject the actual occupied tower footprint")
@@ -196,8 +199,8 @@ func geometry_and_routes() -> void:
 	check(game.world.tower_pads.size() == 2 and game.tower_count() == 2,
 		"Opening city must have only its two live towers, without fixed empty foundations")
 	check(game.districts.plots.is_empty(), "A fresh city cannot reserve fixed district slots")
-	check(game.world.tower_pads[0].position.distance_to(Vector3(5, 5, 10)) < .001 and
-		game.world.tower_pads[1].position.distance_to(Vector3(-5, 5, 10)) < .001,
+	check(game.world.tower_pads[0].position.distance_to(Vector3(5.5, 5, 10.5)) < .001 and
+		game.world.tower_pads[1].position.distance_to(Vector3(-5.5, 5, 10.5)) < .001,
 		"Opening defenders must remain inside the expanded southern wall")
 	var home := Vector3(0, 5, 3.1)
 	for start in [Vector3(30, 0, 0), Vector3(-30, 0, 0), Vector3(0, 0, -30)]:
@@ -420,14 +423,14 @@ func run() -> void:
 	await geometry_and_routes()
 	await invalid_placements()
 	# City positions are chosen freely, including the former reserved passage.
-	var first: int = await build_with_input(Vector3(-4.5, 5, 0), false, 60)
-	await build_with_input(Vector3(0, 5, 8), true, 60)
-	await build_with_input(Vector3(0, 5, 10.7), false, 60)
+	var first: int = await build_with_input(Vector3(-4.5, 5, -.5), false, 60)
+	await build_with_input(Vector3(.5, 5, 7.5), true, 60)
+	await build_with_input(Vector3(.5, 5, 10.5), false, 60)
 	check(game.world.tower_pads.size() >= 5,
-		"Two physically separate towers only 2.7m apart must replace the former arbitrary 3m exclusion")
-	await aim_at(Vector3(10, 5, 6))
+		"Two adjacent towers may touch grid boundaries without reserving an extra gap")
+	await aim_at(Vector3(10.5, 5, 6.5))
 	await capture("valid-preview")
-	await build_with_input(Vector3(10, 5, 6), true, 60)
+	await build_with_input(Vector3(10.5, 5, 6.5), true, 60)
 	for _extra in 9:
 		var point: Vector3 = free_point()
 		check(point != Vector3.INF, "Continuous placement must retain free city space beyond twelve towers")

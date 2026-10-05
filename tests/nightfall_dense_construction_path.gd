@@ -1,5 +1,5 @@
 extends SceneTree
-## A real dense tower row seals the city; attackers break exposed buildings,
+## A real grid-aligned building row seals the city; attackers break exposed buildings,
 ## cannot damage sealed targets remotely, and regain a route through destroyed footings.
 const Layout := preload("res://scripts/outpost_layout.gd")
 const STEP := .05
@@ -54,21 +54,30 @@ func run() -> void:
 	await process_frame
 	game.scrap = 10000
 	game.phase_time = 10000.0
-	var row_limit: float = Layout.FORT_INNER - game.construction.footprint("tower").x
-	gap_x = row_limit / 9.0
+	gap_x = 1.5
 	game.hero.position = Vector3(gap_x, Layout.FORT_HEIGHT, 5.1)
 	game.move_goal = game.hero.position
 	game.hero_path.clear()
 	game.hero.attack_timer = 999.0
 	game.pulse_timer = 999.0
 	# Remove the two opening defenses through the real damage/rebuild system,
-	# so every live obstacle below is one of the newly player-built row towers.
+	# so every live obstacle below is newly player-built. Two four-cell barracks
+	# and six three-cell towers fill the entire 26-cell width without half cells.
 	for index in game.world.tower_pads.size():
 		var pad: Dictionary = game.world.tower_pads[index]
 		game.damage_tower(index, float(pad.hp))
 	check(game.outpost_walkable(game.hero.position), "The sealed hero must stand on genuine free ground")
-	for column in 10:
-		var point := Vector3(-row_limit + float(column) * row_limit * 2.0 / 9.0, Layout.FORT_HEIGHT, 7.0)
+	for x: float in [-11.0, 11.0]:
+		var balance: int = game.scrap
+		var before: int = game.districts.plots.size()
+		var built: bool = game.build_structure_at(Vector3(x, Layout.FORT_HEIGHT, 7.5), "barracks")
+		check(built and game.districts.plots.size() == before + 1 and game.scrap == balance - 60,
+			"Both full-width end obstacles must be real paid grid-aligned barracks")
+		if not built:
+			await finish()
+			return
+	for x: float in [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5]:
+		var point := Vector3(x, Layout.FORT_HEIGHT, 7.5)
 		var before: int = game.world.tower_pads.size()
 		var balance: int = game.scrap
 		var built: bool = game.build_tower_at(point)
@@ -78,9 +87,9 @@ func run() -> void:
 			await finish()
 			return
 		row.append(before)
-	var middle: int = row[5]
+	var middle: int = row[3]
 	var middle_pad: Dictionary = game.world.tower_pads[middle]
-	check(planar(middle_pad.position, Vector3(gap_x, 5, 7)) < .001, "The eventual gap must use the actual centre-right tower")
+	check(planar(middle_pad.position, Vector3(gap_x, 5, 7.5)) < .001, "The eventual gap must use the actual centre-right tower")
 	var attacker: BattleUnit = game.spawn_creature(true, "stalker")
 	attacker.position = Vector3(gap_x, Layout.FORT_HEIGHT, 11.0)
 	attacker.speed = 3.2
@@ -94,7 +103,7 @@ func run() -> void:
 	var inaccessible: Vector3 = game.building_approach_position(attacker.position, Vector3(0, 5, 0), "core")
 	check(not inaccessible.is_finite(), "No reachable building approach must return INF, never the attacker's remote origin")
 	var target: Dictionary = game.choose_enemy_target(attacker)
-	check(String(target.get("kind", "")) == "tower" and int(target.get("index", -1)) in row,
+	check(String(target.get("kind", "")) == "tower" and int(target.get("index", -1)) == middle,
 		"A normal attacker must select an exposed player-built blocker instead of sealed targets")
 	check(game.enemy_target_reachable(attacker.position, target), "The actual selected blocker must have a reachable attack surface")
 	var hero_hp: float = game.hero.hp
