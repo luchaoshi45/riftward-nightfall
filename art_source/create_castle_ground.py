@@ -35,6 +35,7 @@ def read_layout():
 
 
 LAYOUT = read_layout()
+SURFACE_CLEARANCE = 0.008
 
 
 def height(x, z):
@@ -89,7 +90,7 @@ def box(name, point, size, mat, bevel=0.0, yaw=0.0):
     return node
 
 
-def terrain(soil):
+def terrain_coordinates():
     # Preserve the whole wasteland bounds rather than scaling the world. Extra
     # half-metre rows resolve the enlarged smoothstep slopes; exact breakpoint
     # rows keep the authored ramp flanks and wall transitions in agreement.
@@ -116,7 +117,11 @@ def terrain(soil):
     xs.update([LAYOUT["RAMP_SURFACE_HALF"] - 0.001, -LAYOUT["RAMP_SURFACE_HALF"] + 0.001])
     for name in ["RAMP_WALL_START", "RAMP_WALL_END", "RAMP_END"]:
         zs.add(LAYOUT[name])
-    xs, zs = sorted(xs), sorted(zs)
+    return sorted(xs), sorted(zs)
+
+
+def terrain(soil):
+    xs, zs = terrain_coordinates()
     vertices = [(x, z, height(x, z)) for z in zs for x in xs]
     faces = []
     width = len(xs)
@@ -153,17 +158,19 @@ def stone_walls(stone, coping):
     segment(-outer, outer, "z", -1)
     segment(-outer, -LAYOUT["GATE_HALF"], "z", 1)
     segment(LAYOUT["GATE_HALF"], outer, "z", 1)
-    # Ramp side faces use the same start/end and exact collision width. Their
-    # sloping top vertices follow the shared terrain function at both ends.
-    sections = 22
+    # Use the terrain's exact Z rows: evaluating the same curve at unrelated
+    # breakpoints still produces different piecewise-linear surfaces which
+    # cross between their vertices. Keep a shallow gap above that shared
+    # interpolation, with flank sides meeting the raised coping underside.
     start, end = LAYOUT["RAMP_WALL_START"], LAYOUT["RAMP_WALL_END"]
-    for index in range(sections):
-        near = start + (end - start) * index / sections
-        far = start + (end - start) * (index + 1) / sections
+    _, terrain_rows = terrain_coordinates()
+    ramp_rows = [z for z in terrain_rows if start <= z <= end]
+    for near, far in zip(ramp_rows, ramp_rows[1:]):
         for side in [-1, 1]:
             x0 = min(side * LAYOUT["RAMP_INNER_HALF"], side * LAYOUT["RAMP_OUTER_HALF"])
             x1 = max(side * LAYOUT["RAMP_INNER_HALF"], side * LAYOUT["RAMP_OUTER_HALF"])
-            hn, hf = height(0.0, near), height(0.0, far)
+            hn = height(0.0, near) + SURFACE_CLEARANCE
+            hf = height(0.0, far) + SURFACE_CLEARANCE
             vertices = [(x0, near, 0), (x1, near, 0), (x1, far, 0), (x0, far, 0),
                         (x0, near, hn), (x1, near, hn), (x1, far, hf), (x0, far, hf)]
             # The separate coping below owns the visible top. Including the

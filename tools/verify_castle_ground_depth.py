@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Read the production GLB and guard against courtyard depth competition.
+"""Read the production GLB and guard against courtyard/ramp depth competition.
 
 No Blender/Godot installation or third-party package is required. Shared edges
 are allowed; only complete triangles duplicated across materials are rejected.
 This checks actual transformed vertex data, never a joined mesh's AABB.
+Ramp coping/terrain intersections are checked over every overlapping projected
+triangle: the height difference is linear, so its extrema lie at clip vertices.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import itertools
 import json
 import math
 from pathlib import Path
+import re
 import struct
 import sys
 
@@ -21,6 +24,162 @@ ROOT = Path(__file__).resolve().parents[1]
 IDENTITY = (1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.)
 FORMATS = {5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126: "f"}
 WIDTHS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+RAMP_NAMES = ("RAMP_INNER_HALF", "RAMP_OUTER_HALF", "RAMP_WALL_START", "RAMP_WALL_END")
+
+
+def ramp_dimensions():
+    source = (ROOT / "scripts/outpost_layout.gd").read_text(encoding="utf-8")
+    dimensions = {}
+    for name in RAMP_NAMES:
+        match = re.search(rf"^const {name} := ([0-9]+(?:\.[0-9]+)?)$", source, re.MULTILINE)
+        if match is None:
+            raise ValueError(f"Missing numeric shared layout constant: {name}")
+        dimensions[name] = float(match.group(1))
+    return dimensions
+
+
+def projected_bounds(triangle):
+    return (min(point[0] for point in triangle), min(point[2] for point in triangle),
+            max(point[0] for point in triangle), max(point[2] for point in triangle))
+
+
+def bounds_overlap(first, second, tolerance=0.):
+    return (first[0] <= second[2] + tolerance and second[0] <= first[2] + tolerance
+            and first[1] <= second[3] + tolerance and second[1] <= first[3] + tolerance)
+
+
+def polygon_area(points):
+    if len(points) < 3:
+        return 0.
+    return sum(first[0] * second[1] - first[1] * second[0]
+               for first, second in zip(points, points[1:] + points[:1])) * .5
+
+
+def triangle_overlap(first, second):
+    """Return their convex XZ overlap, including new edge-intersection vertices."""
+    polygon = [(point[0], point[2]) for point in first]
+    clip = [(point[0], point[2]) for point in second]
+    if polygon_area(clip) < 0.:
+        clip.reverse()
+    for edge_start, edge_end in zip(clip, clip[1:] + clip[:1]):
+        if not polygon:
+            break
+        edge_x = edge_end[0] - edge_start[0]
+        edge_z = edge_end[1] - edge_start[1]
+
+        def distance(point):
+            return edge_x * (point[1] - edge_start[1]) - edge_z * (point[0] - edge_start[0])
+
+        output = []
+        previous = polygon[-1]
+        previous_distance = distance(previous)
+        for current in polygon:
+            current_distance = distance(current)
+            previous_inside = previous_distance >= -1e-12
+            current_inside = current_distance >= -1e-12
+            if current_inside != previous_inside:
+                weight = previous_distance / (previous_distance - current_distance)
+                weight = max(0., min(1., weight))
+                output.append(tuple(previous[axis] + weight * (current[axis] - previous[axis])
+                                    for axis in range(2)))
+            if current_inside:
+                output.append(current)
+            previous, previous_distance = current, current_distance
+        polygon = output
+    compact = []
+    for point in polygon:
+        if not compact or max(abs(point[axis] - compact[-1][axis]) for axis in range(2)) > 1e-10:
+            compact.append(point)
+    if len(compact) > 1 and max(abs(compact[0][axis] - compact[-1][axis]) for axis in range(2)) <= 1e-10:
+        compact.pop()
+    return compact
+
+
+def triangle_height(triangle, point):
+    a, b, c = triangle
+    dx1, dz1 = b[0] - a[0], b[2] - a[2]
+    dx2, dz2 = c[0] - a[0], c[2] - a[2]
+    determinant = dx1 * dz2 - dx2 * dz1
+    if abs(determinant) < 1e-14:
+        raise ValueError("Ramp depth inspection encountered a vertical/degenerate triangle")
+    px, pz = point[0] - a[0], point[1] - a[2]
+    u = (px * dz2 - pz * dx2) / determinant
+    v = (dx1 * pz - dz1 * px) / determinant
+    return a[1] + u * (b[1] - a[1]) + v * (c[1] - a[1])
+
+
+def is_ramp_coping(triangle, material_name, dimensions, tolerance):
+    if material_name != "Weathered concrete":
+        return False
+    inner, outer = dimensions["RAMP_INNER_HALF"], dimensions["RAMP_OUTER_HALF"]
+    start, end = dimensions["RAMP_WALL_START"], dimensions["RAMP_WALL_END"]
+    # Each authored cap spans both exact strip edges. Material and footprint
+    # together exclude nearby retaining-wall bevels and evacuation-road slabs.
+    xs = [abs(point[0]) for point in triangle]
+    if not (abs(min(xs) - inner) <= tolerance and abs(max(xs) - outer) <= tolerance):
+        return False
+    if not all(min(abs(x - inner), abs(x - outer)) <= tolerance for x in xs):
+        return False
+    if not (all(point[0] > 0. for point in triangle) or all(point[0] < 0. for point in triangle)):
+        return False
+    if not all(start - tolerance <= point[2] <= end + tolerance for point in triangle):
+        return False
+    a, b, c = triangle
+    normal_y = ((b[2] - a[2]) * (c[0] - a[0])
+                - (b[0] - a[0]) * (c[2] - a[2]))
+    return normal_y > tolerance * tolerance
+
+
+def inspect_ramp_coping(coping, terrain, dimensions, tolerance):
+    errors = []
+    areas = {"left": 0., "right": 0.}
+    covered_faces = 0
+    overlaps = 0
+    minimum, maximum = math.inf, -math.inf
+    witness = None
+    terrain_bounds = [(triangle, projected_bounds(triangle)) for triangle in terrain]
+    for crown in coping:
+        footprint = [(point[0], point[2]) for point in crown]
+        area = abs(polygon_area(footprint))
+        side = "left" if crown[0][0] < 0. else "right"
+        areas[side] += area
+        overlap_area = 0.
+        bounds = projected_bounds(crown)
+        for ground, ground_bounds in terrain_bounds:
+            if not bounds_overlap(bounds, ground_bounds, tolerance):
+                continue
+            polygon = triangle_overlap(crown, ground)
+            clipped_area = abs(polygon_area(polygon))
+            if clipped_area <= tolerance * tolerance:
+                continue
+            overlaps += 1
+            overlap_area += clipped_area
+            for point in polygon:
+                coping_height = triangle_height(crown, point)
+                ground_height = triangle_height(ground, point)
+                gap = coping_height - ground_height
+                if gap < minimum:
+                    minimum = gap
+                    witness = {"xz_m": list(point), "coping_height_m": coping_height,
+                               "terrain_height_m": ground_height}
+                maximum = max(maximum, gap)
+        if abs(overlap_area - area) <= max(area * 1e-5, tolerance * tolerance * 10):
+            covered_faces += 1
+        else:
+            errors.append("A ramp coping triangle is not completely covered by production terrain")
+    expected_area = ((dimensions["RAMP_OUTER_HALF"] - dimensions["RAMP_INNER_HALF"])
+                     * (dimensions["RAMP_WALL_END"] - dimensions["RAMP_WALL_START"]))
+    if not coping or any(abs(area - expected_area) > expected_area * 1e-5 for area in areas.values()):
+        errors.append("Both complete southern ramp coping strips must be present")
+    if not math.isfinite(minimum) or minimum <= .003:
+        errors.append("Every ramp coping/terrain overlap needs more than 3 mm depth clearance")
+    return {"ramp_coping_top_triangles": len(coping),
+            "ramp_coping_covered_triangles": covered_faces,
+            "ramp_coping_overlap_regions": overlaps,
+            "ramp_coping_projected_area_m2": areas,
+            "ramp_coping_min_clearance_m": minimum if math.isfinite(minimum) else None,
+            "ramp_coping_max_clearance_m": maximum if math.isfinite(maximum) else None,
+            "ramp_coping_min_clearance_witness": witness}, list(dict.fromkeys(errors))
 
 
 def multiply(a, b):
@@ -144,10 +303,19 @@ class VertexIds:
 
 def inspect(path, tolerance=2e-6):
     glb = Glb(path)
+    ramp = ramp_dimensions()
     vertices = VertexIds(tolerance)
     faces = defaultdict(set)
     yard_tops = []
     terrain_tops = []
+    ramp_coping = []
+    ramp_terrain = []
+    ramp_regions = [(side * ramp["RAMP_OUTER_HALF"], ramp["RAMP_WALL_START"],
+                     side * ramp["RAMP_INNER_HALF"], ramp["RAMP_WALL_END"])
+                    if side < 0 else
+                    (ramp["RAMP_INNER_HALF"], ramp["RAMP_WALL_START"],
+                     ramp["RAMP_OUTER_HALF"], ramp["RAMP_WALL_END"])
+                    for side in (-1, 1)]
     material_names = glb.data.get("materials", [])
     triangle_count = 0
     # Current authored yard: 21 rows/columns, 1.18 m stride, 1.05 m slabs.
@@ -159,8 +327,14 @@ def inspect(path, tolerance=2e-6):
             faces[key].add(material)
         if name.startswith("Sculpted enlarged castle wasteland"):
             terrain_tops.extend(point[1] for point in triangle)
+            if any(bounds_overlap(projected_bounds(triangle), region, tolerance)
+                   for region in ramp_regions):
+                ramp_terrain.append(triangle)
             continue
-        if material < 0 or material_names[material].get("name") not in (
+        material_name = material_names[material].get("name") if material >= 0 else None
+        if is_ramp_coping(triangle, material_name, ramp, tolerance):
+            ramp_coping.append(triangle)
+        if material_name not in (
                 "Weathered concrete", "Concrete fracture"):
             continue
         if not all(abs(point[0]) <= yard_half and abs(point[2]) <= yard_half for point in triangle):
@@ -189,12 +363,15 @@ def inspect(path, tolerance=2e-6):
         errors.append("Each courtyard top needs a 3–20 mm gap above the terrain")
     if duplicates:
         errors.append("Different materials contain duplicate complete triangles")
+    ramp_result, ramp_errors = inspect_ramp_coping(ramp_coping, ramp_terrain, ramp, tolerance)
+    errors.extend(ramp_errors)
     result = {"ok": not errors, "asset": path.name, "tolerance_m": tolerance,
               "triangles": triangle_count, "terrain_top_m": terrain_top,
               "courtyard_top_triangles": top_triangles,
               "courtyard_slabs": top_triangles // 2,
               "courtyard_clearance_m": clearance,
               "cross_material_duplicate_triangles": len(duplicates), "errors": errors}
+    result.update(ramp_result)
     if duplicates:
         result["duplicate_bounds_m"] = [
             [min(vertices.points[i][axis] for key in duplicates for i in key),

@@ -96,25 +96,98 @@ func key(code: int, pressed: bool) -> void:
 	Input.parse_input_event(event)
 	await frame()
 
-func sample_yard(image: Image) -> PackedFloat32Array:
-	var values := PackedFloat32Array()
-	# Reproject the same interior ground locations into each moving frame.
-	# These points are away from the moving hero, towers, core and slab edges.
+func yard_sample_points() -> Array[Vector3]:
+	var points: Array[Vector3] = []
 	for z in [-5.7, -3.34, -0.98]:
 		for x in [-8.1, -6.92, -4.56, -2.2]:
-			var screen: Vector2 = game.camera.unproject_position(Vector3(x, 5.008, z))
-			var ix := floori(screen.x)
-			var iy := floori(screen.y)
-			check(ix >= 1 and iy >= 1 and ix + 1 < image.get_width() and iy + 1 < image.get_height(), "Tracked ground must remain visible throughout walking")
-			if ix < 1 or iy < 1 or ix + 1 >= image.get_width() or iy + 1 >= image.get_height():
+			points.append(Vector3(x, 5.008, z))
+	return points
+
+func ramp_sample_points() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	var heights := PackedFloat32Array()
+	# Stay inside both coping strips, away from their physical edges, the
+	# central walking hero and the south-gate lamps. Meshes are material-joined,
+	# so their AABBs cannot supply the sloping surface height at these locations.
+	for z in [16.23, 17.17, 18.13, 19.07, 20.03, 20.97, 21.93, 22.87, 23.79]:
+		for x in [-3.04, -2.83, 2.83, 3.04]:
+			points.append(Vector3(x, 0.0, z))
+			heights.append(-INF)
+	var top_triangles := 0
+	for found in game.world.terrain.find_children("*", "MeshInstance3D", true, false):
+		var instance := found as MeshInstance3D
+		if instance.mesh == null:
+			continue
+		for surface in instance.mesh.get_surface_count():
+			var original := instance.mesh.surface_get_material(surface)
+			# The production causeway coping is Weathered concrete. Other
+			# concrete tops (yard/retaining walls) do not overlap this XZ region.
+			if original == null or original.resource_name != "Weathered concrete":
 				continue
-			var sx := screen.x - ix
-			var sy := screen.y - iy
-			var color: Color = image.get_pixel(ix, iy).lerp(image.get_pixel(ix + 1, iy), sx).lerp(image.get_pixel(ix, iy + 1).lerp(image.get_pixel(ix + 1, iy + 1), sx), sy)
-			values.append(color.get_luminance())
+			var arrays := instance.mesh.surface_get_arrays(surface)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			check(normals.size() == vertices.size(), "Production coping must retain its authored surface normals")
+			if normals.size() != vertices.size():
+				continue
+			var count := indices.size() if not indices.is_empty() else vertices.size()
+			for offset in range(0, count - 2, 3):
+				var ia := indices[offset] if not indices.is_empty() else offset
+				var ib := indices[offset + 1] if not indices.is_empty() else offset + 1
+				var ic := indices[offset + 2] if not indices.is_empty() else offset + 2
+				var normal: Vector3 = instance.global_basis * (normals[ia] + normals[ib] + normals[ic])
+				if normal.normalized().y < .25:
+					continue
+				var a: Vector3 = instance.global_transform * vertices[ia]
+				var b: Vector3 = instance.global_transform * vertices[ib]
+				var c: Vector3 = instance.global_transform * vertices[ic]
+				if maxf(a.z, maxf(b.z, c.z)) < 16.0 or minf(a.z, minf(b.z, c.z)) > 24.0:
+					continue
+				if maxf(a.x, maxf(b.x, c.x)) < -3.1 or minf(a.x, minf(b.x, c.x)) > 3.1:
+					continue
+				var ab := Vector2(b.x - a.x, b.z - a.z)
+				var ac := Vector2(c.x - a.x, c.z - a.z)
+				var area := ab.cross(ac)
+				if absf(area) < .000001:
+					continue
+				top_triangles += 1
+				for index in points.size():
+					var ap := Vector2(points[index].x - a.x, points[index].z - a.z)
+					var u := ap.cross(ac) / area
+					var v := ab.cross(ap) / area
+					if u < -.00001 or v < -.00001 or u + v > 1.00001:
+						continue
+					# Read actual imported GLB top triangles and interpolate each
+					# point independently; no analytic/AABB height substitution.
+					heights[index] = maxf(heights[index], a.y + u * (b.y - a.y) + v * (c.y - a.y))
+	check(top_triangles > 0, "Actual GLB south-ramp coping triangles must be sampled")
+	for index in points.size():
+		check(is_finite(heights[index]), "Every ramp sample must intersect an actual GLB coping top")
+		if not is_finite(heights[index]):
+			continue
+		check(heights[index] > .05 and heights[index] < FORT_HEIGHT, "Ramp sample height must follow the real sloping coping")
+		points[index].y = heights[index]
+	return points
+
+func sample_ground(image: Image, points: Array[Vector3]) -> PackedFloat32Array:
+	var values := PackedFloat32Array()
+	# Reproject identical world points into every moving frame. Bilinear
+	# sampling avoids treating subpixel camera motion as a material jump.
+	for point in points:
+		var screen: Vector2 = game.camera.unproject_position(point)
+		var ix := floori(screen.x)
+		var iy := floori(screen.y)
+		check(ix >= 1 and iy >= 1 and ix + 1 < image.get_width() and iy + 1 < image.get_height(), "Tracked ground must remain visible throughout walking")
+		if ix < 1 or iy < 1 or ix + 1 >= image.get_width() or iy + 1 >= image.get_height():
+			continue
+		var sx := screen.x - ix
+		var sy := screen.y - iy
+		var color: Color = image.get_pixel(ix, iy).lerp(image.get_pixel(ix + 1, iy), sx).lerp(image.get_pixel(ix, iy + 1).lerp(image.get_pixel(ix + 1, iy + 1), sx), sy)
+		values.append(color.get_luminance())
 	return values
 
-func walking_clip(name: String, start: Vector3, outward_key: int, inward_key: int, half_frames: int, night: bool, track_yard: bool) -> void:
+func walking_clip(name: String, start: Vector3, outward_key: int, inward_key: int, half_frames: int, night: bool, points: Array[Vector3], mean_limit: float) -> void:
 	start.y = game.outpost_height(start)
 	game.hero.position = start
 	game.hero.speed = 8.4
@@ -124,12 +197,13 @@ func walking_clip(name: String, start: Vector3, outward_key: int, inward_key: in
 	game.world.night_mix = 1.0 if night else 0.0
 	game.world.night_active = night
 	game.world.apply_lighting()
+	game.world.follow_ashfall(start)
 	pose(start)
 	await frame(6)
 	var fixed_basis: Basis = game.camera.global_basis
 	var first_values := PackedFloat32Array()
-	if render_test and track_yard:
-		first_values = sample_yard(root.get_texture().get_image())
+	if render_test:
+		first_values = sample_ground(root.get_texture().get_image(), points)
 	var maximum_step := 0.0
 	var maximum_mean := 0.0
 	var distance := 0.0
@@ -150,24 +224,30 @@ func walking_clip(name: String, start: Vector3, outward_key: int, inward_key: in
 			await frame()
 			if render_test:
 				var picture: Image = root.get_texture().get_image()
-				if track_yard:
-					var values := sample_yard(picture)
-					var total := 0.0
-					for point in mini(values.size(), previous_values.size()):
-						var change := absf(values[point] - previous_values[point])
-						total += change
-						maximum_step = maxf(maximum_step, change)
-					maximum_mean = maxf(maximum_mean, total / maxf(1.0, values.size()))
-					previous_values = values
+				var values := sample_ground(picture, points)
+				check(values.size() == points.size() and previous_values.size() == points.size(), "Every moving frame must retain the complete world-aligned sample set")
+				var total := 0.0
+				for point in mini(values.size(), previous_values.size()):
+					var change := absf(values[point] - previous_values[point])
+					total += change
+					maximum_step = maxf(maximum_step, change)
+				maximum_mean = maxf(maximum_mean, total / maxf(1.0, values.size()))
+				previous_values = values
 				if index == 0 or index == half_frames - 1:
 					check(picture.save_png("res://build/ground-walk-%s-%d-%d.png" % [name, direction, index]) == OK, "Walking evidence should be saved")
 					contact_frames.append(picture)
 		await key(code, false)
 	check(distance > float(half_frames) * STEP * 8.4 * 1.8, "Walking must cover both directions at real speed")
 	check(Vector2(game.hero.position.x - start.x, game.hero.position.z - start.z).length() < .1, "Walking must return through the actual movement controller")
-	if render_test and track_yard:
-		check(maximum_mean < .025, "World-aligned moving ground must avoid broad brightness jumps (mean=%.6f)" % maximum_mean)
-	motion_observations.append({"clip": name, "frames": half_frames * 2, "distance": distance, "ground_samples_per_frame": 12 if render_test and track_yard else 0, "max_ground_step": maximum_step if render_test and track_yard else null, "max_ground_mean": maximum_mean if render_test and track_yard else null})
+	if render_test:
+		# Production hero lantern and shadows remain active. This broad mean
+		# limit admits normal light/shadow movement; max point step is evidence,
+		# not an assertion that individual lit pixels must stay constant.
+		check(maximum_mean < mean_limit, "World-aligned %s ground must avoid broad brightness jumps (mean=%.6f, limit=%.3f)" % [name, maximum_mean, mean_limit])
+	var world_points: Array = []
+	for point in points:
+		world_points.append([point.x, point.y, point.z])
+	motion_observations.append({"clip": name, "frames": half_frames * 2, "distance": distance, "ground_samples_per_frame": points.size() if render_test else 0, "ground_world_points": world_points, "production_hero_lantern_retained": true, "includes_normal_lantern_and_shadow_changes": true, "ground_mean_limit": mean_limit, "max_ground_step": maximum_step if render_test else null, "max_ground_mean": maximum_mean if render_test else null})
 
 func save_contact_sheet() -> void:
 	if not render_test:
@@ -214,10 +294,12 @@ func run() -> void:
 	check(float(result.mean) < 0.012, "Returning from a short walk must keep the ground stable (mean=%.5f)" % float(result.mean))
 	# The return-pose check above is supplementary: identical poses alone do
 	# not prove motion stability. Walk continuously in the actual controller.
-	await walking_clip("day-yard", Vector3(-8, 0, 5), KEY_D, KEY_A, 24, false, true)
-	await walking_clip("night-yard", Vector3(-8, 0, 5), KEY_D, KEY_A, 24, true, true)
-	await walking_clip("day-ramp", Vector3(0, 0, 14.5), KEY_S, KEY_Z, 40, false, false)
-	await walking_clip("night-ramp", Vector3(0, 0, 14.5), KEY_S, KEY_Z, 40, true, false)
+	var yard_points := yard_sample_points()
+	var ramp_points := ramp_sample_points()
+	await walking_clip("day-yard", Vector3(-8, 0, 5), KEY_D, KEY_A, 24, false, yard_points, .025)
+	await walking_clip("night-yard", Vector3(-8, 0, 5), KEY_D, KEY_A, 24, true, yard_points, .025)
+	await walking_clip("day-ramp", Vector3(0, 0, 14.5), KEY_S, KEY_Z, 40, false, ramp_points, .04)
+	await walking_clip("night-ramp", Vector3(0, 0, 14.5), KEY_S, KEY_Z, 40, true, ramp_points, .04)
 	save_contact_sheet()
 
 	await game.prepare_shutdown()
