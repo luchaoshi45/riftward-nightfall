@@ -1,5 +1,6 @@
 extends SceneTree
 const Contracts = preload("res://scripts/day_contracts.gd")
+const HOME := Vector3(0, 5, 3.1)
 var requests := 0
 
 func _initialize() -> void:
@@ -124,8 +125,8 @@ func run() -> void:
 				"escort":
 					game.hero.position = source.position
 					assert(game.expeditions.interact())
-					source.npc.position = Vector3(0,5,0)
-					game.hero.position = Vector3(0,5,0)
+					source.npc.position = HOME
+					game.hero.position = HOME
 					game.expeditions.tick(0.0)
 					assert(source.state == "delivered")
 				"nest":
@@ -148,7 +149,7 @@ func run() -> void:
 		game.hero.position = Vector3(0,0,0)
 		module.tick(0.0)
 		if category != "escort": assert(module.status == "returning", "Ground below fort is not a hand-in")
-		game.hero.position = Vector3(0,5,0)
+		game.hero.position = HOME
 		module.tick(0.0)
 		assert(module.status == "completed")
 		var after_action_scrap: int = game.scrap
@@ -169,6 +170,19 @@ func run() -> void:
 	game.add_child(bonus_test)
 	bonus_test.setup(game, 17)
 	bonus_test.on_day()
+	assert(game.outpost_walkable(game.hero.position), "Bonus estimates must start at a walkable home position")
+	var bonus_index := -1
+	for item_index in game.discoveries.items.size():
+		var item: Dictionary=game.discoveries.items[item_index]
+		if item.state=="ready" and item.kind=="supply_cache" and game.outpost_walkable(item.position) and not bonus_test.in_home_area(item.position):
+			bonus_index=item_index
+			break
+	assert(bonus_index>=0, "A real ready field supply cache must exist for the optional bonus branch")
+	var bonus_item: Dictionary=game.discoveries.items[bonus_index]
+	var bonus_point: Vector3=bonus_item.position
+	# The random field layout can put every remaining discovery beyond 58m
+	# from home. Begin this independent bonus fixture at its real field source.
+	game.hero.position=bonus_point
 	for target in bonus_test.targets:
 		match bonus_test.kind:
 			"salvage": target.source.collected=true
@@ -179,11 +193,9 @@ func run() -> void:
 	assert(bonus_test.status == "bonus_offer")
 	var bonus := bonus_test.bonus_candidate()
 	assert(not bonus.is_empty(), "A real ready discovery must be available for the bonus branch")
-	var bonus_index: int=bonus.index
-	var bonus_item: Dictionary=game.discoveries.items[bonus_index]
-	var bonus_point:=Vector3(1.0,0.0,1.0)
-	bonus_point.y=game.outpost_height(bonus_point)
-	bonus_item.position=bonus_point;bonus_item.node.position=bonus_point;bonus_item.state="ready"
+	assert(int(bonus.index)==bonus_index, "The zero-distance field cache must be the actual optional bonus candidate")
+	assert(game.outpost_walkable(bonus_point), "The actual bonus discovery must be reachable")
+	assert(not bonus_test.in_home_area(bonus_point), "The actual bonus must require a separate return journey")
 	bonus_test.tick(0.0)
 	assert(bonus_test.choose_bonus(1), "The bonus branch must bind the chosen real discovery")
 	game.hero.position=bonus_point
@@ -194,7 +206,9 @@ func run() -> void:
 		assert(game.discoveries.interact_index(bonus_index))
 	bonus_test.tick(0.0)
 	assert(bonus_test.status == "returning" and bonus_test.bonus_done)
-	game.hero.position=Vector3(0,5,0)
+	bonus_test.tick(0.0)
+	assert(bonus_test.status == "returning" and bonus_test.take_reward_request().is_empty(), "Bonus collection outside the fort must still await the actual return")
+	game.hero.position=HOME
 	bonus_test.tick(0.0)
 	var bonus_reward:=bonus_test.take_reward_request()
 	assert(bonus_test.status == "completed" and bool(bonus_reward.get("bonus",false)))
