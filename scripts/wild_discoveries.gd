@@ -34,8 +34,10 @@ var motivation_route_queries := 0
 func _init() -> void:
 	rng.randomize()
 
-func setup(owner_game: Node3D) -> void:
+func setup(owner_game: Node3D, run_seed: int = 0) -> void:
 	game = owner_game
+	# A nonzero run seed owns this stream; zero preserves fixture RNG injection.
+	if run_seed!=0:rng.seed=preload("res://scripts/run_session.gd").stream_seed(run_seed,"discoveries")
 	motivation_revision=0
 	motivation_cache_revision=-1
 	motivation_cache.clear()

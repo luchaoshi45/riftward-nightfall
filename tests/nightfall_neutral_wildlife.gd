@@ -95,6 +95,7 @@ func run() -> void:
 	if not check(stag.state in ["idle","walk"] and stag.node.visible,"R must leave peaceful wildlife unharmed"):return
 	if "--visual" in OS.get_cmdline_user_args():await render_checks(game,wildlife)
 	print("NIGHTFALL_NEUTRAL_WILDLIFE_OK two original assets, night interactions, exact trade, no duplicates, 60s renewal, pause, lights, gait, walls, immune to R")
+	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
 	await process_frame

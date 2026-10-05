@@ -3,6 +3,8 @@ extends Control
 const Layout = preload("res://scripts/outpost_layout.gd")
 const CONSTRUCTION_PANEL_RECT := Rect2(435,518,570,140)
 const SQUAD_PANEL_RECT := Rect2(1050,480,365,240)
+const RESULT_RETRY_RECT := Rect2(397,648,304,52)
+const RESULT_NEW_RECT := Rect2(739,648,304,52)
 var game: Node3D
 var font: SystemFont
 var display_font: SystemFont
@@ -655,6 +657,8 @@ func draw_draft() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.008,.016,.024,.68))
 	box(Rect2(157,133,1126,631),Color(.025,.039,.048,.96),Color("b08a57"))
 	label("灰烬中的记忆",Vector2(205,203),30,ink)
+	if game.opening_night_pending:
+		label("守望编号 %d" % game.run.seed_value,Vector2(890,202),12,muted)
 	label("%s · 选择一项守夜能力" % game.run.reason,Vector2(205,244),16,amber)
 	if game.opening_night_pending:
 		label("先选本局路线（7/8/9 或点击），再用 1/2/3 铭刻核心；选卡后路线锁定。",Vector2(205,275),14,muted)
@@ -706,7 +710,14 @@ func draw_result() -> void:
 	if game.exploration:
 		label(game.exploration.run_summary(),Vector2(425,585),14,Color("a6d9c6"))
 		label(game.exploration.route_summary(),Vector2(425,610),13,Color("d6bf87"))
-	label("按 Enter 重新开始一局",Vector2(611,675),18,muted)
+	label("守望编号 %d" % game.run.seed_value,Vector2(425,634),12,muted)
+	label("换核心、换防线，再试同一场守望",Vector2(715,634),12,muted)
+	box(RESULT_RETRY_RECT,Color(.080,.112,.103,.97),Color("82bbae"))
+	box(RESULT_NEW_RECT,Color(.046,.066,.075,.97),Color("66766c"))
+	label("Enter · 同一守望再挑战",RESULT_RETRY_RECT.position+Vector2(37,32),16,Color("bce2d3"))
+	label("R · 全新守望",RESULT_NEW_RECT.position+Vector2(78,32),16,ink)
+	if game.restart_pending:
+		label("正在准备下一场守望…",Vector2(630,723),12,amber)
 
 func _gui_input(event: InputEvent) -> void:
 	var point: Vector2=Vector2.ZERO
@@ -718,6 +729,13 @@ func _gui_input(event: InputEvent) -> void:
 				var sources:=["https://rustedstudio.itch.io/free-music-dark-ambient-piano","https://rustedstudio.itch.io/free-music-apocalypse-z","https://rustedstudio.itch.io/free-music-orchestral-fantasy-war","https://creativecommons.org/licenses/by/4.0/"]
 				for i in sources.size():
 					if Rect2(300+i*210,527,190,44).has_point(point):OS.shell_open(sources[i]);break
+			accept_event()
+		return
+	if game.phase=="ended":
+		if event is InputEventMouseButton:
+			if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+				if RESULT_RETRY_RECT.has_point(point):game.request_run_restart(true)
+				elif RESULT_NEW_RECT.has_point(point):game.request_run_restart(false)
 			accept_event()
 		return
 	if game.phase=="draft":

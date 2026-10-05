@@ -12,9 +12,11 @@ var wilderness_walls: Array[Rect2] = Layout.wall_blocks()
 var rng := RandomNumberGenerator.new()
 var seeded := false
 
-func setup(owner_game: Node3D) -> void:
+func setup(owner_game: Node3D, run_seed: int = 0) -> void:
 	game=owner_game
-	if not seeded:rng.randomize()
+	# Separate from discoveries so activity there never consumes wildlife draws.
+	if run_seed!=0:rng.seed=preload("res://scripts/run_session.gd").stream_seed(run_seed,"wildlife")
+	elif not seeded:rng.randomize()
 	for prop in game.world.get_children():
 		if not prop is Node3D:continue
 		var path: String=prop.scene_file_path

@@ -9,6 +9,7 @@ const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
+const RunSessionScript = preload("res://scripts/run_session.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
@@ -102,6 +103,7 @@ var cooldowns: Array[float] = [0,0,0,0,0]
 var enemies: Array[BattleUnit] = []
 var run := RunBuild.new()
 var rng := RandomNumberGenerator.new()
+var spawn_rng := RandomNumberGenerator.new()
 var spawn_timer := 4.0
 var wave_index := 0
 var wave_warning_issued := false
@@ -171,11 +173,17 @@ var hero_damage_flash_time := 0.0
 var hero_damage_flash_text := ""
 var camera_follow := Vector3.ZERO
 var quitting := false
+var restart_pending := false
 const SALVAGE_REFRESH := 55.0
 
 func _ready() -> void:
 	get_tree().auto_accept_quit=false
-	rng.seed=29045
+	var next_run: Dictionary=RunSessionScript.consume_request(get_tree())
+	if not next_run.is_empty():
+		run=RunBuild.new(int(next_run.seed))
+		run_mode=String(next_run.mode)
+	rng.seed=RunSessionScript.stream_seed(run.seed_value,"combat")
+	spawn_rng.seed=RunSessionScript.stream_seed(run.seed_value,"spawns")
 	world=NightfallWorld.new();add_child(world);world.build()
 	build_hero_navigation()
 	effects=Node3D.new();add_child(effects)
@@ -206,8 +214,8 @@ func _ready() -> void:
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
 	squads=SquadScript.new();add_child(squads);squads.setup(self,true)
-	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self)
-	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
+	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self,run.seed_value)
+	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self,run.seed_value)
 	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self,run.seed_value)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	contracts.target_started.connect(trigger_contract_risk)
@@ -760,11 +768,11 @@ func settle_contract_reward() -> void:
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
-	var angle:=rng.randf_range(0,TAU)
-	var radius:=rng.randf_range(29,98)
-	creature.position=Vector3(rng.randf_range(-10,10),0,rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
-	creature.set_meta("gate_lane",rng.randf_range(-1.15,1.15))
-	var roll:=rng.randf() if night else 1.0
+	var angle:=spawn_rng.randf_range(0,TAU)
+	var radius:=spawn_rng.randf_range(29,98)
+	creature.position=Vector3(spawn_rng.randf_range(-10,10),0,spawn_rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
+	creature.set_meta("gate_lane",spawn_rng.randf_range(-1.15,1.15))
+	var roll:=spawn_rng.randf() if night else 1.0
 	if night and not role.is_empty():
 		roll={"basic":1.0,"breaker":0.0,"runner":.061+day_number*.025,"sapper":.231+day_number*.035,"light_eater":.341+day_number*.035}.get(role,1.0)
 	var is_light_eater: bool=night and roll>=.34+day_number*.035 and roll<.43+day_number*.035
@@ -2633,6 +2641,7 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 	return true
 
 func _unhandled_input(event: InputEvent) -> void:
+	if restart_pending or quitting:return
 	if handle_strategy_mouse(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -2669,8 +2678,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					if is_instance_valid(creature):creature.visual_hit_stop=0.0
 			notify("已减弱震动与闪光" if combat.reduced_effects else "完整打击反馈已开启",2)
 			return
-		if phase=="ended" and event.keycode==KEY_ENTER:
-			get_tree().reload_current_scene()
+		if phase=="ended" and event.keycode in [KEY_ENTER,KEY_R]:
+			request_run_restart(event.keycode==KEY_ENTER)
 			return
 		if phase=="draft":
 			if opening_night_pending and event.keycode in [KEY_7,KEY_8,KEY_9]:
@@ -2808,6 +2817,24 @@ func _exit_tree() -> void:
 	if is_instance_valid(effects):
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
+
+func request_run_restart(same_seed: bool) -> void:
+	if phase!="ended" or restart_pending or quitting:return
+	var next_seed: int=run.seed_value if same_seed else RunSessionScript.fresh_seed(run.seed_value)
+	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode):return
+	restart_pending=true
+	hud.queue_redraw()
+	# Keep music/playback cleanup in the tree before replacing the entire run.
+	await prepare_shutdown()
+	if quitting:
+		RunSessionScript.clear_request(get_tree())
+		return
+	var error:=get_tree().reload_current_scene()
+	if error!=OK:
+		RunSessionScript.clear_request(get_tree())
+		restart_pending=false
+		set_process(true)
+		notify("无法重新打开守望场景，请重试",4)
 
 func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
