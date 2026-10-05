@@ -125,7 +125,6 @@ func run() -> void:
 	check(breaker.hp < 10000.0 and not game.squads.shots.is_empty(), "Production simulate must commit ranged damage and create its beam")
 	var kill_chain_before: int = game.kill_chain
 	var scrap_before: int = game.scrap
-	var essence_before: int = game.essence
 
 	game.phase = "paused"
 	var paused_position := archer.position
@@ -166,7 +165,6 @@ func run() -> void:
 	game.squads.advance(.10)
 	check(archer.target == null and not archer.attack_queued, "A dead target must cancel its ranged windup")
 	scrap_before = game.scrap
-	essence_before = game.essence
 
 	var victim := make_target(archer, Vector3(0, 0, 7.0), "breaker", 1.0)
 	archer.attack_timer = 0.0
@@ -174,7 +172,7 @@ func run() -> void:
 	game.simulate(.01)
 	game.simulate(.27)
 	check(game.kills == kills_before + 1, "A ranged kill must use the real production defeat callback")
-	check(game.scrap == scrap_before + 8 and game.essence == essence_before + 12, "Ranged kill must receive normal night rewards")
+	check(game.scrap == scrap_before + 8, "Ranged kill must receive exactly the normal eight scrap night reward")
 	check(game.kill_chain == kill_chain_before, "Ranged kill rewards must still exclude hero chain bonuses")
 	await process_frame
 	check(not is_instance_valid(victim), "Production ranged kill must free the enemy")

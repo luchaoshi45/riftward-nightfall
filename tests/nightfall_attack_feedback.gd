@@ -17,7 +17,7 @@ func reset_case() -> void:
 	game.enemies.clear()
 	game.phase="day";game.phase_time=90.0
 	game.run=RunBuild.new(402);game.run.stats.crit=0.0
-	game.scrap=0;game.essence=0;game.kills=0;game.attack_count=0
+	game.scrap=0;game.kills=0;game.attack_count=0
 	game.run.memory_level=0
 	game.attack_chain=0;game.attack_chain_time=0.0
 	game.kill_chain=0;game.kill_chain_time=0.0
@@ -120,29 +120,19 @@ func run() -> void:
 	check(game.hero.hero_action=="inferno" and game.hero_attack_target==null,"R must cancel an old contact and prevent new basics from stealing its cast")
 	check(enemy.hp==hp_after_r and game.kill_chain==0,"No stale basic damage or personal-chain credit may follow R")
 
-	# Count rewards from actual lethal contacts. Drafts caused by accumulated
-	# memory are resumed without granting another hit or erasing the chain.
+	# Lethal contacts pay one shared balance. Income alone must never queue cards.
 	reset_case()
-	var bonus_scrap:=0;var bonus_memory:=0
+	var bonus_scrap:=0
 	for i in range(1,12):
-		game.phase="day";game.run.pending=0;game.run.queue.clear();game.run.offer.clear()
 		var before_scrap: int=game.scrap
-		var before_memory: int=game.essence
 		var before_pending: int=game.run.pending
-		var memory_cost: int=game.run.memory_cost()
 		target(Vector3.RIGHT*2,1.0);strike()
-		var extra_scrap:=5 if i==3 else (8 if i==6 else (12 if i==10 else 0))
-		var extra_memory:=4 if i==3 else (6 if i==6 else (10 if i==10 else 0))
-		bonus_scrap+=extra_scrap;bonus_memory+=extra_memory
+		var extra_scrap:=9 if i==3 else (14 if i==6 else (22 if i==10 else 0))
+		bonus_scrap+=extra_scrap
 		check(game.kill_chain==i and is_equal_approx(game.kill_chain_time,6.0),"Only a lethal personal contact may advance the six second kill chain")
 		check(game.scrap-before_scrap==5+extra_scrap,"Milestone %d must grant its exact scrap reward once" % i)
-		var memory_received: int=game.essence-before_memory+(game.run.pending-before_pending)*memory_cost
-		check(memory_received==12+extra_memory,"Milestone %d must grant its exact memory reward once, including a triggered draft" % i)
-		if game.phase=="draft":
-			var kills_before: int=game.kills
-			game.auto_attack();game.update_hero_attack(1.0)
-			check(game.kills==kills_before and game.hero_attack_target==null,"A memory reward draft must not resubmit the lethal contact")
-	check(bonus_scrap==25 and bonus_memory==20,"All three thresholds must have a finite combined reward")
+		check(game.run.pending==before_pending and game.phase=="day","Kill income must not debit scrap, queue growth or force a draft")
+	check(bonus_scrap==45,"The three personal-chain thresholds grant exactly 45 additional scrap in total")
 	game.phase="day";game.update_combat_chains(6.001)
 	check(game.kill_chain==0,"A six second kill-chain interruption must expire")
 	target(Vector3.RIGHT*2,1.0);strike()
@@ -158,10 +148,18 @@ func run() -> void:
 	reset_case();game.run.owned["chain"]=1;game.run.stats.crit=0.0
 	game.attack_count=2;game.attack_chain=2;game.attack_chain_time=1.0
 	target(Vector3.RIGHT*2,1.0);target(Vector3(3,0,.3),1.0);target(Vector3(3,0,-.3),1.0)
-	game.essence=184
+	game.scrap=184
 	strike()
 	check(game.kills==3 and game.kill_chain==3,"Third-strike chain attachments retain their personal kill rewards")
-	check(game.scrap==20 and game.essence==24 and game.run.pending==1 and game.phase=="day","Queued memory upgrade must preserve all ordinary and milestone rewards without forcing a draft")
+	check(game.scrap==208 and game.run.pending==0 and game.phase=="day","Enough shared scrap must remain unspent until the player explicitly requests growth")
+	await key(KEY_V,true);await key(KEY_V,false)
+	check(game.phase=="draft" and game.scrap==88 and game.run.pending==1 and game.run.memory_level==1,
+		"Real V pays exactly 120 shared scrap and opens one upgrade")
+	var kills_before: int=game.kills
+	game.auto_attack();game.update_hero_attack(1.0)
+	check(game.kills==kills_before and game.hero_attack_target==null,"The manually paid draft must not resubmit the lethal contact")
+	check(game.choose_card(0) and game.scrap==88 and game.run.pending==0 and game.phase=="day",
+		"Selecting the already paid card must resume gameplay without charging again")
 
 	reset_case();enemy=target(Vector3.RIGHT*2,25.0)
 	game.hero.hp=400;game.run.stats.lifesteal=.5

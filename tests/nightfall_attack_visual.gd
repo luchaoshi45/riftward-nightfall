@@ -113,7 +113,7 @@ func run() -> void:
 		if game.run.offer[i].id!="tempo":selection=i;break
 	check(game.choose_card(selection),"The actual initial card enters the first night")
 	clear_enemies()
-	game.notice_time=0.0;game.essence=0
+	game.notice_time=0.0
 	game.hero.position=Vector3(0,5,3.1);game.move_goal=game.hero.position
 	game.hero_path.clear();game.hero_keyboard_active=false
 	game.camera.size=21.0
@@ -165,13 +165,12 @@ func run() -> void:
 	game.kill_chain=0;game.kill_chain_time=0.0
 	game.attack_chain=0;game.attack_chain_time=0.0
 	var old_scrap: int=game.scrap
-	var old_memory: int=game.essence
 	for i in 3:
 		enemy=target(1.0)
 		await hit(enemy)
 		if i<2:await frames(47)
 	check(game.kill_chain==3,"Three actual player attacks grant the personal streak")
-	check(game.scrap==old_scrap+8*3+5 and game.essence==old_memory+12*3+4,"Three-hit kill streak grants normal drops and the exact additional reward")
+	check(game.scrap==old_scrap+8*3+9,"Three-hit kill streak grants normal scrap drops and exactly nine additional scrap")
 	await frames(2)
 	game.camera.size=31.0
 	await screenshot("res://build/attack-feedback-streak.png")
@@ -214,15 +213,15 @@ func run() -> void:
 	game.combat.impact(game.hero.position+Vector3.RIGHT,Vector3.RIGHT,75,false,true)
 	await capture_mix("heavy_contact",true)
 	await silent_prepare()
-	game.combat.kill(game.hero.position+Vector3.RIGHT,8,12)
+	game.combat.kill(game.hero.position+Vector3.RIGHT,8)
 	await capture_mix("kill_chime",true)
 	await silent_prepare()
-	game.combat.milestone(3,5,4)
+	game.combat.milestone(3,9)
 	await capture_mix("milestone_chime",true)
 	await silent_prepare()
 	for i in 24:
 		game.combat.impact(game.hero.position+Vector3.RIGHT,Vector3.RIGHT,75,true,true)
-		game.combat.milestone(3,5,4)
+		game.combat.milestone(3,9)
 	check(game.combat.players.size()<=6 and game.combat.effects.size()<=14 and game.combat.floats.size()<=16,"Voice, visual effect and float budgets are bounded")
 	await capture_mix("bounded_overlap",true)
 	await silent_prepare()
@@ -237,7 +236,7 @@ func run() -> void:
 	game.combat.impact(game.hero.position+Vector3.RIGHT,Vector3.RIGHT,58,false,false)
 	game.end_defeat("Silent end-state validation");game._process(1.0/60.0)
 	await create_timer(.12).timeout;capture.clear_buffer()
-	game.combat.milestone(3,5,4)
+	game.combat.milestone(3,9)
 	await capture_mix("ended_silence",false)
 	AudioServer.remove_bus_effect(0,capture_slot);capture_slot=-1
 	var file:=FileAccess.open("res://build/attack-feedback-mix.json",FileAccess.WRITE)

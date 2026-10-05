@@ -15,9 +15,11 @@ const CONSTRUCTION := Rect2(435, 642, 570, 140)
 const RunSession = preload("res://scripts/run_session.gd")
 const RECORDING_HUD := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_labels: Array[Dictionary] = []
+var all_labels: Array[String] = []
 var recording_drawer := false
 func _draw() -> void:
 	drawn_labels.clear()
+	all_labels.clear()
 	recording_drawer = false
 	super._draw()
 func box(rect: Rect2, fill: Color = Color(.022,.035,.045,.88), outline: Color = Color(\"435455\")) -> void:
@@ -25,6 +27,7 @@ func box(rect: Rect2, fill: Color = Color(.022,.035,.045,.88), outline: Color = 
 	if rect == Rect2(428,692,112,30): recording_drawer = false
 	super.box(rect,fill,outline)
 func label(value: String, point: Vector2, size_px: int, color: Color = Color(\"e7e1d3\"), latin: bool = false) -> void:
+	all_labels.append(value)
 	if recording_drawer:
 		var actual_font: Font = display_font if latin else font
 		drawn_labels.append({\"text\":value, \"point\":point, \"font_size\":size_px,
@@ -272,6 +275,32 @@ func detail_navigation() -> void:
 	check(game.phase == "paused" and game.hud.detail_tab == "", "A later Esc must close the still-paused drawer")
 	press(KEY_ESCAPE)
 	check(game.phase == "day", "A final Esc must resume active play after the credits and drawer close")
+
+func pause_notice_priority() -> void:
+	var message:="非空通知布局验收"
+	game.notify(message,3.0)
+	await redraw()
+	check(message in game.hud.all_labels,"The notice must be genuinely rendered during live play before the pause check")
+	var before:=finances()
+	press(KEY_ESCAPE)
+	press(KEY_F3)
+	await redraw()
+	check(game.phase=="paused" and game.hud.detail_tab=="contract","Pause notice coverage must use the real paused drawer state")
+	check(message not in game.hud.all_labels and "已暂停 · Esc 先收起详情" in game.hud.all_labels,
+		"The actual paused drawer must show its pause hint without an underlying notice crossing it")
+	check(game.notice==message and game.notice_time>0.0,"Pause priority must preserve the pending notice for resumption")
+	await capture("paused-notice-details")
+	await click(MAP)
+	await redraw()
+	check(game.phase=="paused" and game.hud.map_expanded and message not in game.hud.all_labels,
+		"The actual expanded paused map must also keep the notice clear of the pause hint")
+	await capture("paused-notice-map")
+	press(KEY_ESCAPE)
+	press(KEY_ESCAPE)
+	await redraw()
+	check(game.phase=="day" and message in game.hud.all_labels and finances()==before,
+		"Real Esc resumption must restore the preserved notice without spending or issuing orders")
+	game.notice_time=0.0
 
 func rich_exploration_page() -> void:
 	var point := Vector3(45,0,45)
@@ -600,6 +629,7 @@ func run() -> void:
 	await capture("default-day")
 	check_live_data()
 	await detail_navigation()
+	await pause_notice_priority()
 	await rich_exploration_page()
 	await build_barracks()
 	await army_gui()

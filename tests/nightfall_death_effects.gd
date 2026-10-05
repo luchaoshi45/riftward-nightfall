@@ -21,7 +21,7 @@ func clean_case() -> void:
 	game.combat.clear_transients()
 	game.phase = "night"
 	game.phase_time = 100.0
-	game.kills = 0; game.scrap = 0; game.essence = 0
+	game.kills = 0; game.scrap = 0
 	game.run = RunBuild.new(411)
 	game.run.stats.crit = 0.0
 	game.hero.position = Vector3(0, 5, 3.1)
@@ -126,7 +126,7 @@ func run() -> void:
 	game.auto_attack(); game.update_hero_attack(.15)
 	check(not enemy.alive and not enemy.moving and not enemy.attack_queued,
 		"A lethal basic attack removes the enemy's live state and queued attack immediately")
-	check(game.kills == 1 and game.scrap == 8 and game.essence == 12 and game.kill_chain == 1,
+	check(game.kills == 1 and game.scrap == 8 and game.kill_chain == 1,
 		"A lethal personal basic grants the ordinary reward and one personal kill once")
 	check(game.deaths.corpses.size() == 1, "One lethal basic creates exactly one retained corpse")
 	if game.deaths.corpses.is_empty(): game.queue_free(); await process_frame; quit(1); return
@@ -139,7 +139,7 @@ func run() -> void:
 		check(entry.node.mesh == entry.mesh and entry.node.get_active_material(entry.surface) == entry.material,
 			"The transferred corpse retains its imported PBR mesh and material reference")
 	enemy.hurt(100.0, game.hero); enemy.hurt(100.0, null)
-	check(game.kills == 1 and game.scrap == 8 and game.essence == 12 and game.deaths.corpses.size() == 1,
+	check(game.kills == 1 and game.scrap == 8 and game.deaths.corpses.size() == 1,
 		"Further damage to a defeated unit cannot duplicate rewards or corpse submission")
 	var hero_hp: float = game.hero.hp
 	var beacon_hp: float = game.beacon_hp
@@ -219,7 +219,6 @@ func run() -> void:
 	clean_case(); await process_frame
 	var retained: Array[Node3D] = []
 	for index in 16:
-		game.essence = 0
 		enemy = target("breaker", Vector3(float(index % 4), 5, 3.0 + float(index / 4) * .4))
 		if not enemy: continue
 		visual = enemy.visual

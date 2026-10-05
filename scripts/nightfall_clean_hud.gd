@@ -155,6 +155,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.label("右键移动/攻击 · O 驻守",Vector2(38,808),13,ui.muted)
 
 static func _draw_notice(ui: Control, game: Node3D) -> void:
+	if game.phase=="paused":return
 	if game.construction.active or float(game.hero_damage_flash_time)>0.0:return
 	if float(game.notice_time)<=0.0 or String(game.notice).is_empty():return
 	var lines:=_wrap(ui,String(game.notice),716,15)

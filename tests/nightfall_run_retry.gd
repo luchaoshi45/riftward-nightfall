@@ -106,7 +106,7 @@ func contract_signature() -> Array:
 				"state": String(source.get("state", "")), "serial": int(source.get("serial", 0)),
 				"collected": bool(source.get("collected", false)), "cleansed": bool(source.get("cleansed", false))})
 		result.append({"kind": String(offer.kind), "targets": targets,
-			"scrap": int(offer.scrap), "memory": int(offer.memory), "risk": int(offer.risk),
+			"scrap": int(offer.scrap), "risk": int(offer.risk),
 			"risk_seconds": float(offer.risk_seconds), "risk_hunters": int(offer.risk_hunters)})
 	return result
 
@@ -118,8 +118,8 @@ func assert_clean_opening(mode: String, label: String) -> void:
 		label + ": mode is preselected while day and clock reset")
 	check(not game.restart_pending and not game.victory and game.ending_key.is_empty(),
 		label + ": restart and ending flags reset")
-	check(game.scrap == 90 and game.essence == 0 and game.kills == 0 and game.attack_count == 0,
-		label + ": scrap, memory, kills and attack counters reset")
+	check(game.scrap == 90 and game.kills == 0 and game.attack_count == 0,
+		label + ": the shared scrap balance, kills and attack counters reset")
 	check(game.run.owned.is_empty() and game.run.selections == 0 and game.run.memory_level == 0
 		and game.run.pending == 1 and game.run.rerolls == 3,
 		label + ": cards and paid growth reset with exactly one opening offer")
@@ -345,14 +345,22 @@ func dirty_run() -> void:
 	press(KEY_TAB)
 	check(game.squads.selected_count() == 1, "A real selection command must select the trained squad")
 	press(KEY_ESCAPE)
-	game.grant_exploration_reward("回归夹具物资", game.hero.position, 23, 220, 0.0, 0.0, "salvage")
+	var before_reward: int = game.scrap
+	var before_pending: int = game.run.pending
+	game.grant_exploration_reward("回归夹具物资", game.hero.position, 23, 0.0, 0.0, "salvage")
+	check(game.scrap == before_reward + 23 and game.run.pending == before_pending and game.phase == "day",
+		"Exploration income must credit shared scrap without automatically purchasing or opening cards")
+	var before_upgrade: int = game.scrap
+	var upgrade_cost: int = game.run.memory_cost()
+	var before_level: int = game.run.memory_level
 	press(KEY_V)
-	check(game.phase == "draft" and game.run.pending > 0, "A real exploration memory reward must open queued growth via V")
+	check(game.phase == "draft" and game.run.pending == 1 and game.scrap == before_upgrade - upgrade_cost
+		and game.run.memory_level == before_level + 1,
+		"Real V must pay one announced fee from shared scrap and immediately open one upgrade")
 	press(KEY_1)
-	for choice in 12:
-		if game.phase != "draft" or game.run.pending <= 0: break
-		press(KEY_1)
-	check(game.run.selections >= 3 and game.run.memory_level >= 1, "Dirty run must contain actual paid memory growth and chosen cards")
+	check(game.phase == "day" and game.run.pending == 0 and game.scrap == before_upgrade - upgrade_cost,
+		"Choosing the already paid upgrade must resume the day without a second debit")
+	check(game.run.selections >= 3 and game.run.memory_level >= 1, "Dirty run must contain actual paid growth and chosen cards")
 	game.hero.hp = maxf(1.0, game.hero.hp - 123.0)
 	game.beacon_hp -= 200.0
 	press(KEY_W)

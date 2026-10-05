@@ -5,6 +5,12 @@ var game: Node3D
 var failures: Array[String] = []
 
 func _initialize() -> void:
+	root.size = Vector2i(1920,1200)
+	root.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+	root.content_scale_size = root.size
+	if DisplayServer.get_name()!="headless":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+		root.hide()
 	call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
@@ -18,16 +24,31 @@ func press(keycode: Key) -> void:
 	event.physical_keycode=keycode
 	event.pressed=true
 	event.echo=false
-	game._unhandled_input(event)
+	root.push_input(event,true)
+	event.pressed=false
+	root.push_input(event,true)
 
 func click_mode(index: int) -> void:
-	var rects: Array[Rect2]=[Rect2(198,286,315,54),Rect2(547,286,315,54),Rect2(896,286,315,54)]
-	game.hud.mode_rects=rects
+	game.hud.queue_redraw()
+	for _frame in 3:await process_frame
+	check(index>=0 and index<game.hud.mode_rects.size(),"The production draft must expose the requested real mode card")
+	if index<0 or index>=game.hud.mode_rects.size():return
+	var rect: Rect2=game.hud.mode_rects[index]
+	var pixel: Vector2=rect.get_center()*game.hud.get_viewport_rect().size/Vector2(1440,900)
+	var motion:=InputEventMouseMotion.new()
+	motion.position=pixel;motion.global_position=pixel
+	root.push_input(motion,true)
+	await process_frame
 	var event:=InputEventMouseButton.new()
 	event.button_index=MOUSE_BUTTON_LEFT
 	event.pressed=true
-	event.position=Vector2(198+index*349+12,286+12)
-	game.hud._gui_input(event)
+	event.button_mask=MOUSE_BUTTON_MASK_LEFT
+	event.position=pixel;event.global_position=pixel
+	root.push_input(event,true)
+	await process_frame
+	event.pressed=false;event.button_mask=0
+	root.push_input(event,true)
+	await process_frame
 
 func transition() -> void:
 	game.phase_time=.01
@@ -46,7 +67,7 @@ func run() -> void:
 	await process_frame
 	game.set_process(false)
 	check(game.phase=="draft" and game.run_mode=="teaching","A new production run must open in the teaching mode draft")
-	click_mode(2)
+	await click_mode(2)
 	check(game.run_mode=="echo" and game.max_nights()==4,"The mode cards must select the four-night Echo mode by mouse")
 	press(KEY_8)
 	check(game.run_mode=="siege" and game.max_nights()==4,"8 must select the four-night Iron Tide mode")

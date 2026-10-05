@@ -2171,7 +2171,7 @@ func contract_interaction_prompt(action: Dictionary) -> String:
 	if String(action.get("kind",""))=="bonus_discovery":
 		return "F 带回追加%s · 返回灯塔领取 +%d 零件" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0))]
 	match contracts.kind:
-		"salvage":return "F 采集委托废料 · +%d 物资" % int(source.amount)
+		"salvage":return "F 采集委托废料 · +%d 零件" % (int(source.amount)+3)
 		"generator":
 			if String(source.state)=="ready":return "F 启动指定发电机 · 守住灯区 12 秒"
 			var ratio:=clampf(float(source.progress)/12.0,0.0,1.0)
@@ -2197,12 +2197,12 @@ func interaction_prompt() -> String:
 	var wildlife_prompt: String=wildlife.interaction_prompt()
 	if wildlife_prompt!="":return wildlife_prompt
 	var cache:=nearest_salvage()
-	if cache>=0:return "F  搜集废墟零件 · +%d 物资" % world.salvage[cache].amount
+	if cache>=0:return "F  搜集废墟零件 · +%d 零件" % (int(world.salvage[cache].amount)+3)
 	var nest_index:=nearest_nest()
 	if nest_index>=0:
 		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 零件，减轻夜袭"
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
-		return "F  消耗 %d 物资修复灯塔" % beacon_repair_cost()
+		return "F  消耗 %d 零件修复灯塔" % beacon_repair_cost()
 	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 零件"
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:

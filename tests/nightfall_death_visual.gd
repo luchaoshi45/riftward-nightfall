@@ -64,7 +64,7 @@ func run() -> void:
 	game.enemies.clear(); game.deaths.clear()
 	game.hero.position = Vector3(0, 5, 1.3)
 	game.move_goal = game.hero.position; game.hero_path.clear()
-	game.notice_time = 0.0; game.essence = 0
+	game.notice_time = 0.0
 	game.camera.size = 31.0
 	game.camera.position = game.hero.position + Vector3(0, 25, 29)
 	game.camera_follow = game.camera.position

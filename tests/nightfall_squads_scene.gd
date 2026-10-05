@@ -27,7 +27,7 @@ func run() -> void:
 	check(game.choose_card(0), "Opening draft must still start the real game")
 	remove_enemies()
 	game.phase = "night"; game.hero.position = Vector3(35, 0, 35)
-	game.scrap = 300; game.essence = 0
+	game.scrap = 300
 	squads = SquadScript.new(); game.add_child(squads); squads.setup(game, true)
 	check(squads.hire("shield").ok and squads.hire("ranged").ok and game.scrap == 150, "Mixed real-scene squad hiring must debit exactly 150")
 	for step in 65: squads.advance(.1)
@@ -74,7 +74,7 @@ func run() -> void:
 	for member: BattleUnit in squads.squads[1].members: member.attack_timer = 0.0
 	squads.advance(.01); squads.advance(.27)
 	check(game.kills == old_kills + 1 and game.kill_chain == 2, "Soldier kill must count normal defeat exactly once without claiming a hero chain milestone")
-	check(game.scrap == old_scrap + 8 and game.essence == 12, "Soldier reward must use the real controller's normal kill payout")
+	check(game.scrap == old_scrap + 8, "Soldier reward must use the real controller's normal single-resource kill payout")
 	check(not squads.shots.is_empty(), "Actual ranged damage must also produce its owned beam")
 	await process_frame
 	check(not is_instance_valid(victim), "Actual controller defeat must dispose the killed enemy")

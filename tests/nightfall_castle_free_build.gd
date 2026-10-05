@@ -266,19 +266,24 @@ func frozen_and_poor() -> void:
 	await press(KEY_Y)
 	check(not game.construction.active and not game.build_tower_at(point), "Pause must refuse construction mode and direct placement")
 	await press(KEY_ESCAPE)
-	game.essence = game.run.memory_cost()
-	game.collect_memory_upgrades()
+	var upgrade_cost: int = game.run.memory_cost()
+	var paid_level: int = game.run.memory_level
+	check(saved_balance >= upgrade_cost and game.run.pending == 0,
+		"The real city balance must fund a fresh manually requested upgrade")
 	await press(KEY_Y)
 	await press(KEY_V)
 	game._process(0.0)
-	check(game.phase == "draft" and game.construction.active and not game.construction.ghost.visible,
-		"Real V card selection must hide the retained construction preview")
-	check(not game.build_tower_at(point) and game.scrap == saved_balance and game.world.tower_pads.size() == count,
+	check(game.phase == "draft" and game.run.pending == 1 and game.run.memory_level == paid_level + 1
+		and game.scrap == saved_balance - upgrade_cost
+		and game.construction.active and not game.construction.ghost.visible,
+		"Real V must pay shared scrap once and hide the retained construction preview")
+	check(not game.build_tower_at(point) and game.scrap == saved_balance - upgrade_cost and game.world.tower_pads.size() == count,
 		"Card selection cannot pay for construction")
 	await press(KEY_1)
 	game._process(0.0)
-	check(game.phase == "day" and game.construction.active and game.construction.ghost.visible,
-		"Actual card choice must resume the retained city placement preview")
+	check(game.phase == "day" and game.run.pending == 0 and game.scrap == saved_balance - upgrade_cost
+		and game.construction.active and game.construction.ghost.visible,
+		"Actual card choice must resume the retained city placement preview without paying again")
 	await press(KEY_ESCAPE)
 
 func tower_controls_and_combat(index: int) -> void:
