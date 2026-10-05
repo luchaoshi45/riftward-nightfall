@@ -176,10 +176,12 @@ func run() -> void:
 	check(game.tower_count() == 9,"Nine live towers in the visual stress scene")
 	var enemy: BattleUnit = game.spawn_creature(false,"stalker")
 	enemy.position = Vector3(34.4,0,31.0)
+	game.notice_time = 0.0
 	view(Vector3(0,5,0))
 	lighting_samples()
 	if render_test: await actual_frames()
 	observations["renderer"] = RenderingServer.get_current_rendering_method()
+	observations["quality"] = {"msaa":root.msaa_3d,"camera_near":game.camera.near,"shadow_mode":game.world.sun.directional_shadow_mode}
 	observations["stage"] = stage
 	observations["failures"] = failures
 	var file := FileAccess.open("res://build/visual-%s.json" % stage,FileAccess.WRITE)

@@ -194,6 +194,8 @@ func _ready() -> void:
 	camera=Camera3D.new();add_child(camera)
 	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
 	camera.size=38
+	# Gameplay never approaches this camera; avoid wasting depth precision at .05m.
+	camera.near=.3
 	camera.far=130
 	camera.position=hero.position+Vector3(0,25,29)
 	camera.look_at(hero.position)

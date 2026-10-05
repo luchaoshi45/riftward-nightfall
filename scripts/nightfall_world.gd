@@ -176,7 +176,12 @@ func build() -> void:
 	sun.light_energy=.75
 	sun.shadow_enabled=true
 	sun.light_angular_distance=1.0
-	sun.directional_shadow_max_distance=100
+	# The fixed orthographic view needs one consistent texel density, not
+	# cascade boundaries sweeping across the courtyard while the camera pans.
+	sun.directional_shadow_mode=DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance=80
+	sun.shadow_bias=.035
+	sun.shadow_normal_bias=.65
 	add_child(sun)
 	beacon_light=OmniLight3D.new()
 	beacon_light.position=Vector3(0,FORT_HEIGHT+4.5,0)
@@ -184,6 +189,9 @@ func build() -> void:
 	beacon_light.light_energy=1.9
 	beacon_light.omni_range=25
 	beacon_light.shadow_enabled=true
+	beacon_light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE
+	beacon_light.shadow_bias=.06
+	beacon_light.shadow_normal_bias=.8
 	add_child(beacon_light)
 	hero_lantern=OmniLight3D.new()
 	hero_lantern.light_color=Color("ffd0a0")
