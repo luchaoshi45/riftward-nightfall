@@ -166,7 +166,10 @@ def stone_walls(stone, coping):
             hn, hf = height(0.0, near), height(0.0, far)
             vertices = [(x0, near, 0), (x1, near, 0), (x1, far, 0), (x0, far, 0),
                         (x0, near, hn), (x1, near, hn), (x1, far, hf), (x0, far, hf)]
-            faces = [(0, 3, 2, 1), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (4, 5, 6, 7)]
+            # The separate coping below owns the visible top. Including the
+            # same face here puts two different materials at identical depth
+            # and makes the ramp flank flash as the camera follows a walk.
+            faces = [(0, 3, 2, 1), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
             mesh("Castle causeway stone flank", vertices, faces, stone)
             crown = [(x0, near, hn), (x1, near, hn), (x1, far, hf), (x0, far, hf)]
             mesh("Castle causeway worn coping", crown, [(0, 1, 2, 3)], coping)
