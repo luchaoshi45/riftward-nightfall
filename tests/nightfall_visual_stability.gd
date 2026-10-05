@@ -57,6 +57,48 @@ func frame_difference(a: Image, b: Image) -> float:
 			count += 1
 	return total / float(count)
 
+func atmosphere_frames(phase_name: String) -> void:
+	var ash: GPUParticles3D = game.world.ashfall
+	var drift := ash.process_material as ParticleProcessMaterial
+	var ramp: Gradient = drift.color_ramp.gradient
+	check(game.world.ash_material.vertex_color_use_as_albedo,"Actual ash material must consume particle lifetime color")
+	check(ramp.get_color(0).a == 0.0 and ramp.get_color(ramp.get_point_count()-1).a == 0.0,"Ash fades continuously at birth and expiry")
+	check(ash.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Atmospheric flakes must not cast noisy shadows")
+	var hud_was_visible: bool = game.hud.visible
+	game.hud.visible = false
+	ash.visible = true
+	ash.speed_scale = 1.0
+	ash.restart()
+	for _frame in 8: await frame()
+	game.phase = "paused"
+	game.world.set_process(true)
+	for _frame in 2: await frame()
+	var held_time: float = game.world.light_time
+	check(ash.speed_scale == 0.0,"Actual paused frames must stop environmental ash simulation")
+	ash.visible = false
+	var clear: Image = await photograph(phase_name+"-clear")
+	ash.visible = true
+	var atmosphere: Image = await photograph(phase_name+"-atmosphere")
+	clear.convert(Image.FORMAT_RGBA8)
+	atmosphere.convert(Image.FORMAT_RGBA8)
+	var clear_data := clear.get_data()
+	var atmosphere_data := atmosphere.get_data()
+	var changed_pixels := 0
+	for offset in range(0,clear_data.size(),4):
+		if clear_data[offset] != atmosphere_data[offset] or clear_data[offset+1] != atmosphere_data[offset+1] or clear_data[offset+2] != atmosphere_data[offset+2]:changed_pixels += 1
+	observations[phase_name+"_ash_changed_pixels"] = changed_pixels
+	check(changed_pixels > 0 and changed_pixels < 10000,"Actual soft ash must appear in a small, bounded part of the image")
+	check(game.world.light_time == held_time and ash.speed_scale == 0.0,"Environmental visual time must stay frozen over actual capture frames")
+	game.phase = "draft"
+	for _frame in 3: await frame()
+	check(ash.speed_scale == 0.0,"Actual card-selection frames must keep environmental ash frozen")
+	game.phase = phase_name
+	for _frame in 2: await frame()
+	check(ash.speed_scale == 1.0,"Returning to play must resume the existing atmospheric particles")
+	game.world.set_process(false)
+	ash.visible = false
+	game.hud.visible = hud_was_visible
+
 func lighting_samples() -> void:
 	game.phase = "night"
 	game.world.night_mix = 1.0
@@ -101,10 +143,12 @@ func actual_frames() -> void:
 	game.world.night_mix = 0.0
 	game.world.set_night(false)
 	await photograph("day")
+	if stage.begins_with("10"): await atmosphere_frames("day")
 	game.phase = "night"
 	game.world.night_mix = 1.0
 	game.world.set_night(true)
 	await photograph("night")
+	if stage.begins_with("10"): await atmosphere_frames("night")
 	game.hud.visible = false
 	var prior: Image = await photograph("still")
 	var max_difference := 0.0

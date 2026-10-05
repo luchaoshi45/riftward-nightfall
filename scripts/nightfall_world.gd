@@ -40,7 +40,9 @@ var light_time:=0.0
 func _process(delta: float) -> void:
 	if beacon_light==null:return
 	var game := get_parent()
-	if game and game.has_method("simulate") and game.get("phase") not in ["day","night"]:return
+	var playing: bool = not game or not game.has_method("simulate") or game.get("phase") in ["day","night"]
+	if ashfall:ashfall.speed_scale=1.0 if playing else 0.0
+	if not playing:return
 	light_time+=delta
 	night_mix=move_toward(night_mix,1.0 if night_active else 0.0,delta/LIGHT_TRANSITION_SECONDS)
 	# Frame-rate independent short fades keep real warning/drain state intact.
@@ -160,14 +162,14 @@ func build() -> void:
 	env.ambient_light_energy=.42
 	env.tonemap_mode=Environment.TONE_MAPPER_ACES
 	env.glow_enabled=true
-	env.glow_intensity=.36
+	env.glow_intensity=.24
 	env.ssao_enabled=true
-	env.ssao_radius=1.7
-	env.ssao_intensity=1.55
+	env.ssao_radius=1.05
+	env.ssao_intensity=.85
 	env.fog_enabled=true
 	env.fog_light_color=Color("303c42")
 	env.fog_density=.012
-	env.fog_height_density=.04
+	env.fog_height_density=.025
 	environment.environment=env
 	add_child(environment)
 	sun=DirectionalLight3D.new()
@@ -204,7 +206,8 @@ func build() -> void:
 
 func create_ashfall() -> void:
 	ashfall=GPUParticles3D.new()
-	ashfall.amount=220
+	ashfall.amount=110
+	ashfall.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ashfall.lifetime=10.0
 	ashfall.preprocess=8.0
 	ashfall.visibility_aabb=AABB(Vector3(-30,-15,-27),Vector3(60,36,54))
@@ -218,14 +221,34 @@ func create_ashfall() -> void:
 	drift.gravity=Vector3(0,-.13,0)
 	drift.scale_min=.55
 	drift.scale_max=1.45
+	var lifetime_gradient:=Gradient.new()
+	lifetime_gradient.offsets=PackedFloat32Array([0.0,.18,.7,1.0])
+	lifetime_gradient.colors=PackedColorArray([Color(1,1,1,0),Color.WHITE,Color.WHITE,Color(1,1,1,0)])
+	var lifetime_texture:=GradientTexture1D.new()
+	lifetime_texture.gradient=lifetime_gradient
+	drift.color_ramp=lifetime_texture
 	ashfall.process_material=drift
 	var flake:=QuadMesh.new()
-	flake.size=Vector2(.14,.04)
+	flake.size=Vector2(.18,.12)
 	ash_material=StandardMaterial3D.new()
 	ash_material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 	ash_material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	ash_material.vertex_color_use_as_albedo=true
 	ash_material.billboard_mode=BaseMaterial3D.BILLBOARD_ENABLED
-	ash_material.albedo_color=Color(.55,.51,.46,.44)
+	ash_material.albedo_color=Color(.55,.51,.46,.22)
+	# Soft, filtered flakes avoid hard one-pixel rectangles flashing in
+	# front of silhouettes. Both radial edges and birth/death fade continuously.
+	var edge_gradient:=Gradient.new()
+	edge_gradient.offsets=PackedFloat32Array([0.0,.35,1.0])
+	edge_gradient.colors=PackedColorArray([Color.WHITE,Color(1,1,1,.65),Color(1,1,1,0)])
+	var edge_texture:=GradientTexture2D.new()
+	edge_texture.width=64
+	edge_texture.height=64
+	edge_texture.gradient=edge_gradient
+	edge_texture.fill=GradientTexture2D.FILL_RADIAL
+	edge_texture.fill_from=Vector2(.5,.5)
+	edge_texture.fill_to=Vector2(1.0,.5)
+	ash_material.albedo_texture=edge_texture
 	flake.material=ash_material
 	ashfall.draw_pass_1=flake
 	add_child(ashfall)
@@ -356,14 +379,14 @@ func apply_lighting() -> void:
 	if game and game.has_method("simulate") and is_instance_valid(game.get("combat")):
 		if game.combat.reduced_effects:pulse_scale=0.0
 	if ashfall:
-		ashfall.amount_ratio=lerpf(.35,.8,blend)
-		ash_material.albedo_color=Color(.55,.51,.46,.44).lerp(Color(.54,.59,.64,.53),blend)
+		ashfall.amount_ratio=lerpf(.35,.65,blend)
+		ash_material.albedo_color=Color(.55,.51,.46,.22).lerp(Color(.54,.59,.64,.26),blend)
 	var env := environment.environment
 	env.background_color=Color("343a3d").lerp(Color("03060b"),blend)
 	env.ambient_light_color=Color("b8b3a5").lerp(Color("697587"),blend)
 	env.ambient_light_energy=lerpf(.56,.028,blend)
-	env.fog_light_color=Color("565b57").lerp(Color("090f1a"),blend)
-	env.fog_density=lerpf(.010,.020,blend)
+	env.fog_light_color=Color("4a5252").lerp(Color("090f1a"),blend)
+	env.fog_density=lerpf(.0065,.014,blend)
 	sun.light_color=Color("e4c6a7").lerp(Color("587090"),blend)
 	sun.light_energy=lerpf(.86,.018,blend)
 	beacon_light.light_energy=lerpf(1.4,8.2,blend)+sin(light_time*1.1)*.045*pulse_scale
