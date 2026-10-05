@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -47,7 +48,7 @@ func run() -> void:
 		if waylight.is_empty():waylight=item
 		else:game.discoveries.begin_cooling(item,60.0)
 	assert(not waylight.is_empty())
-	var waylight_point:=Vector3(10.0,0.0,10.0)
+	var waylight_point:=Vector3(Layout.FORT_TERRAIN_EDGE+.5,0.0,Layout.WALL_CENTER+2.7)
 	waylight_point.y=game.outpost_height(waylight_point)
 	waylight.position=waylight_point
 	waylight.node.position=waylight_point

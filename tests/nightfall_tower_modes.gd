@@ -36,4 +36,8 @@ func run() -> void:
 	game.update_towers(1.2)
 	assert(close_enemy.hp<close_hp)
 	print("NIGHTFALL_TOWER_MODES_OK")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	quit()

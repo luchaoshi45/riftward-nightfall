@@ -1,7 +1,10 @@
 extends SceneTree
 ## Production P/F guidance: reachable affinity targets, honest fallback and bounded A*.
 ## Render with --position 10000,10000 --audio-driver Dummy -- --render-test.
+const Layout = preload("res://scripts/outpost_layout.gd")
 const HOME := Vector3(0, 5, 3.1)
+const SOUTH_FIELD := Vector3(0, 0, Layout.RAMP_END + 5.0)
+const WALL_SIDE := Vector3(Layout.FORT_TERRAIN_EDGE + .5, 0, Layout.WALL_CENTER + 2.7)
 const FIELD := Vector3(18, 0, 0)
 const FAR := Vector3(105, 0, 95)
 const STEP := 1.0 / 60.0
@@ -155,7 +158,7 @@ func complete_collection() -> void:
 func collection_affinity_action() -> void:
 	reset_case()
 	await complete_collection()
-	var flower := ready(0, "ember_bloom", Vector3(0, 0, 24))
+	var flower := ready(0, "ember_bloom", SOUTH_FIELD)
 	put_hero(HOME)
 	check(game.discoveries.motivation_target().is_empty(), "Collected four types without affinity must have no fake next target")
 	game.exploration.arm_contract_affinity(["ember_bloom"])
@@ -188,7 +191,7 @@ func collection_affinity_action() -> void:
 func nearest_types_and_gate() -> void:
 	reset_case()
 	var ordinary := ready(0, "ember_bloom", Vector3(-18, 0, 0))
-	var crystal := ready(1, "memory_crystal", Vector3(0, 0, 24))
+	var crystal := ready(1, "memory_crystal", SOUTH_FIELD)
 	var lamp := ready(2, "waylight", Vector3(35, 0, 20))
 	target_is(game.discoveries.motivation_target(), ordinary, "route", "Ordinary seeded route")
 	game.exploration.arm_contract_affinity(["waylight", "memory_crystal"])
@@ -198,8 +201,8 @@ func nearest_types_and_gate() -> void:
 	game.exploration.arm_contract_affinity(["memory_crystal"])
 	target_is(game.discoveries.motivation_target(), crystal, "affinity", "Restored matching set inside cache window")
 	reset_case()
-	var behind_wall := ready(0, "ember_bloom", Vector3(10, 0, 10))
-	crystal = ready(1, "memory_crystal", Vector3(0, 0, 24))
+	var behind_wall := ready(0, "ember_bloom", WALL_SIDE)
+	crystal = ready(1, "memory_crystal", SOUTH_FIELD)
 	game.exploration.arm_contract_affinity(["ember_bloom", "memory_crystal"])
 	check(flat_distance(HOME, behind_wall.position) < flat_distance(HOME, crystal.position), "Gate fixture must make the wall-side source look nearer in a straight line")
 	check(not game.can_traverse(HOME, behind_wall.position) and game.can_traverse(HOME, crystal.position), "Gate fixture must really require a detour for the wall-side source")
@@ -225,7 +228,7 @@ func unavailable_and_expiry() -> void:
 	await capture("no-reachable-affinity")
 	reset_case()
 	ordinary = ready(0, "ember_bloom", Vector3(-18, 0, 0))
-	var crystal := ready(1, "memory_crystal", Vector3(0, 0, 24))
+	var crystal := ready(1, "memory_crystal", SOUTH_FIELD)
 	game.exploration.arm_contract_affinity(["memory_crystal"])
 	game.simulate(74.99)
 	target_is(game.discoveries.motivation_target(), crystal, "affinity", "Affinity just before actual expiration")
@@ -253,7 +256,7 @@ func unavailable_and_expiry() -> void:
 func refresh_generations() -> void:
 	reset_case()
 	var ordinary := ready(0, "ember_bloom", Vector3(-18, 0, 0))
-	var near := ready(1, "memory_crystal", Vector3(0, 0, 24))
+	var near := ready(1, "memory_crystal", SOUTH_FIELD)
 	var far := ready(2, "memory_crystal", Vector3(30, 0, 30))
 	game.exploration.arm_contract_affinity(["memory_crystal"])
 	target_is(game.discoveries.motivation_target(), near, "affinity", "Ready generation before cooling")
@@ -285,7 +288,7 @@ func contract_priority() -> void:
 		await press(KEY_4)
 		check(game.contracts.selected_offer == 0, "Actual 4 must restore the real safe main contract")
 	var goal: Vector3 = game.contract_goal()
-	var point := Vector3(0, 0, 24)
+	var point := SOUTH_FIELD
 	if flat_distance(goal, point) < 1.0: point = Vector3(-20, 0, 20)
 	var crystal := ready(1, "memory_crystal", point)
 	game.exploration.arm_contract_affinity(["memory_crystal"])
@@ -306,8 +309,8 @@ func contract_priority() -> void:
 func freeze_and_cache() -> void:
 	reset_case()
 	ready(0, "ember_bloom", Vector3(-18, 0, 0))
-	var crystal := ready(1, "memory_crystal", Vector3(10, 0, 10))
-	ready(2, "waylight", Vector3(-10, 0, 10))
+	var crystal := ready(1, "memory_crystal", WALL_SIDE)
+	ready(2, "waylight", Vector3(-WALL_SIDE.x, 0, WALL_SIDE.z))
 	game.exploration.arm_contract_affinity(["memory_crystal", "waylight"])
 	game.discoveries.motivation_target()
 	var initial_queries: int = game.discoveries.motivation_route_queries

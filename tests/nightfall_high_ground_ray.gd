@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 ## Production camera-ray regression for the raised outpost's outer slope.
 
 const X_SAMPLES := [4.0,4.5,5.0,6.0]
@@ -21,11 +22,12 @@ func run() -> void:
 	game.world.set_process(false)
 	game.phase="day"
 	game.camera.size=48.0
-	game.camera.position=Vector3(5,25,43)
-	game.camera.look_at(Vector3(5,0,14))
+	game.camera.position=Vector3(5,25,43+Layout.EXPANSION_OFFSET)
+	game.camera.look_at(Vector3(5,0,14+Layout.EXPANSION_OFFSET))
 	for side in [-1.0,1.0]:
 		for x_value in X_SAMPLES:
-			for z_value in Z_SAMPLES:
+			for original_z in Z_SAMPLES:
+				var z_value:float=original_z+Layout.EXPANSION_OFFSET
 				var point:=Vector3(side*x_value,0,z_value)
 				point.y=game.outpost_height(point)
 				var screen: Vector2=game.camera.unproject_position(point)

@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 ## High-ground input regression: coalesce mouse terrain samples and keep the
 ## hero advancing when a short edge step is temporarily rejected.
 const STEP := 1.0 / 30.0
@@ -56,7 +57,7 @@ func run() -> void:
 
 	# Entering the raised ramp beside its retaining wall must not produce
 	# repeated zero-distance frames at a low render cadence.
-	var point:=Vector3(2.45,0,7.55)
+	var point:=Vector3(2.45,0,7.55+Layout.EXPANSION_OFFSET)
 	point.y=game.outpost_height(point)
 	game.hero.position=point
 	game.move_goal=point
@@ -74,7 +75,7 @@ func run() -> void:
 		if travelled<.025:zero_frames+=1
 		else:zero_frames=0
 		previous=game.hero.position
-	check(game.hero.position.z>10.0,"Low-FPS diagonal input must enter the raised ramp")
+	check(game.hero.position.z>10.0+Layout.EXPANSION_OFFSET,"Low-FPS diagonal input must enter the raised ramp")
 	check(minimum_step>.05,"Raised-ramp edge input must keep a visible movement step")
 	check(zero_frames<=1,"Raised-ramp edge input must not stall for consecutive frames")
 	await key(KEY_D,false)

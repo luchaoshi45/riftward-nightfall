@@ -2,11 +2,13 @@ class_name NeutralWildlife
 extends Node3D
 ## Peaceful, renewable wildlife. No BattleUnit and no combat target membership.
 const REFRESH_SECONDS := 60.0
+const Layout := preload("res://scripts/outpost_layout.gd")
 const INTERACT_RADIUS := 3.2
 const BEETLE_COST := 20
 var game: Node3D
 var animals: Array[Dictionary] = []
 var scenery: Array[Dictionary] = []
+var wilderness_walls: Array[Rect2] = Layout.wall_blocks()
 var rng := RandomNumberGenerator.new()
 var seeded := false
 
@@ -25,7 +27,7 @@ func setup(owner_game: Node3D) -> void:
 	var kinds: Array[String]=["stag","beetle",("stag" if rng.randf()<.5 else "beetle"),("stag" if rng.randf()<.5 else "beetle")]
 	for i in kinds.size():
 		var point:=Vector3(-17,0,15) if i==0 else random_point()
-		if i==0 and occupied(point):point=random_point()
+		if i==0 and (not wilderness_walkable(point) or occupied(point)):point=random_point()
 		point.y=game.outpost_height(point)
 		create_animal(kinds[i],point)
 
@@ -63,7 +65,7 @@ func random_point(previous: Vector3=Vector3.ZERO) -> Vector3:
 		var angle:=rng.randf_range(0,TAU)
 		var distance:=rng.randf_range(20,55)
 		var point:=Vector3(cos(angle)*distance,0,sin(angle)*distance)
-		if not game.outpost_walkable(point) or Vector2(point.x,point.z).length()<20:continue
+		if not wilderness_walkable(point) or Vector2(point.x,point.z).length()<20:continue
 		if previous!=Vector3.ZERO and point.distance_to(previous)<12:continue
 		if occupied(point):continue
 		point.y=game.outpost_height(point)
@@ -72,6 +74,13 @@ func random_point(previous: Vector3=Vector3.ZERO) -> Vector3:
 	var fallback:=Vector3(-37,0,42)
 	fallback.y=game.outpost_height(fallback)
 	return fallback
+
+func wilderness_walkable(point: Vector3) -> bool:
+	if not point.is_finite() or Layout.contains_castle(point) or not game.outpost_walkable(point):return false
+	if absf(point.x)<Layout.RAMP_OUTER_HALF+.8 and point.z>Layout.FORT_INNER-.8 and point.z<Layout.RAMP_END+.8:return false
+	for block: Rect2 in wilderness_walls:
+		if block.grow(.8).has_point(Vector2(point.x,point.z)):return false
+	return true
 
 func occupied(point: Vector3, skip: Node3D=null) -> bool:
 	for obstacle in scenery:
@@ -162,7 +171,7 @@ func tick(delta: float) -> void:
 				if facing.dot(direction.normalized())>.72:
 					var speed:=1.15 if animal.kind=="stag" else .68
 					var next:=node.position+direction.normalized()*minf(speed*delta,direction.length())
-					if game.can_traverse(node.position,next):
+					if wilderness_walkable(next) and game.can_traverse(node.position,next):
 						next.y=game.outpost_height(next);node.position=next;animal.position=next;moved=true
 					else:animal.state="idle";animal.timer=2.0
 		animate(animal,delta,moved)
@@ -172,7 +181,7 @@ func choose_walk(animal: Dictionary) -> void:
 		var angle:=rng.randf_range(0,TAU)
 		var radius:=rng.randf_range(1.5,6.5)
 		var target: Vector3=animal.anchor+Vector3(cos(angle)*radius,0,sin(angle)*radius)
-		if not game.outpost_walkable(target) or not game.can_traverse(animal.position,target):continue
+		if not wilderness_walkable(target) or not game.can_traverse(animal.position,target):continue
 		# Keep roaming creatures clear of interactive landmarks.
 		if occupied(target,animal.node):continue
 		target.y=game.outpost_height(target)

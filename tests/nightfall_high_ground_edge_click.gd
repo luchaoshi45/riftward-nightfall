@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 ## Side-wall cursor regression: clicking the raised ramp flank must resolve to
 ## the nearest walkable ramp edge instead of the low outer ground.
 const TARGET_ZS := [8.0, 9.0, 12.0, 15.0]
@@ -17,22 +18,24 @@ func run() -> void:
 	game.world.set_process(false)
 	game.phase="day"
 	game.camera.size=48.0
-	game.camera.position=Vector3(5,25,43)
-	game.camera.look_at(Vector3(5,0,14))
+	game.camera.position=Vector3(5,25,43+Layout.EXPANSION_OFFSET)
+	game.camera.look_at(Vector3(5,0,14+Layout.EXPANSION_OFFSET))
 	for side in [-1.0,1.0]:
-		for z in TARGET_ZS:
+		for original_z in TARGET_ZS:
+			var z:float=original_z+Layout.EXPANSION_OFFSET
 			var wall_point:=Vector3(3.2*side,game.outpost_height(Vector3(3.2*side,0,z)),z)
 			var screen: Vector2=game.camera.unproject_position(wall_point)
 			var resolved: Vector3=game.ground_point(screen)
+
 			check(absf(resolved.x)<=game.hero_ramp_side_limit(resolved.z)+.001,
 				"Side-wall click must resolve inside the ramp visual corridor at x=%.1f z=%.1f" % [wall_point.x,z])
-			check(resolved.z>=7.49 and resolved.z<=18.56,
+			check(resolved.z>=7.49+Layout.EXPANSION_OFFSET and resolved.z<=18.56+Layout.EXPANSION_OFFSET,
 				"Side-wall click must remain on the raised ramp z corridor at x=%.1f z=%.1f" % [wall_point.x,z])
 			check(absf(resolved.z-z)<1.21,
 				"Side-wall click must preserve nearby forward position at x=%.1f z=%.1f (resolved z=%.2f)" % [wall_point.x,z,resolved.z])
 			check(game.outpost_walkable(resolved),
 				"Side-wall click must resolve to a walkable endpoint at x=%.1f z=%.1f" % [wall_point.x,z])
-			game.hero.position=Vector3(15.0,0,25.0)
+			game.hero.position=Vector3(15.0+Layout.EXPANSION_OFFSET,0,25.0+Layout.EXPANSION_OFFSET)
 			game.hero.position.y=game.outpost_height(game.hero.position)
 			game.plan_hero_path(resolved)
 			check(not game.hero_path.is_empty() or game.move_goal.distance_to(resolved)<.25,
@@ -48,11 +51,9 @@ func run() -> void:
 					"Outer ramp-wall ray must stay on the raised corridor at x=%.2f z=%.1f" % [outer_seed.x,z])
 				check(absf(outer_resolved.z-z)<1.3,
 					"Outer ramp-wall ray must preserve its nearby z at x=%.2f z=%.1f (resolved z=%.2f)" % [outer_seed.x,z,outer_resolved.z])
-	print("NIGHTFALL_HIGH_GROUND_EDGE_CLICK_OK")
-	if not failures:
-		await game.prepare_shutdown()
-		game.queue_free()
-		await process_frame
-		quit(0)
-	else:
-		quit(1)
+	print("NIGHTFALL_HIGH_GROUND_EDGE_CLICK_", "OK" if failures.is_empty() else "FAILED")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
+	quit(0 if failures.is_empty() else 1)

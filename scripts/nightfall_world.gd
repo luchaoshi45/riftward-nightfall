@@ -1,7 +1,8 @@
 class_name NightfallWorld
 extends Node3D
 ## Ash outpost and explorable ruin perimeter; no lanes or opposing bases.
-const FORT_HEIGHT := 5.0
+const Layout = preload("res://scripts/outpost_layout.gd")
+const FORT_HEIGHT := Layout.FORT_HEIGHT
 const LIGHT_TRANSITION_SECONDS := 6.0
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
 const DECORATION_CULL_NEAR := 84.0
@@ -9,6 +10,7 @@ const DECORATION_CULL_FAR := 98.0
 const DECORATION_CULL_INTERVAL := 0.16
 
 var terrain: Node3D
+var tower_pad_scene: PackedScene
 var salvage: Array[Dictionary] = []
 var tower_pads: Array[Dictionary] = []
 var relays: Array[Dictionary] = []
@@ -40,7 +42,7 @@ func _process(delta: float) -> void:
 	apply_lighting()
 
 func build() -> void:
-	terrain = (load("res://assets/models/outpost_ground.glb") as PackedScene).instantiate() as Node3D
+	terrain = (load("res://assets/models/castle_ground.glb") as PackedScene).instantiate() as Node3D
 	add_child(terrain)
 	var masonry_shader:=load("res://assets/shaders/outpost_masonry.gdshader") as Shader
 	var masonry_materials: Dictionary = {}
@@ -64,32 +66,32 @@ func build() -> void:
 			surface.set_surface_override_material(index,masonry_materials[original])
 	beacon=place("res://assets/models/watch_beacon.glb",Vector3(0,FORT_HEIGHT,0),1.0,0)
 	var fence_scene := load("res://assets/models/barricade.glb") as PackedScene
-	for offset in [-5.05,-1.85,1.85,5.05]:
-		place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,-7.3),1.45,0)
-		if absf(offset)>2.0:
-			place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,7.3),1.45,0)
+	for offset in [-11.45,-8.2,-4.9,-1.6,1.6,4.9,8.2,11.45]:
+		place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,-Layout.WALL_CENTER),1.45,0)
+		if absf(offset)>3.6:
+			place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,Layout.WALL_CENTER),1.45,0)
 		for side in [-1,1]:
-			place_scene(fence_scene,Vector3(side*7.3,FORT_HEIGHT,offset),1.45,PI*.5)
-	for side in [-1,1]:create_gate_lamp(Vector3(side*2.45,FORT_HEIGHT,7.15))
+			place_scene(fence_scene,Vector3(side*Layout.WALL_CENTER,FORT_HEIGHT,offset),1.45,PI*.5)
+	for side in [-1,1]:create_gate_lamp(Vector3(side*2.45,FORT_HEIGHT,Layout.WALL_CENTER-.15))
 	var tree_scene := load("res://assets/models/dead_tree.glb") as PackedScene
 	var ruin_scene := load("res://assets/models/ruined_house.glb") as PackedScene
 	var rock_scene := load("res://assets/models/rock_v2.glb") as PackedScene
 	var relay_scene := load("res://assets/models/relay_mast.glb") as PackedScene
 	var truck_scene := load("res://assets/models/truck_wreck.glb") as PackedScene
-	var pad_scene := load("res://assets/models/tower_pad.glb") as PackedScene
+	tower_pad_scene=load("res://assets/models/tower_pad.glb") as PackedScene
 	var rng := RandomNumberGenerator.new();rng.seed=99431
 	for i in range(210):
 		var angle := rng.randf_range(0,TAU)
-		var radius := rng.randf_range(15,104)
-		place_scene(tree_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.74,1.35),angle,true)
+		var radius := rng.randf_range(29,104)
+		place_scene(tree_scene,outskirts_point(angle,radius),rng.randf_range(.74,1.35),angle,true)
 	for i in range(48):
 		var angle := TAU*i/48.0+rng.randf_range(-.18,.18)
-		var radius := rng.randf_range(23,102)
-		place_scene(ruin_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.8,1.18),angle,true)
+		var radius := rng.randf_range(30,102)
+		place_scene(ruin_scene,outskirts_point(angle,radius),rng.randf_range(.8,1.18),angle,true)
 	for i in range(160):
 		var angle := rng.randf_range(0,TAU)
-		var radius := rng.randf_range(10,104)
-		place_scene(rock_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.25,.68),angle,true)
+		var radius := rng.randf_range(29,104)
+		place_scene(rock_scene,outskirts_point(angle,radius),rng.randf_range(.25,.68),angle,true)
 	for i in range(8):
 		var angle := TAU*i/8.0+.26
 		var radius := 46.0+float(i%3)*21.0
@@ -106,7 +108,7 @@ func build() -> void:
 	for i in range(18):
 		var angle := TAU*i/18.0+.43
 		var radius := 30.0+float(i%4)*19.0
-		place_scene(truck_scene,Vector3(cos(angle)*radius,0,sin(angle)*radius),rng.randf_range(.82,1.1),angle,true)
+		place_scene(truck_scene,outskirts_point(angle,radius),rng.randf_range(.82,1.1),angle,true)
 	var nest_scene:=load("res://assets/models/night_nest.glb") as PackedScene
 	var sealed_scene:=load("res://assets/models/sealed_nest.glb") as PackedScene
 	for point in [Vector3(-22,0,31),Vector3(34,0,46),Vector3(-42,0,65)]:
@@ -128,40 +130,23 @@ func build() -> void:
 		sealed_light.shadow_enabled=false
 		sealed.add_child(sealed_light)
 		nests.append({"node":nest,"sealed_node":sealed,"light":nest_light,"sealed_light":sealed_light,"position":point,"cleansed":false})
-	for i in range(8):
-		var angle := TAU*i/8.0+PI/8.0
-		var point := Vector3(cos(angle)*11.8,0,sin(angle)*11.8)
-		point.y=terrain_height(point)
-		var pad := place_scene(pad_scene,point,1.0,angle)
-		var tower_light:=OmniLight3D.new()
-		tower_light.position=point+Vector3(0,2.4,0)
-		tower_light.light_color=Color("ffb56c")
-		tower_light.omni_range=12
-		tower_light.light_energy=0.0
-		tower_light.shadow_enabled=false
-		add_child(tower_light)
-		tower_pads.append({"node":pad,"position":point,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
-	# Core expansion plots: four additional buildable positions inside the
-	# raised outpost ring. The original eight pads stay in the same order so
-	# opening defenses and existing saves/tests keep their layout.
+	# Every suggested position now belongs to the castle. Indices 1 and 2
+	# remain the opening southern defenses; new player positions use the same
+	# append-only data shape through add_tower_pad().
+	for point in [Vector3(10,0,6),Vector3(5,0,10),Vector3(-5,0,10),Vector3(-10,0,6),
+		Vector3(-10,0,-1),Vector3(-10,0,-10),Vector3(0,0,-10),Vector3(10,0,-10)]:
+		add_tower_pad(point)
 	for i in range(4):
 		var angle := TAU*i/4.0
 		var point := Vector3(cos(angle)*4.8,0,sin(angle)*4.8)
-		point.y=terrain_height(point)
-		var pad := place_scene(pad_scene,point,0.82,angle)
-		var tower_light:=OmniLight3D.new()
-		tower_light.position=point+Vector3(0,2.0,0)
-		tower_light.light_color=Color("83d7c5")
-		tower_light.omni_range=9
-		tower_light.light_energy=0.0
-		tower_light.shadow_enabled=false
-		add_child(tower_light)
-		tower_pads.append({"node":pad,"position":point,"zone":"core","turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
+		if i==1:point=Vector3(4.8,0,4.8)
+		add_tower_pad(point,"core")
 	var salvage_scene := load("res://assets/models/salvage_crate.glb") as PackedScene
 	for i in range(36):
 		var angle := TAU*i/36.0+.23
-		var radius := 17.0+float(i%6)*15.5
-		var point := Vector3(cos(angle)*radius,0,sin(angle)*radius)
+		var radius := 31.0+float(i%6)*14.0
+		if i%6==1:radius=40.0
+		var point := outskirts_point(angle,radius)
 		var crate := place_scene(salvage_scene,point,1.0,angle)
 		salvage.append({"node":crate,"position":point,"collected":false,"amount":35+int(i%5==0)*25})
 	environment=WorldEnvironment.new()
@@ -302,9 +287,40 @@ func create_gate_lamp(point: Vector3) -> void:
 	gate_spots.append(searchlight)
 
 func terrain_height(point: Vector3) -> float:
-	var edge:=maxf(absf(point.x),absf(point.z))
-	var rise:=clampf((19.0-point.z)/12.0,0,1) if point.z>7.0 and absf(point.x)<3.2 else clampf((9.5-edge)/2.5,0,1)
-	return FORT_HEIGHT*rise*rise*(3.0-2.0*rise)
+	return Layout.terrain_height(point)
+
+func add_tower_pad(point: Vector3, zone: String="castle") -> int:
+	# The controller validates spacing and construction cost. The world still
+	# refuses points outside the protected yard so every runtime tower remains
+	# on the castle plane, including dynamically appended positions.
+	if not point.is_finite() or not Layout.contains_castle(point,1.15):return -1
+	if tower_pad_scene==null:tower_pad_scene=load("res://assets/models/tower_pad.glb") as PackedScene
+	point.y=terrain_height(point)
+	var core_zone := zone=="core"
+	var pad := place_scene(tower_pad_scene,point,.82 if core_zone else 1.0,0.0)
+	pad.name="CastleTowerPad%d" % tower_pads.size()
+	var tower_light:=OmniLight3D.new()
+	tower_light.position=point+Vector3(0,2.0 if core_zone else 2.4,0)
+	tower_light.light_color=Color("83d7c5") if core_zone else Color("ffb56c")
+	tower_light.omni_range=9.0 if core_zone else 12.0
+	tower_light.light_energy=0.0
+	tower_light.shadow_enabled=false
+	add_child(tower_light)
+	tower_pads.append({"node":pad,"position":point,"zone":zone,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
+	return tower_pads.size()-1
+
+func outskirts_point(angle: float, radius: float) -> Vector3:
+	# Keep large tree/ruin footprints away from both the expanded embankment
+	# and the only southern approach. These are decorations, not obstructions.
+	var point:=Vector3(cos(angle)*radius,0.0,sin(angle)*radius)
+	for _attempt in 12:
+		var raised:=false
+		for offset in [Vector3.ZERO,Vector3(2.4,0,0),Vector3(-2.4,0,0),Vector3(0,0,2.4),Vector3(0,0,-2.4)]:
+			if terrain_height(point+offset)>.01:raised=true;break
+		if not raised and not Layout.contains_castle(point,-2.4):return point
+		radius+=2.0
+		point=Vector3(cos(angle)*radius,0.0,sin(angle)*radius)
+	return point
 
 func place(path: String, point: Vector3, size_factor: float, angle: float) -> Node3D:
 	return place_scene(load(path) as PackedScene,point,size_factor,angle)

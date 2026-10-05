@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 ## Real input events with a fixed simulation clock: rendering frame rate cannot
 ## inflate movement distance or hide one-frame input / animation delay.
 const STEP := 1.0 / 60.0
@@ -60,7 +61,7 @@ func run() -> void:
 	# hero, even though the simulated movement stayed at full speed. High-ground
 	# travel now uses the faster horizontal response while keeping a short glide.
 	var start_position: Vector3 = game.hero.position
-	var camera_ramp_z := 15.5
+	var camera_ramp_z := 15.5+Layout.EXPANSION_OFFSET
 	var ramp_position := Vector3(0, game.outpost_height(Vector3(0, 0, camera_ramp_z)), camera_ramp_z)
 	game.hero.position = ramp_position
 	game.camera_follow = ramp_position + Vector3(0, 25, 29)
@@ -90,7 +91,7 @@ func run() -> void:
 	# A route node may carry a stale elevated Y while its ground position is
 	# already reached. Completion must use the walkable plane so the hero does
 	# not wait forever at the high-ground edge.
-	reset_hero(Vector3(0, 0, 15.5))
+	reset_hero(Vector3(0, 0, 15.5+Layout.EXPANSION_OFFSET))
 	var reached_ground: Vector3 = game.hero.position
 	game.hero_path = PackedVector3Array([reached_ground + Vector3(0, 1.4, 0)])
 	game.move_goal = reached_ground
@@ -137,14 +138,14 @@ func run() -> void:
 	print("MOVEMENT_HIGH_FPS_FACING_CHECKED")
 
 	# Continuous wall checks must survive the increased speed and corner inputs.
-	reset_hero(Vector3(5.7, 0, 5.7), Vector3(1, 0, 1).normalized())
+	reset_hero(Vector3(Layout.FORT_INNER-.8,0,Layout.FORT_INNER-.8), Vector3(1, 0, 1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_S, true)
 	for frame in 45:
 		var previous: Vector3 = game.hero.position
 		game.simulate(STEP)
 		check(game.outpost_walkable(game.hero.position) and game.can_traverse(previous, game.hero.position), "Fast diagonal keyboard movement must not pass through a fortress corner")
-	check(game.hero.position.x < 6.5 and game.hero.position.z < 6.5, "The fortress corner must stop diagonal movement at the actual walls")
+	check(game.hero.position.x < Layout.FORT_INNER and game.hero.position.z < Layout.FORT_INNER, "The fortress corner must stop diagonal movement at the actual walls")
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
@@ -152,7 +153,7 @@ func run() -> void:
 
 	# Near the raised ramp's side wall, a diagonal input must slide along the
 	# free downhill axis instead of freezing both axes at the corner.
-	reset_hero(Vector3(2.45, 0, 10.5), Vector3(1, 0, 1).normalized())
+	reset_hero(Vector3(2.45,0,10.5+Layout.EXPANSION_OFFSET), Vector3(1, 0, 1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_S, true)
 	var ramp_start: Vector3=game.hero.position
@@ -171,7 +172,7 @@ func run() -> void:
 	game.simulate(STEP)
 	# Lateral movement beside the ramp wall must use the remaining clearance
 	# instead of projecting the whole frame back to the old centre.
-	reset_hero(Vector3(-2.5, 0, 7.6), Vector3.LEFT)
+	reset_hero(Vector3(-2.5,0,7.6+Layout.EXPANSION_OFFSET), Vector3.LEFT)
 	await key(KEY_A, true)
 	var lateral_ramp_start: Vector3=game.hero.position
 	for frame in 12: game.simulate(STEP)
@@ -181,7 +182,7 @@ func run() -> void:
 		"Ramp-edge lateral movement must stay inside the visual clearance corridor")
 	await key(KEY_A, false)
 	game.simulate(STEP)
-	reset_hero(Vector3(2.5, 0, 7.6), Vector3.RIGHT)
+	reset_hero(Vector3(2.5,0,7.6+Layout.EXPANSION_OFFSET), Vector3.RIGHT)
 	await key(KEY_D, true)
 	var right_lateral_ramp_start: Vector3=game.hero.position
 	for frame in 12: game.simulate(STEP)
@@ -194,7 +195,7 @@ func run() -> void:
 	# The terrain beside the ramp remains open ground. It must not be mistaken
 	# for the ramp corridor and pulled across the retaining wall by the visual
 	# clearance clamp.
-	reset_hero(Vector3(-4.3, 0, 10.0), Vector3.FORWARD)
+	reset_hero(Vector3(-4.3,0,10.0+Layout.EXPANSION_OFFSET), Vector3.FORWARD)
 	await key(KEY_S, true)
 	var outer_left_start: Vector3=game.hero.position
 	for frame in 30: game.simulate(STEP)
@@ -204,7 +205,7 @@ func run() -> void:
 		"Outer west ramp ground movement must follow the terrain height")
 	await key(KEY_S, false)
 	game.simulate(STEP)
-	reset_hero(Vector3(4.3, 0, 10.0), Vector3.FORWARD)
+	reset_hero(Vector3(4.3,0,10.0+Layout.EXPANSION_OFFSET), Vector3.FORWARD)
 	await key(KEY_S, true)
 	var outer_right_start: Vector3=game.hero.position
 	for frame in 30: game.simulate(STEP)
@@ -216,7 +217,7 @@ func run() -> void:
 	game.simulate(STEP)
 	# The ground outside the east and west retaining walls must stay outside
 	# the courtyard clearance clamp and remain freely traversable.
-	reset_hero(Vector3(8.3, 0, 0.0), Vector3.RIGHT)
+	reset_hero(Vector3(Layout.FORT_OUTER+.2,0,0), Vector3.RIGHT)
 	await key(KEY_D, true)
 	var outer_east_start: Vector3=game.hero.position
 	for frame in 30: game.simulate(STEP)
@@ -224,7 +225,7 @@ func run() -> void:
 		"Outer ground beside the east courtyard wall must advance without being pulled onto the high platform")
 	await key(KEY_D, false)
 	game.simulate(STEP)
-	reset_hero(Vector3(-8.3, 0, -4.0), Vector3.LEFT)
+	reset_hero(Vector3(-Layout.FORT_OUTER-.2,0,-4), Vector3.LEFT)
 	await key(KEY_A, true)
 	var outer_west_start: Vector3=game.hero.position
 	for frame in 30: game.simulate(STEP)
@@ -232,7 +233,7 @@ func run() -> void:
 		"Outer ground beside the west courtyard wall must advance without being pulled onto the high platform")
 	await key(KEY_A, false)
 	game.simulate(STEP)
-	reset_hero(Vector3(-2.45, 0, 10.5), Vector3(-1, 0, 1).normalized())
+	reset_hero(Vector3(-2.45,0,10.5+Layout.EXPANSION_OFFSET), Vector3(-1, 0, 1).normalized())
 	await key(KEY_A, true)
 	await key(KEY_S, true)
 	var left_ramp_start: Vector3=game.hero.position
@@ -249,7 +250,7 @@ func run() -> void:
 	# The raised courtyard's east/west and north retaining walls need the same
 	# visual clearance as the ramp. A diagonal move along the east wall should
 	# keep advancing on the courtyard plane instead of scraping the wall edge.
-	reset_hero(Vector3(6.0, 0, -4.0), Vector3(1, 0, 1).normalized())
+	reset_hero(Vector3(Layout.FORT_INNER-.5,0,-4), Vector3(1, 0, 1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_S, true)
 	var courtyard_wall_start: Vector3 = game.hero.position
@@ -263,7 +264,7 @@ func run() -> void:
 	await key(KEY_D, false)
 	await key(KEY_S, false)
 	game.simulate(STEP)
-	reset_hero(Vector3(-4.0, 0, -6.0), Vector3(1, 0, -1).normalized())
+	reset_hero(Vector3(-4,0,-Layout.FORT_INNER+.5), Vector3(1, 0, -1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_Z, true)
 	var north_wall_start: Vector3 = game.hero.position
@@ -279,7 +280,7 @@ func run() -> void:
 
 	# Entering the ramp straight on must ease the visual clearance in over
 	# several frames instead of snapping sideways at the platform lip.
-	reset_hero(Vector3(2.45, 0, 7.55), Vector3.FORWARD)
+	reset_hero(Vector3(2.45,0,7.55+Layout.EXPANSION_OFFSET), Vector3.FORWARD)
 	await key(KEY_S, true)
 	var lip_previous: Vector3 = game.hero.position
 	var lip_min_step := INF
@@ -292,7 +293,7 @@ func run() -> void:
 		check(flat_distance(lip_previous,game.hero.position)>.05,
 			"Straight raised-ramp entry must keep advancing every frame")
 		lip_previous=game.hero.position
-	check(game.hero.position.z>10.0 and game.hero.position.x<2.25,
+	check(game.hero.position.z>10.0+Layout.EXPANSION_OFFSET and game.hero.position.x<2.25,
 		"Straight raised-ramp entry must reach the safe centre corridor")
 	check(lip_max_side_step<.10,
 		"Raised-ramp lip clearance must ease in without a sideways snap")
@@ -302,12 +303,12 @@ func run() -> void:
 
 	# Once the hero leaves the ramp, the visual clearance must release so
 	# horizontal movement on the outer ground is not still constrained by it.
-	reset_hero(Vector3(2.2, 0, 18.45), Vector3(1, 0, 1).normalized())
+	reset_hero(Vector3(2.2,0,18.45+Layout.EXPANSION_OFFSET), Vector3(1, 0, 1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_S, true)
 	var ramp_exit_start: Vector3 = game.hero.position
 	for frame in 24: game.simulate(STEP)
-	check(game.hero.position.z>20.5 and game.hero.position.x>3.2,
+	check(game.hero.position.z>20.5+Layout.EXPANSION_OFFSET and game.hero.position.x>3.2,
 		"Leaving the raised ramp must release the side clearance on outer ground")
 	check(flat_distance(game.hero.position,ramp_exit_start)>3.0,
 		"Leaving the raised ramp must preserve diagonal movement")
@@ -319,7 +320,7 @@ func run() -> void:
 	# At the elevated platform lip, the side wall and retaining wall form an
 	# L-shaped corner. Holding the diagonal toward the ramp must ease inward
 	# and continue downhill instead of stopping at that single corner.
-	reset_hero(Vector3(2.45, 0, 7.7), Vector3(1, 0, 1).normalized())
+	reset_hero(Vector3(2.45,0,7.7+Layout.EXPANSION_OFFSET), Vector3(1, 0, 1).normalized())
 	await key(KEY_D, true)
 	await key(KEY_S, true)
 	var ramp_lip_start: Vector3 = game.hero.position
@@ -338,7 +339,7 @@ func run() -> void:
 	# to the 6.16 m clearance edge, producing a visible metre-sized hop on the
 	# second frame of this diagonal input.
 	for side in [-1.0, 1.0]:
-		reset_hero(Vector3(2.45 * side, 0, 7.55), Vector3(side, 0, -1).normalized())
+		reset_hero(Vector3(2.45*side,0,7.55+Layout.EXPANSION_OFFSET), Vector3(side, 0, -1).normalized())
 		var inward_keys := [KEY_D, KEY_Z] if side > 0 else [KEY_A, KEY_Z]
 		for code in inward_keys: await key(code, true)
 		var inward_previous: Vector3 = game.hero.position
@@ -353,7 +354,7 @@ func run() -> void:
 			check(game.outpost_walkable(game.hero.position),
 				"Ramp-to-courtyard diagonal entry must stay on walkable terrain on side %.0f" % side)
 			inward_previous = game.hero.position
-		check(game.hero.position.z < 6.0,
+		check(game.hero.position.z < Layout.FORT_INNER-.5,
 			"Ramp-to-courtyard diagonal entry must reach the lower courtyard edge on side %.0f" % side)
 		for code in inward_keys: await key(code, false)
 		game.simulate(STEP)
@@ -362,7 +363,7 @@ func run() -> void:
 	# A slower render cadence must still advance smoothly up the raised ramp.
 	# The controller uses short terrain substeps so one long frame cannot
 	# reject the whole move when it reaches the ramp's wall corner.
-	reset_hero(Vector3(0, 0, 18.8), Vector3.FORWARD)
+	reset_hero(Vector3(0,0,18.8+Layout.EXPANSION_OFFSET), Vector3.FORWARD)
 	await key(KEY_Z, true)
 	var low_fps_min_step:=INF
 	var low_fps_zero_frames:=0
@@ -383,21 +384,22 @@ func run() -> void:
 
 	# Actual right-click input retains its autonomous route after the user has
 	# released movement keys, and must enter by the only southern gateway.
-	reset_hero(Vector3(10, 0, 25))
+	reset_hero(Vector3(10,0,25+Layout.EXPANSION_OFFSET))
 	await key(KEY_D, true)
 	game.simulate(STEP)
 	check(game.hero_keyboard_active, "The right-click transition must start during a real held keyboard move")
 	var home := Vector3(0, 5, 3.1)
 	game.camera.size = 48.0
-	game.camera.position = Vector3(5, 25, 43)
-	game.camera.look_at(Vector3(5, 0, 14))
+	game.camera.position = Vector3(5,25,43+Layout.EXPANSION_OFFSET)
+	game.camera.look_at(Vector3(5,0,14+Layout.EXPANSION_OFFSET))
 	var screen: Vector2 = game.camera.unproject_position(home)
 	check(game.ground_point(screen).distance_to(home) < .15, "The real click ray must resolve the elevated courtyard accurately")
 	# The ramp is where a flat-ground approximation used to miss the visible
 	# surface by over a metre. Test several actual slope points so right-click
 	# movement starts from the location under the cursor instead of correcting
 	# late and appearing to stick near the high ground.
-	for ramp_z in [9.0, 12.0, 15.0]:
+	for original_z in [9.0,12.0,15.0]:
+		var ramp_z:float=original_z+Layout.EXPANSION_OFFSET
 		var ramp_point := Vector3(0, game.outpost_height(Vector3(0, 0, ramp_z)), ramp_z)
 		var ramp_screen: Vector2 = game.camera.unproject_position(ramp_point)
 		check(game.ground_point(ramp_screen).distance_to(ramp_point) < .025,
@@ -425,7 +427,7 @@ func run() -> void:
 		var previous: Vector3 = game.hero.position
 		game.simulate(STEP)
 		check(game.can_traverse(previous, game.hero.position), "Click-to-move must never clip fortress walls")
-		if game.hero.position.z > 8.2 and game.hero.position.z < 18.0 and absf(game.hero.position.x) < 2.6: visited_south_road = true
+		if game.hero.position.z > 8.2+Layout.EXPANSION_OFFSET and game.hero.position.z < 18.0+Layout.EXPANSION_OFFSET and absf(game.hero.position.x) < 2.6: visited_south_road = true
 		if flat_distance(game.hero.position, home) < .2: break
 	check(visited_south_road and game.hero.position.distance_to(home) < .3, "The high-speed right-click route must actually reach the raised home through the south gate")
 	await key(KEY_D, true)
@@ -440,16 +442,16 @@ func run() -> void:
 	# tangent oscillation when the requested line runs almost parallel to the
 	# retaining wall.
 	for side in [-1.0, 1.0]:
-		var outer_start := Vector3(5.9 * side, 0, 8.2)
+		var outer_start := Vector3((Layout.FORT_INNER-.6)*side,0,8.2+Layout.EXPANSION_OFFSET)
 		reset_hero(outer_start)
-		var outer_goal := Vector3(5.7 * side, 0, -1.8)
+		var outer_goal := Vector3((Layout.FORT_INNER-.8)*side,0,-1.8)
 		game.plan_hero_path(outer_goal)
 		check(game.hero_path.size() >= 4,
 			"Outer high-ground route must detour through the gate on side %.0f" % side)
 		var outer_previous: Vector3 = game.hero.position
 		var outer_zero_frames := 0
 		var outer_max_step := 0.0
-		for frame in 360:
+		for frame in 600:
 			game.simulate(STEP)
 			var outer_step := flat_distance(outer_previous, game.hero.position)
 			outer_max_step = maxf(outer_max_step, outer_step)
@@ -470,12 +472,12 @@ func run() -> void:
 	# A click on the north retaining wall can resolve to a point just inside the
 	# visual clearance band. The route must snap that endpoint to the reachable
 	# edge instead of alternating on the wall forever.
-	reset_hero(Vector3(15, 0, 25))
-	var north_edge_goal:=Vector3(0, game.outpost_height(Vector3(0, 0, -6.3)), -6.3)
+	reset_hero(Vector3(15+Layout.EXPANSION_OFFSET,0,25+Layout.EXPANSION_OFFSET))
+	var north_edge_goal:=Vector3(0,game.outpost_height(Vector3(0,0,-Layout.FORT_INNER+.2)),-Layout.FORT_INNER+.2)
 	game.plan_hero_path(north_edge_goal)
 	var north_edge_zero_frames:=0
 	var north_edge_previous: Vector3=game.hero.position
-	for frame in 600:
+	for frame in 900:
 		game.simulate(STEP)
 		var north_edge_step:=flat_distance(north_edge_previous, game.hero.position)
 		if north_edge_step<.0001:north_edge_zero_frames+=1
@@ -483,7 +485,7 @@ func run() -> void:
 		north_edge_previous=game.hero.position
 		if game.hero_path.is_empty():break
 	check(game.hero_path.is_empty(), "A high-ground wall click must finish at the reachable clearance edge")
-	check(Vector2(game.hero.position.x, game.hero.position.z).distance_to(Vector2(0, -6.16))<.18,
+	check(Vector2(game.hero.position.x, game.hero.position.z).distance_to(Vector2(0,-game.HERO_FORT_SAFE_EDGE))<.18,
 		"A high-ground wall click must stop on the safe north edge")
 	check(north_edge_zero_frames<20, "A high-ground wall click must not oscillate against the retaining wall")
 	print("MOVEMENT_HIGH_GROUND_CLICK_EDGE_OK")

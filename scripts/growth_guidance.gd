@@ -1,6 +1,7 @@
 extends RefCounted
 ## Read-only suggestions from the current run budget. Reading never spends,
 ## queues cards, selects a tower branch, or requests a navigation path.
+const Layout := preload("res://scripts/outpost_layout.gd")
 
 static func snapshot(game: Node3D) -> Dictionary:
 	var memory_cost: int = game.run.memory_cost()
@@ -16,9 +17,11 @@ static func snapshot(game: Node3D) -> Dictionary:
 		var level: int = int(pad.get("level", 0))
 		var alive: bool = level > 0 and float(pad.get("hp", 0.0)) > 0.0
 		if level == 0:
-			candidates.append(_candidate(game, pad, index, "build",
-				game.districts.tower_cost(game.TOWER_COSTS[0]), "F", 3,
-				"增加自动火力，拦截附近敌人"))
+			var placement: Dictionary = game.construction.validity(pad.position, index)
+			if bool(placement.space_valid):
+				candidates.append(_candidate(game, pad, index, "build",
+					game.districts.tower_cost(game.TOWER_COSTS[0]), "F", 3,
+					"增加自动火力，拦截附近敌人"))
 		elif alive and level in [1, 2]:
 			# Production adds 17 base damage and 1.5 m range per level;
 			# its shot interval falls by 0.18 s before branch modifiers.
@@ -33,8 +36,11 @@ static func snapshot(game: Node3D) -> Dictionary:
 			candidates.append(_candidate(game, pad, index, "specialize",
 				game.specializations.COST, "J/K", 2,
 				"J 重敌破甲 / K 群体牵制，二选一"))
-	if candidates.is_empty():
-		return {"tower": {}, "memory": memory}
+	var place_cost: int = game.districts.tower_cost(game.TOWER_COSTS[0])
+	var place_shortfall: int = maxi(0, place_cost - int(game.scrap))
+	candidates.append({"index": -1, "label": "城内空地", "action": "place", "target_level": 1,
+		"cost": place_cost, "shortfall": place_shortfall, "affordable": place_shortfall == 0,
+		"key": "Y", "benefit": "进入放置模式，选择城内空地建塔", "_priority": 4, "_distance": 0.0})
 	candidates.sort_custom(_before)
 	var selected: Dictionary = candidates[0]
 	selected.erase("_priority")
@@ -69,13 +75,15 @@ static func _before(a: Dictionary, b: Dictionary) -> bool:
 static func _south_gate(pad: Dictionary) -> bool:
 	var point: Vector3 = pad.position
 	return String(pad.get("zone", "outer")) != "core" \
-		and point.z > 6.5 and point.z > absf(point.x)
+		and point.z > Layout.FORT_INNER - 4.0 and point.z > absf(point.x)
 
 static func _label(pad: Dictionary, index: int) -> String:
 	var point: Vector3 = pad.position
 	if String(pad.get("zone", "outer")) == "core":
 		var direction: String
-		if absf(point.x) >= absf(point.z):
+		if absf(point.x) > 1.0 and absf(point.z) > 1.0:
+			direction = ("东" if point.x >= 0.0 else "西") + ("南" if point.z >= 0.0 else "北")
+		elif absf(point.x) >= absf(point.z):
 			direction = "东" if point.x >= 0.0 else "西"
 		else:
 			direction = "南" if point.z >= 0.0 else "北"
@@ -84,4 +92,4 @@ static func _label(pad: Dictionary, index: int) -> String:
 		return "南门东塔" if point.x >= 0.0 else "南门西塔"
 	var quadrant: String = ("东" if point.x >= 0.0 else "西") \
 		+ ("南" if point.z >= 0.0 else "北")
-	return "%s外围塔%d" % [quadrant, index + 1]
+	return "%s城内塔%d" % [quadrant, index + 1]

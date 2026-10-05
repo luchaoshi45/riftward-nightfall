@@ -69,4 +69,5 @@ func run() -> void:
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame
+	await create_timer(.5).timeout
 	quit()

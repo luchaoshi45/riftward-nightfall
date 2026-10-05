@@ -1,5 +1,7 @@
 extends Control
 ## Compact dark-fantasy HUD for the outpost loop.
+const Layout = preload("res://scripts/outpost_layout.gd")
+const CONSTRUCTION_PANEL_RECT := Rect2(435,548,570,110)
 var game: Node3D
 var font: SystemFont
 var display_font: SystemFont
@@ -134,7 +136,7 @@ func _draw() -> void:
 		label(game.notice,Vector2(720-width*.5,224),19,ink)
 	var prompt: String=game.interaction_prompt()
 	var district_index: int=game.districts.nearest()
-	if district_index>=0 and game.phase=="day":
+	if district_index>=0 and game.phase=="day" and not game.construction.active:
 		var district: Dictionary=game.districts.snapshots()[district_index]
 		box(Rect2(435,553,570,94),panel,Color("648779"))
 		label("城区 · "+district.title,Vector2(457,582),18,amber)
@@ -142,7 +144,7 @@ func _draw() -> void:
 		var benefit: String="据点恢复 +%d生命/秒" % (district.level*3) if district.kind=="barracks" else district.benefit
 		label("兵营：据点恢复    工坊：塔建造与维修折扣" if district.level==0 else benefit,Vector2(457,634),13,Color("a3d7bd"))
 	var pad_index: int=game.nearest_tower_pad()
-	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"]:
+	if pad_index>=0 and game.world.tower_pads[pad_index].level>=2 and game.phase in ["day","night"] and not game.construction.active:
 		var pad: Dictionary=game.world.tower_pads[pad_index]
 		box(Rect2(435,553,570,86),panel,Color("647d78"))
 		if game.specializations.branch(pad)=="standard":
@@ -151,10 +153,11 @@ func _draw() -> void:
 		else:
 			label("塔专精 · "+("重敌破甲" if game.specializations.branch(pad)=="piercing" else "范围牵制"),Vector2(457,582),17,amber)
 			label("H 修复 · G 目标模式 · C 指定集火",Vector2(457,614),15,ink)
-	if prompt!="" and game.phase!="draft":
+	if prompt!="" and game.phase!="draft" and not game.construction.active:
 		box(Rect2(492,670,456,48),Color(.032,.048,.050,.91),Color("b39761"))
 		var width:=font.get_string_size(prompt,HORIZONTAL_ALIGNMENT_LEFT,-1,17).x
 		label(prompt,Vector2(720-width*.5,701),17,amber)
+	draw_construction()
 	draw_hero_damage_feedback()
 	draw_target_warnings()
 	box(Rect2(300,746,840,129),Color(.025,.041,.047,.94),Color("53605c"))
@@ -173,7 +176,8 @@ func _draw() -> void:
 		box(Rect2(x,770,106,72),Color(.068,.087,.083,.9),Color("80524f") if status=="法力不足" else Color("59685f"))
 		label(names[i],Vector2(x+11,798),14,ink)
 		label(status,Vector2(x+11,824),13,status_color)
-	label("ZASD/方向键移动  ·  右键移动  ·  F 搜集/建塔/升级/修灯  ·  U 盾卫  ·  I 弩手  ·  O 驻守/撤回  ·  L 白昼补员  ·  H 修塔  ·  G 塔目标  ·  C 集火  ·  T 机关  ·  B 路障  ·  ESC 暂停",Vector2(323,863),12,muted)
+	label("ZASD移动 · 右键寻路 · Y城内建塔 · F互动/升级 · H修塔 · G塔目标 · C集火 · T机关 · B路障",Vector2(323,854),11,muted)
+	label("U盾卫 · I弩手 · O驻守/撤回 · L白昼补员 · V铭刻 · Esc暂停",Vector2(323,870),10,muted)
 	draw_combat_rewards()
 	var core_names: Dictionary={"core_storm":"雷斩 · 第三击连锁", "core_flame":"灯焰 · Q 标记，R 引爆", "core_guard":"守灯 · W 吸收后反震"}
 	for core_key in core_names:
@@ -195,6 +199,15 @@ func _draw() -> void:
 	if game.phase=="ended":draw_result()
 	if game.music_credits_open:draw_music_credits()
 
+func draw_construction() -> void:
+	if not game.construction.active or game.phase not in ["day","night"]:return
+	var placement: Dictionary=game.construction.snapshot()
+	var tint:=Color("85d5a5") if bool(placement.valid) else red
+	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
+	label("城内自由建塔 · %d零件" % int(placement.cost),Vector2(457,578),19,ink)
+	label(String(placement.reason),Vector2(457,607),16,tint)
+	label("移动鼠标选址 · 左键/F确认 · 右键/Esc取消 · Y退出",Vector2(457,637),14,amber)
+
 func draw_combat_floats() -> void:
 	if game.phase!="day" and game.phase!="night":return
 	if game.music_credits_open or not is_instance_valid(game.combat) or not is_instance_valid(game.camera):return
@@ -207,6 +220,7 @@ func draw_combat_floats() -> void:
 	]
 	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
 		occupied.append(BOSS_PANEL_RECT)
+	if game.construction.active:occupied.append(CONSTRUCTION_PANEL_RECT)
 	if game.notice_time>0.0:occupied.append(Rect2(368,192,704,48))
 	if game.combat_milestone_time>0.0:occupied.append(Rect2(504,259,432,65))
 	if game.beacon_alarm_time>0.0:occupied.append(Rect2(500,25,440,54))
@@ -406,10 +420,12 @@ func draw_music_credits() -> void:
 func draw_minimap() -> void:
 	var map_rect:=Rect2(1161,195,254,252)
 	box(map_rect,Color(.018,.034,.041,.88),Color("66624d"))
-	label("防御塔 %d/%d  ·  通信塔 %d/8" % [game.tower_count(),game.world.tower_pads.size(),game.relay_count()],Vector2(1174,218),13,ink)
+	label("防御塔 %d座  ·  通信塔 %d/8" % [game.tower_count(),game.relay_count()],Vector2(1174,218),13,ink)
 	var center:=Vector2(1288,319)
 	var scale:=.86
 	draw_rect(Rect2(center-Vector2(108,89),Vector2(216,178)),Color(.075,.085,.079,.84))
+	for wall: Rect2 in Layout.wall_blocks():
+		draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398"))
 	for item in game.world.salvage:
 		if item.collected:continue
 		var p: Vector3=item.position
@@ -503,10 +519,11 @@ func growth_memory_text(snapshot: Dictionary) -> String:
 func growth_lines(snapshot: Dictionary) -> Array[String]:
 	var tower: Dictionary=snapshot.tower
 	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","零件可用于维修、城区或小队","塔改装与城区选择均由你决定"]
-	var action: String={"build":"建造一级","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
+	var action: String={"build":"建造一级","place":"自由建造","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
 	var state: String="可负担" if bool(tower.affordable) else "还差%d" % int(tower.shortfall)
+	var operation: String="Y 选址" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
 	return ["防线：%s · %s" % [String(tower.label),action],
-		"%d零件 · %s · 到塔旁 %s" % [int(tower.cost),state,String(tower.key)],String(tower.benefit)]
+		"%d零件 · %s · %s" % [int(tower.cost),state,operation],String(tower.benefit)]
 
 func draw_growth_guidance() -> void:
 	if game.phase not in ["day","night"]:return
@@ -628,6 +645,15 @@ func _gui_input(event: InputEvent) -> void:
 					if Rect2(300+i*210,527,190,44).has_point(point):OS.shell_open(sources[i]);break
 			accept_event()
 		return
+	if game.construction.active and game.phase in ["day","night"] and event is InputEventMouseButton and event.pressed:
+		if event.button_index==MOUSE_BUTTON_LEFT:
+			game.aim=game.ground_point(event.position)
+			game.aim_sample_pending=false
+			game.construction.confirm()
+			accept_event();return
+		if event.button_index==MOUSE_BUTTON_RIGHT:
+			game.construction.cancel()
+			accept_event();return
 	if game.phase!="draft":return
 	if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size

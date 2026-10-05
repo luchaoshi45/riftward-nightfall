@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 ## Exercise the real controller with buffered key events and real A* routes.
 ## The subclass only counts resolver work; movement stays in production code.
 class MovementProbe:
@@ -129,17 +130,17 @@ func run() -> void:
 	# advanced only .02 m on the third frame, including a backwards correction.
 	for fps in [30.0, 60.0, 144.0]:
 		for side in [-1.0, 1.0]:
-			keyboard_probe(Vector3(5.9*side, 0, 8.2), Vector2(side, -1), fps, true, "outer south wall %.0f fps side %.0f" % [fps, side])
-			keyboard_probe(Vector3(4.0*side, 0, 10), Vector2(side, -1), fps, true, "outer slope %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3((Layout.FORT_INNER-.6)*side,0,8.2+Layout.EXPANSION_OFFSET), Vector2(side, -1), fps, true, "outer south wall %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(4.0*side,0,10+Layout.EXPANSION_OFFSET), Vector2(side, -1), fps, true, "outer slope %.0f fps side %.0f" % [fps, side])
 			# These genuine closed corners previously generated 70–83 resolver
 			# calls in a single 60-FPS frame. Stopping at the wall is legitimate;
 			# taking an unbounded series of tiny corrections is not.
-			keyboard_probe(Vector3(3.95*side, 0, 8.2), Vector2(-side, -1), fps, false, "blocked ramp corner %.0f fps side %.0f" % [fps, side])
-			keyboard_probe(Vector3(4.0*side, 0, 10), Vector2(-side, -1), fps, false, "blocked slope approach %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(3.95*side,0,8.2+Layout.EXPANSION_OFFSET), Vector2(-side, -1), fps, false, "blocked ramp corner %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(4.0*side,0,10+Layout.EXPANSION_OFFSET), Vector2(-side, -1), fps, false, "blocked slope approach %.0f fps side %.0f" % [fps, side])
 	var routes := [
-		[Vector3(11.14113, 0, 7.402695), Vector3(-3.955423, 0, 11.92685)],
-		[Vector3(-9.305244, 0, 19.52816), Vector3(4.283041, 0, 10.1293)],
-		[Vector3(2.518933, 5, -3.192418), Vector3(4.175524, 0, 18.20419)],
+		[Vector3(11.14113+Layout.EXPANSION_OFFSET,0,7.402695+Layout.EXPANSION_OFFSET), Vector3(-3.955423,0,11.92685+Layout.EXPANSION_OFFSET)],
+		[Vector3(-9.305244,0,19.52816+Layout.EXPANSION_OFFSET), Vector3(4.283041,0,10.1293+Layout.EXPANSION_OFFSET)],
+		[Vector3(2.518933, 5, -3.192418), Vector3(4.175524,0,18.20419+Layout.EXPANSION_OFFSET)],
 	]
 	# Captured production routes previously oscillated forever at x=±2.23.
 	# Check both directions and slow/fast frame clocks through the south gate.
@@ -154,7 +155,7 @@ func run() -> void:
 	if DisplayServer.get_name() != "headless":
 		# Hidden Forward+ execution still exercises the real terrain and unit
 		# renderer; do not replace that validation with a headless OK line.
-		reset_hero(Vector3(5.9, 0, 8.2))
+		reset_hero(Vector3(Layout.FORT_INNER-.6,0,8.2+Layout.EXPANSION_OFFSET))
 		game.camera_follow = game.hero.position+Vector3(0, 25, 29)
 		game.camera.position = game.camera_follow
 		game.camera.look_at(game.camera_follow-Vector3(0, 25, 29))

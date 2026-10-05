@@ -155,6 +155,6 @@ func run() -> void:
 	check(game.scrap==before_scrap-14 and game.survivors_rescued==2,"Retrying second delivery must also be harmless")
 	await game.prepare_shutdown()
 	game.queue_free();await process_frame
-	await create_timer(.15).timeout
+	await create_timer(.5).timeout
 	print("NIGHTFALL_HOMECOMING_STORY_", "OK" if failures.is_empty() else "FAILED", " real_gate_routes once_only pause_draft dusk_retry local_home_lights persistent_repair_help")
 	quit(0 if failures.is_empty() else 1)

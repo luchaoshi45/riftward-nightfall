@@ -2,6 +2,7 @@ class_name WildDiscoveries
 extends Node3D
 ## Short excursions: choose recovery, memory, supplies, or a temporary safe light.
 const ITEM_COUNT := 18
+const Layout := preload("res://scripts/outpost_layout.gd")
 const USE_RADIUS := 3.2
 const CHANNEL_RADIUS := 4.0
 const CHANNEL_SECONDS := 3.0
@@ -20,6 +21,7 @@ var game: Node3D
 var rng := RandomNumberGenerator.new()
 var items: Array[Dictionary] = []
 var scenes: Dictionary = {}
+var wilderness_walls: Array[Rect2] = Layout.wall_blocks()
 var elapsed := 0.0
 var motivation_revision := 0
 var motivation_cache_revision := -1
@@ -78,8 +80,10 @@ func flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x-b.x,a.z-b.z).length()
 
 func position_available(point: Vector3, ignore_index: int = -1) -> bool:
-	if not game.outpost_walkable(point):return false
-	for block: Rect2 in game.WALK_BLOCKS:
+	if not point.is_finite() or Layout.contains_castle(point) or not game.outpost_walkable(point):return false
+	# The only open wall gap is a travel route, not a discovery spawn region.
+	if absf(point.x)<Layout.RAMP_OUTER_HALF+MIN_SPACING and point.z>Layout.FORT_INNER-MIN_SPACING and point.z<Layout.RAMP_END+MIN_SPACING:return false
+	for block: Rect2 in wilderness_walls:
 		if block.grow(MIN_SPACING).has_point(Vector2(point.x,point.z)):return false
 	for collection: Array in [game.world.salvage,game.world.tower_pads,game.world.relays,game.world.nests]:
 		for old: Dictionary in collection:
@@ -98,7 +102,7 @@ func position_available(point: Vector3, ignore_index: int = -1) -> bool:
 
 func choose_position(index: int, previous: Vector3) -> Vector3:
 	# Keep early discoveries close, but reserve the gate, towers and old objectives.
-	var minimum := 10.0 if index<4 else 18.0
+	var minimum := Layout.FORT_TERRAIN_EDGE+MIN_SPACING
 	var maximum := 24.0 if index<4 else 65.0
 	for attempt in 900:
 		var angle := rng.randf_range(0,TAU)
@@ -119,7 +123,7 @@ func choose_position(index: int, previous: Vector3) -> Vector3:
 				point.y=game.outpost_height(point)
 				return point
 	push_error("Cannot reserve a reachable wilderness discovery position")
-	return previous if previous!=Vector3.INF else Vector3(-18,0,-18)
+	return previous if previous!=Vector3.INF else Vector3(-minimum-4.0,0,-minimum-4.0)
 
 func clear_visual_space(point: Vector3) -> void:
 	for prop in game.world.get_children():

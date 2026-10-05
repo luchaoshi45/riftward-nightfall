@@ -1,4 +1,6 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
+const SIDE_FIELD := Vector3(Layout.FORT_TERRAIN_EDGE+.5,0,Layout.WALL_CENTER+2.7)
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -25,7 +27,7 @@ func chase_home(game: Node3D, from: Vector3) -> bool:
 		hunter.tick(.04)
 		game.update_creature(hunter,.04)
 		if not check(game.can_traverse(previous,hunter.position),"Daytime hunter crossed a fortress or ramp wall"):return false
-		if absf(hunter.position.x)<2.65 and hunter.position.z>=18.5 and hunter.position.z<20.5:passed_gate=true
+		if absf(hunter.position.x)<Layout.GATE_HALF and hunter.position.z>=Layout.RAMP_END-.5 and hunter.position.z<Layout.RAMP_END+1.5:passed_gate=true
 		if hunter.position.distance_to(game.hero.position)<=hunter.attack_range:break
 	if not check(passed_gate,"A side pursuer did not use the south gate"):return false
 	if not check(hunter.position.y>4.8 and hunter.position.distance_to(game.hero.position)<=hunter.attack_range,"A side pursuer got stuck before reaching the hero inside the fortress"):return false
@@ -43,9 +45,9 @@ func run() -> void:
 	game.enemies.clear()
 	game.hero.position=Vector3(0,5,3.1)
 	game.hero.hp=game.hero.max_hp
-	if not chase_home(game,Vector3(-10,0,10)):return
-	if not chase_home(game,Vector3(10,0,10)):return
-	var hunter:=make_hunter(game,Vector3(10,0,10))
+	if not chase_home(game,Vector3(-SIDE_FIELD.x,0,SIDE_FIELD.z)):return
+	if not chase_home(game,SIDE_FIELD):return
+	var hunter:=make_hunter(game,SIDE_FIELD)
 	hunter.tick(.04);game.update_creature(hunter,.04)
 	if not check(hunter.path.size()>=2,"An obstructed pursuer must plan a detour"):return
 	game.hero.position=Vector3(-4,5,-4)
@@ -63,11 +65,27 @@ func run() -> void:
 	if not check(hunter.position.distance_to(game.hero.position)<=hunter.attack_range,"A hunter failed to follow the hero's changed destination"):return
 	game.phase="night"
 	var ordinary: BattleUnit=game.spawn_creature(true)
-	ordinary.position=Vector3(0,0,25);ordinary.set_meta("threat","stalker");ordinary.set_meta("gate_lane",0.0)
-	game.hero.position=Vector3(20,0,30)
-	var previous:=ordinary.position
-	game.update_creature(ordinary,.1)
-	if not check(ordinary.position.z<previous.z and is_equal_approx(ordinary.position.x,0),"Ordinary night creatures must retain their south-gate lane"):return
+	ordinary.position=Vector3(0,0,Layout.RAMP_END+6.0);ordinary.set_meta("threat","stalker");ordinary.set_meta("gate_lane",0.0)
+	# The hero stays farther away than the castle defenses, so the ordinary
+	# creature's nearest legal target still requires the southern gate lane.
+	game.hero.position=Vector3(Layout.FORT_TERRAIN_EDGE+15.0,0,Layout.RAMP_END+15.0)
+	var ordinary_target: Dictionary=game.choose_enemy_target(ordinary)
+	if not check(ordinary_target.kind=="tower" and Layout.contains_castle(ordinary_target.position),"An ordinary night creature must select the actual nearest living castle tower"):return
+	var ordinary_start:=ordinary.position
+	var ordinary_passed_gate:=false
+	var ordinary_reached_tower:=false
+	for step in 1000:
+		var before:=ordinary.position
+		ordinary.tick(.04)
+		game.update_creature(ordinary,.04)
+		if not check(game.can_traverse(before,ordinary.position),"An ordinary night creature's tower approach must never cross a wall"):return
+		if not check(absf(ordinary.position.y-game.outpost_height(ordinary.position))<.01,"An ordinary night creature must follow the actual ramp height on every frame"):return
+		if absf(ordinary.position.x)<Layout.GATE_HALF and ordinary.position.z>=Layout.RAMP_END-.5 and ordinary.position.z<Layout.RAMP_END+1.5:ordinary_passed_gate=true
+		if ordinary.position.distance_to(ordinary_target.position)<=ordinary.attack_range:
+			ordinary_reached_tower=true
+			break
+	if not check(ordinary_passed_gate and ordinary.position.z<ordinary_start.z and ordinary_reached_tower,"An ordinary night creature must reach its real tower through the southern gate"):return
+	ordinary.queue_free();game.enemies.erase(ordinary)
 	# Night pursuers must also route through the gate when the hero is on the
 	# raised courtyard. A straight-line chase used to stall against the east
 	# ramp wall and could queue a hit on an intermediate waypoint.
@@ -91,7 +109,7 @@ func run() -> void:
 			break
 	if not check(entered_courtyard and reached_hero,"Night pursuer got stuck before reaching a high-ground hero"):return
 	if not check(not night_hunter.attack_queued or night_hunter.attack_target_hero,"A high-ground waypoint must never queue a non-hero attack"):return
-	print("NIGHTFALL_DAY_HUNTER_PATH_OK both fortress sides, south-gate pursuit, target replanning, continuous wall checks, unchanged night lane")
+	print("NIGHTFALL_DAY_HUNTER_PATH_OK both fortress sides, south-gate pursuit, target replanning, continuous wall/height checks, nearest castle tower approach")
 	await game.prepare_shutdown()
 	game.queue_free()
 	await process_frame

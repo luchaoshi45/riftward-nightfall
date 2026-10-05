@@ -1,3 +1,11 @@
+## 当前源码：扩建城堡地形
+
+2026-10-05按城内自由建塔需求新增原创`assets/models/castle_ground.glb`，可编辑源为`art_source/outpost/castle_ground.blend`，定向生成器为`art_source/create_castle_ground.py`。使用Blender4.5.3制作；生成器只制作这张地形，不重生成其他资产，直接读取`scripts/outpost_layout.gd`的数值。城内地面26×26、5米高地，保留三面封闭、正Z唯一南门、12米长坡及两侧挡墙；灰烬地表、Weathered concrete/Concrete fracture材质仍走原风化着色流程。旧`outpost_ground`源和运行资源作为历史输入保留，当前世界加载`castle_ground`。
+
+Blender坐标使用`(world x, -world z, world height)`，经glTF转换后南门仍朝Godot正Z；不镜像坡道。运行资源与`.blend`按Git LFS共享，`assets/models/castle_ground.glb.import`必须一起追踪并保留`meshes/force_disable_compression=true`，避免坡边量化导致视觉高程与判定不一致。Godot4.7.2导入后522660个三角顶点最大高程误差0.0000501米，面内插值抽样误差小于0.008米；已在隐藏Metal Forward+昼夜及红/绿建塔预览实看验证。新增塔预览复用现有`auto_turret.glb`，没有新增第三方模型或贴图。
+
+## 既有资产记录
+
 0.8.11 原创资产：art_source/create_ashwarden.py 生成 hero_ashwarden_blue/red.blend 与对应 GLB；art_source/create_light_eater.py 生成 outpost/night_light_eater.blend 与 GLB。人物和噬灯蛾均保留动作节点，已接入 Godot。R 使用原创 lantern_inferno.gdshader 程序火纹。
 
 0.8.9 破城体：`art_source/create_outpost.py` 定向生成 `art_source/outpost/night_breaker_v2.blend` 与 `assets/models/night_breaker_v2.glb`。专属背甲、肩甲、护腿、撞角和裂隙材质均为原创；保留头部和四肢动作枢轴，已接入夜间破城体。
@@ -98,7 +106,6 @@ art_source/integrate_knight_study.py 将 showcase/knight_study.blend 的头盔�
 ## 0.3.12 场景层次
 
 `art_source/create_terrain.py` 让石路的石块间距、长宽、角度和缺口有更自然的变化，继续保存整张 Blender 地形源文件。`art_source/create_map_props.py` 新增可编辑的 `grass_tuft` 和 `river_reeds`；Godot 使用 MultiMesh 批量摆放草丛，芦苇集中在河岸并留出桥梁。草丛沿噪声分布形成疏密区域。`assets/shaders/water.gdshader` 加入沿河流方向移动的波纹、岸边浅水颜色与细微水痕。以上为实时渲染效果，不是离线渲染贴图。
-
 
 
 

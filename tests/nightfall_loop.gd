@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -11,8 +12,9 @@ func run() -> void:
 	assert(Vector2(game.hero.position.x,game.hero.position.z).length()<5)
 	assert(is_equal_approx(game.hero.position.y,5.0))
 	assert(game.world.beacon.position.y==5.0)
-	assert(game.outpost_height(Vector3(0,0,0))>game.outpost_height(Vector3(0,0,11)))
-	assert(game.outpost_height(Vector3(0,0,11))>game.outpost_height(Vector3(5,0,11))+2.0)
+	var ramp_middle := (Layout.RAMP_TOP+Layout.RAMP_END)*.5
+	assert(game.outpost_height(Vector3(0,0,0))>game.outpost_height(Vector3(0,0,ramp_middle)))
+	assert(game.outpost_height(Vector3(0,0,ramp_middle))>game.outpost_height(Vector3(5,0,ramp_middle))+2.0)
 	assert(game.phase=="draft" and game.run.offer.size()==3)
 	assert(game.choose_card(0))
 	assert(game.phase=="night" and game.tower_count()==2)
@@ -27,11 +29,11 @@ func run() -> void:
 	assert(game.world.tower_pads.size()==12)
 	assert(game.outpost_walkable(Vector3(115,0,95)))
 	assert(not game.outpost_walkable(Vector3(127,0,0)))
-	assert(not game.outpost_walkable(Vector3(0,0,-7.3)))
-	assert(not game.outpost_walkable(Vector3(7.3,0,0)))
-	assert(game.outpost_walkable(Vector3(0,0,7.3)))
-	assert(not game.can_traverse(Vector3(9,0,0),Vector3(4,0,0)))
-	assert(game.can_traverse(Vector3(0,0,10),Vector3(0,0,4)))
+	assert(not game.outpost_walkable(Vector3(0,0,-Layout.WALL_CENTER)))
+	assert(not game.outpost_walkable(Vector3(Layout.WALL_CENTER,0,0)))
+	assert(game.outpost_walkable(Vector3(0,0,Layout.WALL_CENTER)))
+	assert(not game.can_traverse(Vector3(Layout.FORT_OUTER+1,0,0),Vector3(4,0,0)))
+	assert(game.can_traverse(Vector3(0,0,ramp_middle),Vector3(0,0,4)))
 	var idle: BattleUnit=game.enemies[0]
 	var idle_position:=idle.position
 	game.update_creature(idle,.2)
@@ -90,11 +92,11 @@ func run() -> void:
 	# south entrance before selecting the beacon.
 	for i in game.world.tower_pads.size():
 		if game.world.tower_pads[i].level>0:game.damage_tower(i,100000.0)
-	var route_test: BattleUnit=game.spawn_creature(true)
-	route_test.position=Vector3(8,0,22)
+	var route_test: BattleUnit=game.spawn_creature(true,"basic")
+	route_test.position=Vector3(8,0,Layout.RAMP_END+3.0)
 	game.hero.position=Vector3(80,5.0,80)
-	for step in range(80):game.update_creature(route_test,.1)
-	assert(route_test.position.z<7.3 and absf(route_test.position.x)<2.65,"Night wave must enter through south gate")
+	for step in range(120):game.update_creature(route_test,.1)
+	assert(route_test.position.z<Layout.WALL_CENTER and absf(route_test.position.x)<Layout.GATE_HALF,"Night wave must enter through south gate")
 	game.hero.position=Vector3(0,5.0,3.5)
 	game.move_goal=game.hero.position
 	await create_timer(.5).timeout

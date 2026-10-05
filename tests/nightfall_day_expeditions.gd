@@ -1,4 +1,5 @@
 extends SceneTree
+const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -65,7 +66,11 @@ func run() -> void:
 	if not check(game.scrap==before_scrap,"A rescued scout must not grant duplicate rewards"):return
 	game.hero.position=home;game.move_goal=home
 	if not check(game.interact() and game.scrap==before_scrap-17 and game.beacon_hp==1170,"F repair must actually charge the discounted cost"):return
-	if not check(not game.can_traverse(Vector3(-2.672,0,18.655),Vector3(-1.405,1.738,14.237)),"Continuous wall checks must reject a shallow ramp corner cut"):return
+	var outside_corner:=Vector3(-Layout.RAMP_OUTER_HALF-.2,0,Layout.RAMP_END+.15)
+	var inside_corner:=Vector3(-1.405,0,Layout.RAMP_WALL_START-.263)
+	inside_corner.y=game.outpost_height(inside_corner)
+	if not check(game.outpost_walkable(outside_corner) and game.outpost_walkable(inside_corner),"Corner-cut fixture must start and end at legal terrain points"):return
+	if not check(not game.can_traverse(outside_corner,inside_corner),"Continuous wall checks must reject a shallow ramp corner cut"):return
 	var second: Dictionary=events.generators[1]
 	game.hero.position=second.position;game.move_goal=game.hero.position
 	game.interact();events.tick(2)
@@ -91,4 +96,8 @@ func run() -> void:
 		if not check(game.can_traverse(old_npc,npc.position),"The eastern scout must also avoid every wall"):return
 	if not check(unfinished_camp.state=="delivered" and game.survivors_rescued==2 and game.beacon_repair_cost()==14,"The eastern scout must reach home and provide the second repair discount"):return
 	print("NIGHTFALL_DAY_EXPEDITIONS_OK generator hold, ambush, gate escort, persistent night rewards, dusk reset")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	quit()

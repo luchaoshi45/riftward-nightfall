@@ -1,5 +1,8 @@
 extends SceneTree
 ## Actual scene/actions: asymmetric south-gate return, live ETA and honest rewards.
+const Layout = preload("res://scripts/outpost_layout.gd")
+const OUTER_HERO_X := Layout.FORT_TERRAIN_EDGE + .9
+const OUTER_CACHE_X := OUTER_HERO_X + .5
 ## Actual graphics: -- --render-test (hidden window and Dummy audio).
 const HOME := Vector3(0,5,3.1)
 const STEP := 0.05
@@ -111,8 +114,8 @@ func check_geometry_and_live_state() -> void:
 	if not await boot_day():await close_game();return
 	game.contracts.status="bonus_offer"
 	for side: float in [-1.0,1.0]:
-		put_hero(Vector3(side*10.4,0,-6.0))
-		only_discovery("supply_cache",Vector3(side*10.9,0,-6.0))
+		put_hero(Vector3(side*OUTER_HERO_X,0,-6.0))
+		only_discovery("supply_cache",Vector3(side*OUTER_CACHE_X,0,-6.0))
 		game.contracts.bonus_candidate(true)
 		var value:=budget()
 		check(bool(value.get("available",false)), "The adjacent exterior cache must be a real available bonus")
@@ -125,10 +128,10 @@ func check_geometry_and_live_state() -> void:
 		check(is_equal_approx(float(value.get("action_seconds",-1.0)),3.0), "A ready supply cache must count its actual three-second channel once")
 		check(absf(float(value.get("total_seconds",0.0))-(outward+inward)/game.hero.speed-3.0)<0.01, "Total ETA must combine actual outward and home paths with one cache action")
 	for kind: String in ["ember_bloom","memory_crystal","waylight"]:
-		only_discovery(kind,Vector3(10.9,0,-6.0))
+		only_discovery(kind,Vector3(OUTER_CACHE_X,0,-6.0))
 		game.contracts.bonus_candidate(true)
 		check(is_zero_approx(float(budget().get("action_seconds",-1.0))), "Instant %s discovery must not invent a channel delay" % kind)
-	var cache:=only_discovery("supply_cache",Vector3(10.9,0,-6.0))
+	var cache:=only_discovery("supply_cache",Vector3(OUTER_CACHE_X,0,-6.0))
 	game.contracts.bonus_candidate(true)
 	press(KEY_5)
 	check(game.contracts.status=="bonus_active", "The real 5 input must bind the selected bonus")
@@ -181,8 +184,8 @@ func check_geometry_and_live_state() -> void:
 func check_query_cadence() -> void:
 	if not await boot_day():await close_game();return
 	game.contracts.status="bonus_offer"
-	put_hero(Vector3(10.4,0,-6.0))
-	only_discovery("supply_cache",Vector3(10.9,0,-6.0))
+	put_hero(Vector3(OUTER_HERO_X,0,-6.0))
+	only_discovery("supply_cache",Vector3(OUTER_CACHE_X,0,-6.0))
 	game.contracts.bonus_candidate(true)
 	budget()
 	var before_queries: int=game.contracts.budget_route_queries
@@ -201,7 +204,7 @@ func check_query_cadence() -> void:
 	put_hero(HOME)
 	for index in game.discoveries.items.size():
 		var item: Dictionary=game.discoveries.items[index]
-		var point:=Vector3(10.0+index*0.4,0,-6.0-float(index%3)*2.0)
+		var point:=Vector3(Layout.FORT_TERRAIN_EDGE+.5+index*0.4,0,-6.0-float(index%3)*2.0)
 		point.y=game.outpost_height(point)
 		item.position=point;item.node.position=point;item.state="ready";item.progress=0.0
 	game.discoveries.motivation_revision+=1
@@ -260,8 +263,8 @@ func travel(destination: Vector3) -> bool:
 func check_actual_delivery(dusk: bool) -> void:
 	if not await boot_day():await close_game();return
 	if not complete_primary_salvage():await close_game();return
-	put_hero(Vector3(10.4,0,-6.0))
-	var cache:=only_discovery("supply_cache",Vector3(10.9,0,-6.0))
+	put_hero(Vector3(OUTER_HERO_X,0,-6.0))
+	var cache:=only_discovery("supply_cache",Vector3(OUTER_CACHE_X,0,-6.0))
 	game.contracts.bonus_candidate(true)
 	press(KEY_5)
 	check(game.contracts.status=="bonus_active", "Actual 5 must accept the extra cache after a real primary completion")

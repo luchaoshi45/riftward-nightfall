@@ -1,5 +1,7 @@
 extends Node3D
 ## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
+const Layout = preload("res://scripts/outpost_layout.gd")
+const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
@@ -16,18 +18,18 @@ const HERO_MOVE_RETRY_FACTORS := [1.0, 0.5, 0.25]
 # inside the raised ramp side walls so the cape and shoulders do not scrape the
 # retaining geometry while the input still slides at full speed.
 const HERO_RAMP_SIDE_CLEARANCE := 0.42
-const HERO_RAMP_SAFE_START_Z := 7.45
-const HERO_RAMP_SAFE_FULL_Z := 8.35
+const HERO_RAMP_SAFE_START_Z := 7.45 + Layout.EXPANSION_OFFSET
+const HERO_RAMP_SAFE_FULL_Z := 8.35 + Layout.EXPANSION_OFFSET
 # Include the imported ramp's vertical side-wall thickness when resolving a
 # cursor ray. A ray through the outer 3.9 m edge can otherwise fall onto the
 # low ground behind the ramp and send a right-click target several metres
 # backwards along the map.
 const HERO_RAMP_CLICK_OUTER_EDGE := 3.95
 # Keep the hero's visual footprint away from the raised courtyard retaining
-# walls as well as the south ramp walls. The gameplay wall remains at 6.5 m;
+# walls as well as the south ramp walls. The gameplay wall follows the shared castle layout;
 # this centre-only margin prevents the cape and shoulders from scraping it.
 const HERO_FORT_WALL_CLEARANCE := 0.34
-const HERO_FORT_SAFE_EDGE := 6.5 - HERO_FORT_WALL_CLEARANCE
+const HERO_FORT_SAFE_EDGE := Layout.FORT_INNER - HERO_FORT_WALL_CLEARANCE
 const CAMERA_FLAT_FOLLOW_RATE := 6.0
 const CAMERA_HIGH_GROUND_FOLLOW_RATE := 11.5
 const CAMERA_HIGH_GROUND_THRESHOLD := 1.0
@@ -51,13 +53,14 @@ const FOCUS_DURATION := 8.0
 const FOCUS_COOLDOWN := 22.0
 const COSTS := [35.0,45.0,30.0,85.0,0.0]
 const COOLDOWNS := [4.5,9.0,6.5,28.0,38.0]
-const WALK_BLOCKS := [Rect2(-8.1,-8.1,1.6,16.2),Rect2(6.5,-8.1,1.6,16.2),Rect2(-8.1,-8.1,16.2,1.6),Rect2(-8.1,6.5,5.45,1.6),Rect2(2.65,6.5,5.45,1.6),Rect2(-3.9,8,1.3,10.6),Rect2(2.6,8,1.3,10.6)]
+var WALK_BLOCKS: Array[Rect2] = Layout.wall_blocks()
 
 var world: NightfallWorld
 var hero: BattleUnit
 var camera: Camera3D
 var hud: Control
 var effects: Node3D
+var construction: Node3D
 var phase := "draft"
 var day_number := 1
 var phase_time := NIGHT_LENGTH
@@ -184,7 +187,7 @@ func _ready() -> void:
 	move_goal=hero.position
 	camera=Camera3D.new();add_child(camera)
 	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
-	camera.size=31
+	camera.size=38
 	camera.far=130
 	camera.position=hero.position+Vector3(0,25,29)
 	camera.look_at(hero.position)
@@ -200,6 +203,7 @@ func _ready() -> void:
 	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self,run.seed_value)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	districts.setup(self)
+	construction=ConstructionScript.new();construction.setup(self)
 	squads.set_health_multiplier(districts.squad_health_multiplier())
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
@@ -230,6 +234,7 @@ func prepare_opening_defenses() -> void:
 
 func _process(delta: float) -> void:
 	flush_pending_aim()
+	if construction:construction.tick(delta)
 	if phase=="day" or phase=="night":simulate(delta)
 	update_beacon_alarm(delta)
 	for i in range(reward_toasts.size()-1,-1,-1):
@@ -390,7 +395,7 @@ func start_night() -> void:
 	for creature in enemies:
 		if is_instance_valid(creature):creature.queue_free()
 	enemies.clear()
-	BattleVisuals.burst(effects,Vector3(0,0,19),4.5,Color("b85b4a"),.7)
+	BattleVisuals.burst(effects,Vector3(0,0,Layout.RAMP_END),4.5,Color("b85b4a"),.7)
 	var night_lines:=["许弦：灯塔的回声太响了。夜行体正从南门涌来。",
 		"林舟：快的先到，破城体跟在后面。通信塔会帮守塔锁敌。",
 		"闻澈：守住最后一夜，我告诉你地下那座设施在哪。"]
@@ -418,7 +423,7 @@ func spawn_night_wave() -> void:
 	spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time)) if wave_index<night_plan.size() else 0.0
 	wave_warning_issued=false
 	world.wave_warning=false
-	BattleVisuals.burst(effects,Vector3(0,0,19),3.2,Color("dc7957"),.5)
+	BattleVisuals.burst(effects,Vector3(0,0,Layout.RAMP_END),3.2,Color("dc7957"),.5)
 	if wave_index>1:notify("第 %d/%d 波 · %s · %d 只" % [wave_index,WAVES_PER_NIGHT,entry.title,entry.count],3)
 	if bool(entry.get("boss_entry",false)):
 		notify("末夜首领已抵达 · 先打断蓄力，再清理残敌",4)
@@ -744,7 +749,7 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=rng.randf_range(0,TAU)
-	var radius:=rng.randf_range(20,98)
+	var radius:=rng.randf_range(29,98)
 	creature.position=Vector3(rng.randf_range(-10,10),0,rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
 	creature.set_meta("gate_lane",rng.randf_range(-1.15,1.15))
 	var roll:=rng.randf() if night else 1.0
@@ -839,57 +844,28 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	if phase=="day" and not pursuing_hero:
 		creature.moving=false
 		return
-	var lane: float=creature.get_meta("gate_lane",0.0)
-	var target: Vector3=selected_position
-	var outer_sapper: bool=threat=="sapper" and target_kind=="tower" and String(world.tower_pads[target_pad].get("zone","outer"))!="core"
-	if phase=="night" and not pursuing_hero and target_kind=="barricade":
-		target=selected_position
-	elif phase=="night" and not pursuing_hero and outer_sapper and creature.position.z>19.5:
-		target=Vector3(signf(selected_position.x)*5.3,0,19.0)
-	elif phase=="night" and not pursuing_hero and target_kind=="tower" and creature.position.z<=19.5:
-		target=selected_position
-	elif phase=="night" and not pursuing_hero and creature.position.z>19.5:
-		target=Vector3(lane,0,19.0)
-	elif phase=="night" and not pursuing_hero and creature.position.z>5.1:
-		target=Vector3(lane,NightfallWorld.FORT_HEIGHT,4.4)
-	if pursuing_hero:
-		# Hero pursuit must use the same gate-aware route as daytime hunters.
-		# A direct distance check is insufficient near the raised courtyard wall.
-		target=day_hunter_waypoint(creature,selected_position)
+	var target: Vector3=day_hunter_waypoint(creature,selected_position)
 	var final_target: bool=target.distance_to(selected_position)<.2
 	var distance:=creature.position.distance_to(target)
 	var attacking_tower: bool=target_kind=="tower" and final_target
 	var attacking_unit: bool=target_kind=="squad" and final_target
 	var hero_attackable: bool=pursuing_hero and final_target
 	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
-	var unreachable_hero_target:=pursuing_hero and not final_target
-	if distance>reach or unreachable_hero_target or (day_hunter and not can_traverse(creature.position,target)):
+	var unreachable_target:=not final_target or not can_traverse(creature.position,selected_position)
+	if distance>reach or unreachable_target:
 		creature.attack_queued=false
 		creature.attack_windup=0
-		if day_hunter:
-			var waypoint:=target
-			if not can_traverse(creature.position,waypoint):
-				waypoint=day_hunter_waypoint(creature,selected_position)
-			var direction:=waypoint-creature.position;direction.y=0
-			var previous:=creature.position
-			if direction.length()>.05:
-				var next:=previous+direction.normalized()*minf(direction.length(),move_speed*delta)
-				if can_traverse(previous,next):
-					next.y=outpost_height(next)
-					creature.position=next
-				else:
-					creature.path.clear();creature.path_timer=0
-			creature.face(waypoint,delta)
-			creature.moving=creature.position.distance_squared_to(previous)>.000001
-		else:
-			var direction:=(target-creature.position).normalized()
-			var next:=creature.position+direction*move_speed*delta
-			var can_move: bool=can_traverse(creature.position,next) if pursuing_hero else outpost_walkable(next)
-			if can_move:
+		var direction:=target-creature.position;direction.y=0
+		var previous:=creature.position
+		if direction.length()>.05:
+			var next:=previous+direction.normalized()*minf(direction.length(),move_speed*delta)
+			if can_traverse(previous,next):
 				next.y=outpost_height(next)
 				creature.position=next
-			creature.face(target,delta)
-			creature.moving=true
+			else:
+				creature.path.clear();creature.path_timer=0
+		creature.face(target,delta)
+		creature.moving=creature.position.distance_squared_to(previous)>.000001
 	else:
 		creature.moving=false
 		creature.face(target,delta)
@@ -937,7 +913,7 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 	var beacon_position:=Vector3(0,NightfallWorld.FORT_HEIGHT,0)
 	var selected: Dictionary={"kind":"beacon","index":-1,"position":beacon_position}
 	var best:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(beacon_position.x,beacon_position.z))
-	if creature.get_meta("threat","")=="breaker" and gate_barricade_hp>0.0 and creature.position.z<=19.5:
+	if creature.get_meta("threat","")=="breaker" and gate_barricade_hp>0.0 and creature.position.z<=Layout.RAMP_END+.5:
 		var gate_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(gate_barricade.position.x,gate_barricade.position.z))
 		if gate_distance<6.0:
 			return {"kind":"barricade","index":-1,"position":gate_barricade.position}
@@ -1022,14 +998,14 @@ func threat_is_tower_hunter(creature: BattleUnit) -> bool:
 	return creature.get_meta("threat","")=="sapper"
 
 func day_hunter_waypoint(creature: BattleUnit, destination: Vector3) -> Vector3:
-	# Expedition pursuers follow the same gate geometry as the player.
-	# Keep the normal night lanes unchanged, and refresh when the player moves.
+	# All attack targets share the gate-aware cached route, including freely
+	# placed castle towers. Refresh moving targets without rebuilding each frame.
 	if can_traverse(creature.position,destination):
 		creature.path.clear();creature.path_goal=destination
 		return destination
-	while not creature.path.is_empty() and creature.position.distance_to(creature.path[0])<.18:
+	while not creature.path.is_empty() and Vector2(creature.position.x,creature.position.z).distance_to(Vector2(creature.path[0].x,creature.path[0].z))<.18:
 		creature.path.remove_at(0)
-	if creature.path.is_empty() or (creature.path_timer<=0 and creature.path_goal.distance_to(destination)>.8):
+	if creature.path_timer<=0 and (creature.path.is_empty() or creature.path_goal.distance_to(destination)>.8):
 		build_day_hunter_route(creature,destination)
 	if creature.path.is_empty():return creature.position
 	return creature.path[0]
@@ -1082,7 +1058,7 @@ func damage_tower(index: int, amount: float) -> void:
 	pad.mode="nearest"
 	specializations.on_destroyed(pad)
 	BattleVisuals.burst(effects,pad.position,2.5,Color("db8757"),.45)
-	notify("南门防御塔被蚀塔体摧毁 · 可重新建造",3)
+	notify("城内防御塔被摧毁 · 到残基旁按F重建",3)
 
 func record_beacon_hit(amount: float) -> void:
 	if amount<=0:return
@@ -1300,14 +1276,14 @@ func move_hero_position(next: Vector3) -> bool:
 func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vector3:
 	# Visual clearance belongs to the side of the wall that the hero occupies.
 	# Applying the courtyard's inner clamp to the outer south slope pulled an
-	# exterior hero towards z=6.16 through the wall. The bounded correction then
+	# exterior hero towards the inner wall edge through the wall. The bounded correction then
 	# reversed its free-axis slide, producing alternating steps and tiny retries.
 	# Standalone route goals use their own region; movement and dashes also
 	# check their origin so a blocked request cannot change sides of a wall.
 	var reference:=point if origin==Vector3.INF else origin
-	var ramp_clearance: bool=absf(reference.x)<=2.65 and reference.z>6.5 and reference.z<18.6
-	var courtyard_clearance: bool=absf(reference.x)<6.5 and absf(reference.z)<6.5
-	if absf(point.x)<6.5 and absf(point.z)<6.5:courtyard_clearance=true
+	var ramp_clearance: bool=absf(reference.x)<=2.65 and reference.z>Layout.FORT_INNER and reference.z<Layout.RAMP_WALL_END
+	var courtyard_clearance: bool=absf(reference.x)<=Layout.FORT_INNER and absf(reference.z)<=Layout.FORT_INNER
+	if absf(point.x)<=Layout.FORT_INNER and absf(point.z)<=Layout.FORT_INNER:courtyard_clearance=true
 	# The raised south ramp is only 5.2 m wide between its side walls. The
 	# imported hero has a broader visual footprint than the gameplay ring, so a
 	# centre position at x=±2.6 visibly intersects the wall and feels sticky.
@@ -1317,7 +1293,7 @@ func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vecto
 	# beside the ramp is intentionally open; applying this to every point in
 	# the ramp's z range pulled an outer-ground hero across the retaining wall
 	# or left it unable to move along that side.
-	if ramp_clearance and point.z>HERO_RAMP_SAFE_START_Z and point.z<18.6 and absf(point.x)<3.9:
+	if ramp_clearance and point.z>HERO_RAMP_SAFE_START_Z and point.z<Layout.RAMP_WALL_END and absf(point.x)<3.9:
 		var limit:=hero_ramp_side_limit(point.z)
 		point.x=clampf(point.x,-limit,limit)
 	# The raised courtyard has three solid retaining walls. Apply the same
@@ -1327,13 +1303,13 @@ func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vecto
 	# then reaches an east/west wall corner in the same frame.
 	if not courtyard_clearance:return point
 	for _pass in 2:
-		if absf(point.z)<6.5 and absf(point.x)<6.5:
+		if absf(point.z)<=Layout.FORT_INNER and absf(point.x)<=Layout.FORT_INNER:
 			point.x=clampf(point.x,-HERO_FORT_SAFE_EDGE,HERO_FORT_SAFE_EDGE)
-		if absf(point.x)<2.65 and point.z>HERO_FORT_SAFE_EDGE and point.z<8.1:
+		if absf(point.x)<2.65 and point.z>HERO_FORT_SAFE_EDGE and point.z<Layout.FORT_OUTER:
 			continue
-		if absf(point.x)<6.5 and point.z>=HERO_FORT_SAFE_EDGE and point.z<8.1:
+		if absf(point.x)<=Layout.FORT_INNER and point.z>=HERO_FORT_SAFE_EDGE and point.z<Layout.FORT_OUTER:
 			point.z=minf(point.z,HERO_FORT_SAFE_EDGE)
-		if absf(point.x)<6.5 and point.z>=-8.1 and point.z<=-HERO_FORT_SAFE_EDGE:
+		if absf(point.x)<=Layout.FORT_INNER and point.z>=-Layout.FORT_OUTER and point.z<=-HERO_FORT_SAFE_EDGE:
 			point.z=maxf(point.z,-HERO_FORT_SAFE_EDGE)
 	return point
 
@@ -1342,21 +1318,21 @@ func hero_ramp_motion(origin: Vector3, target: Vector3) -> bool:
 	# every point in that band as ramp motion makes a diagonal approach to the
 	# raised courtyard wall skip the normal tangent slide and lose most of a
 	# frame.  Only the walkable ramp corridor needs ramp-specific projection.
-	return ((origin.z>HERO_RAMP_SAFE_START_Z-.75 and origin.z<18.6) or (target.z>HERO_RAMP_SAFE_START_Z-.75 and target.z<18.6)) and (absf(origin.x)<3.9 or absf(target.x)<3.9)
+	return ((origin.z>HERO_RAMP_SAFE_START_Z-.75 and origin.z<Layout.RAMP_WALL_END) or (target.z>HERO_RAMP_SAFE_START_Z-.75 and target.z<Layout.RAMP_WALL_END)) and (absf(origin.x)<3.9 or absf(target.x)<3.9)
 
 func hero_ramp_side_limit(z: float) -> float:
 	# Bring the visual clearance in over the raised platform lip. A hard
-	# threshold at z=8 made the first frame on the ramp pull the hero sideways.
+	# threshold at the ramp lip made the first frame on the ramp pull the hero sideways.
 	# Smoothstep keeps the correction below one visible movement step while
 	# retaining the full 0.42 m margin on the actual sloped section.
-	if z<=HERO_RAMP_SAFE_START_Z or z>=18.6:return 2.65
+	if z<=HERO_RAMP_SAFE_START_Z or z>=Layout.RAMP_WALL_END:return 2.65
 	var blend:=clampf((z-HERO_RAMP_SAFE_START_Z)/(HERO_RAMP_SAFE_FULL_Z-HERO_RAMP_SAFE_START_Z),0.0,1.0)
 	blend=blend*blend*(3.0-2.0*blend)
 	return lerpf(2.65,2.65-HERO_RAMP_SIDE_CLEARANCE,blend)
 
 func raised_ramp_corner_escape(origin: Vector3, delta: Vector3, step_distance: float) -> Vector3:
 	if step_distance<=.0001 or delta.z<=.0001:return Vector3.INF
-	if origin.z<6.45 or origin.z>8.05:return Vector3.INF
+	if origin.z<Layout.FORT_INNER-.05 or origin.z>Layout.RAMP_WALL_START+.05:return Vector3.INF
 	var side:=signf(origin.x)
 	if absf(origin.x)<2.52 or side==0.0 or signf(delta.x)!=side:return Vector3.INF
 	# Keep the whole corrective step inside the 2.6 m walkable ramp width.
@@ -1429,10 +1405,10 @@ func plan_hero_path(destination: Vector3) -> void:
 	while index<grid_path.size():
 		var furthest:=index
 		for i in range(index,grid_path.size()):
-			var point:=Vector3(grid_path[i].x,0,grid_path[i].y)
+			var point:=hero_safe_destination(Vector3(grid_path[i].x,0,grid_path[i].y))
 			if can_traverse(cursor,point):furthest=i
 			else:break
-		var waypoint:=Vector3(grid_path[furthest].x,0,grid_path[furthest].y)
+		var waypoint:=hero_safe_destination(Vector3(grid_path[furthest].x,0,grid_path[furthest].y))
 		if not can_traverse(cursor,waypoint):
 			hero_path.clear()
 			move_goal=hero.position
@@ -1445,11 +1421,10 @@ func plan_hero_path(destination: Vector3) -> void:
 	else:move_goal=cursor
 
 func outpost_walkable(point: Vector3) -> bool:
-	if absf(point.x)>123 or absf(point.z)>107:return false
-	if absf(absf(point.x)-7.3)<.8 and absf(point.z)<8.1:return false
-	if absf(point.z+7.3)<.8 and absf(point.x)<8.1:return false
-	if absf(point.z-7.3)<.8 and absf(point.x)>2.65 and absf(point.x)<8.1:return false
-	if absf(absf(point.x)-3.25)<.65 and point.z>8.0 and point.z<18.6:return false
+	if not point.is_finite() or absf(point.x)>Layout.MAP_HALF_X or absf(point.z)>Layout.MAP_HALF_Z:return false
+	var flat:=Vector2(point.x,point.z)
+	for block: Rect2 in WALK_BLOCKS:
+		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
 	return true
 
 func outpost_height(point: Vector3) -> float:
@@ -1845,8 +1820,7 @@ func upgrade_district() -> bool:
 
 func near_squad_controls() -> bool:
 	if not is_instance_valid(hero):return false
-	var horizontal := Vector2(hero.position.x,hero.position.z).length()
-	return horizontal < 6.4 and hero.position.y >= 4.8
+	return Layout.contains_castle(hero.position,.1) and hero.position.y >= 4.8
 
 func hire_shield_squad() -> bool:
 	if phase!="day" and phase!="night":return false
@@ -1909,10 +1883,10 @@ func refill_squads() -> bool:
 	return true
 
 func near_gate_controls() -> bool:
-	return Vector2(hero.position.x,hero.position.z).distance_to(Vector2(0,7.0))<3.4
+	return Vector2(hero.position.x,hero.position.z).distance_to(Vector2(0,Layout.RAMP_TOP))<3.4
 
 func create_gate_barricade() -> void:
-	var point:=Vector3(0,0,12.5)
+	var point:=Vector3(0,0,12.5+Layout.EXPANSION_OFFSET)
 	point.y=world.terrain_height(point)
 	gate_barricade=world.place("res://assets/models/barricade.glb",point,1.55,0)
 	gate_barricade.visible=false
@@ -1954,13 +1928,13 @@ func clear_gate_barricade() -> void:
 
 func create_gate_trap_visuals() -> void:
 	for i in GATE_TRAP_MAX:
-		var point:=Vector3(0,0,8.7+float(i)*.8)
+		var point:=Vector3(0,0,8.7+Layout.EXPANSION_OFFSET+float(i)*.8)
 		point.y=world.terrain_height(point)+.12
 		var mark:=BattleVisuals.ring(effects,point,.46,Color("e99552"),.07)
 		mark.visible=false
 		gate_trap_marks.append(mark)
 	gate_trap_light=OmniLight3D.new()
-	gate_trap_light.position=Vector3(0,world.terrain_height(Vector3(0,0,9.5))+.5,9.5)
+	gate_trap_light.position=Vector3(0,world.terrain_height(Vector3(0,0,9.5+Layout.EXPANSION_OFFSET))+.5,9.5+Layout.EXPANSION_OFFSET)
 	gate_trap_light.light_color=Color("ff9b50")
 	gate_trap_light.omni_range=6.0
 	gate_trap_light.light_energy=0
@@ -1983,7 +1957,7 @@ func arm_gate_trap() -> bool:
 	scrap-=GATE_TRAP_COST
 	gate_trap_charges+=1
 	show_gate_trap_charges()
-	BattleVisuals.sparks(effects,Vector3(0,world.terrain_height(Vector3(0,0,9.5))+1,9.5),Color("f4ae63"),9)
+	BattleVisuals.sparks(effects,Vector3(0,world.terrain_height(Vector3(0,0,9.5+Layout.EXPANSION_OFFSET))+1,9.5+Layout.EXPANSION_OFFSET),Color("f4ae63"),9)
 	notify("南门火焰机关已装填 · %d/%d" % [gate_trap_charges,GATE_TRAP_MAX],2)
 	return true
 
@@ -1992,14 +1966,14 @@ func update_gate_trap(delta: float) -> void:
 	if phase!="night" or gate_trap_charges<=0 or gate_trap_cooldown>0:return
 	for creature in enemies:
 		if not is_instance_valid(creature) or not creature.alive:continue
-		if absf(creature.position.x)>2.2 or creature.position.z<8.5 or creature.position.z>10.8:continue
+		if absf(creature.position.x)>2.2 or creature.position.z<8.5+Layout.EXPANSION_OFFSET or creature.position.z>10.8+Layout.EXPANSION_OFFSET:continue
 		gate_trap_charges-=1
 		gate_trap_cooldown=.8
 		show_gate_trap_charges()
-		var point:=Vector3(0,world.terrain_height(Vector3(0,0,9.5)),9.5)
+		var point:=Vector3(0,world.terrain_height(Vector3(0,0,9.5+Layout.EXPANSION_OFFSET)),9.5+Layout.EXPANSION_OFFSET)
 		BattleVisuals.burst(effects,point,4.6,Color("ff9d51"),.55)
 		for target in enemies:
-			if is_instance_valid(target) and target.alive and Vector2(target.position.x,target.position.z).distance_to(Vector2(0,9.5))<4.6:
+			if is_instance_valid(target) and target.alive and Vector2(target.position.x,target.position.z).distance_to(Vector2(0,9.5+Layout.EXPANSION_OFFSET))<4.6:
 				target.hurt(190.0,hero)
 		notify("南门机关引爆 · 剩余 %d 发" % gate_trap_charges,2)
 		return
@@ -2052,7 +2026,7 @@ func nest_guarded(point: Vector3) -> bool:
 func gate_pressure() -> int:
 	var count:=0
 	for creature in enemies:
-		if is_instance_valid(creature) and creature.alive and creature.position.z<22.0 and creature.position.z>0:count+=1
+		if is_instance_valid(creature) and creature.alive and creature.position.z<Layout.RAMP_END+3.5 and creature.position.z>0:count+=1
 	return count
 
 func contract_interaction_prompt(action: Dictionary) -> String:
@@ -2073,6 +2047,9 @@ func contract_interaction_prompt(action: Dictionary) -> String:
 	return ""
 
 func interaction_prompt() -> String:
+	if construction and construction.active and phase in ["day","night"]:
+		var placement: Dictionary=construction.snapshot()
+		return "Y 选址 · %s · 左键/F确认 · 右键/Esc取消" % String(placement.reason)
 	if phase!="day" and phase!="night":return ""
 	var contract_action:=contracts.active_target_interaction()
 	if not contract_action.is_empty():return contract_interaction_prompt(contract_action)
@@ -2113,7 +2090,7 @@ func interaction_prompt() -> String:
 		if int(squad_state.count)<int(squad_state.max_squads):
 			recruit_hint=" · U盾卫70/I弩手80"
 		return "O %s · L 白昼补员%s%s · %d/6人" % [order_label,(" %d零件" % refill) if refill>0 else "",recruit_hint,int(squad_state.alive)]
-	return ""
+	return "Y  选择城内空地建防御塔" if Layout.contains_castle(hero.position) else ""
 
 func _squads_all_holding(snapshot: Dictionary) -> bool:
 	if int(snapshot.count)<=0:return false
@@ -2195,6 +2172,7 @@ func interact_nest(index: int=-1) -> bool:
 	return true
 
 func interact() -> bool:
+	if construction and construction.active:return construction.confirm()
 	if phase!="day" and phase!="night":return false
 	var contract_action:=contracts.active_target_interaction()
 	if not contract_action.is_empty():return interact_contract_target(contract_action)
@@ -2219,27 +2197,64 @@ func interact() -> bool:
 		notify("通信塔重新亮起 · +85 零件，防御塔射程与火力提升",4)
 		return true
 	var pad_index:=nearest_tower_pad()
-	if pad_index>=0:
-		var pad: Dictionary=world.tower_pads[pad_index]
-		var level: int=pad.level
-		var tower_cost: int=districts.tower_cost(TOWER_COSTS[mini(level,2)])
-		if level<3 and scrap>=tower_cost:
-			scrap-=tower_cost
-			if level==0:
-				pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
-				if not is_instance_valid(pad.damage_ring):pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
-				pad.damage_ring.visible=false
-			pad.level=level+1
-			pad.max_hp=280.0+float(level)*110.0
-			pad.hp=pad.max_hp
-			if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
-			(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
-			BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
-			notify("自动防御塔 %s · 等级 %d" % ["建成" if level==0 else "升级",pad.level])
-			return true
-		if level<3:notify("零件不足 · 需要 %d" % tower_cost,2)
+	return build_or_upgrade_tower(pad_index) if pad_index>=0 else false
+
+func toggle_tower_construction() -> bool:
+	if not construction:return false
+	if construction.active:
+		construction.cancel()
+		return true
+	if not construction.begin():return false
+	notify("选择城内空地 · 左键或F建塔 · 右键或Esc取消",3)
+	return true
+
+func build_tower_at(point: Vector3) -> bool:
+	if not construction:return false
+	var placement: Dictionary=construction.validity(point)
+	if not bool(placement.valid):
+		notify(String(placement.reason),2)
 		return false
-	return false
+	var index: int=-1
+	for i in world.tower_pads.size():
+		var candidate: Dictionary=world.tower_pads[i]
+		# Reuse only an effectively identical, still-valid suggestion. Snapping
+		# a free point to a nearby foundation can violate spacing after a green
+		# preview and would otherwise move the tower away from the chosen point.
+		if int(candidate.level)==0 and not bool(candidate.get("free_built",false)) and (candidate.position as Vector3).distance_to(placement.point)<=.01 and bool(construction.validity(candidate.position,i).valid):
+			index=i
+			break
+	if index<0:index=world.add_tower_pad(placement.point,"castle")
+	if index<0:return false
+	if not build_or_upgrade_tower(index):return false
+	world.tower_pads[index]["free_built"]=true
+	return true
+
+func build_or_upgrade_tower(index: int) -> bool:
+	if phase not in ["day","night"] or index<0 or index>=world.tower_pads.size():return false
+	var pad: Dictionary=world.tower_pads[index]
+	var level: int=int(pad.level)
+	if level>=3:return false
+	if level==0:
+		var placement: Dictionary=construction.validity(pad.position,index)
+		if not bool(placement.valid):
+			notify(String(placement.reason),2)
+			return false
+	var tower_cost: int=districts.tower_cost(TOWER_COSTS[level])
+	if scrap<tower_cost:
+		notify("零件不足 · 需要 %d" % tower_cost,2)
+		return false
+	if level==0:
+		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
+		if not is_instance_valid(pad.damage_ring):pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
+	scrap-=tower_cost
+	pad.level=level+1
+	pad.max_hp=280.0+float(level)*110.0
+	pad.hp=pad.max_hp
+	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
+	(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
+	BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
+	notify("自动防御塔 %s · 等级 %d" % ["建成" if level==0 else "升级",pad.level])
+	return true
 
 func skill_status(slot: int) -> String:
 	if cooldowns[slot]>0:return "%.1f s" % cooldowns[slot]
@@ -2410,6 +2425,8 @@ func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
 	# the raised surface and y=0, producing a target several metres away from
 	# the visible terrain. Treat a near-side-wall click as a request for the
 	# nearest walkable ramp edge while leaving clicks on the outer ground alone.
+	if sampled is Vector3 and (sampled as Vector3).z<Layout.FORT_INNER:return Vector3.INF
+	if sampled is Vector3 and (sampled as Vector3).z>Layout.RAMP_END+1.0:return Vector3.INF
 	if absf(flat_seed.x)<2.77 or absf(flat_seed.x)>HERO_RAMP_CLICK_OUTER_EDGE:return Vector3.INF
 	if sampled is Vector3 and outpost_walkable(sampled) and absf((sampled as Vector3).x)<2.77:return Vector3.INF
 	var side: float=signf(flat_seed.x)
@@ -2417,7 +2434,7 @@ func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
 	# can land well before the ramp at the steep lower lip, so clamp only that
 	# ambiguous part to the entrance instead of searching the whole ramp and
 	# accidentally sending a click several metres uphill.
-	var z: float=clampf(flat_seed.z,7.5,18.55)
+	var z: float=clampf(flat_seed.z,7.5+Layout.EXPANSION_OFFSET,Layout.RAMP_WALL_END-.05)
 	var candidate_x: float=side*hero_ramp_side_limit(z)
 	var candidate: Vector3=Vector3(candidate_x,outpost_height(Vector3(candidate_x,0,z)),z)
 	return candidate if not camera.is_position_behind(candidate) else Vector3.INF
@@ -2433,6 +2450,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		pending_aim_screen=event.position
 		aim_sample_pending=true
 	if event is InputEventMouseButton and event.pressed:
+		if construction and construction.active and event.button_index in [MOUSE_BUTTON_LEFT,MOUSE_BUTTON_RIGHT]:
+			if phase not in ["day","night"]:return
+			if event.button_index==MOUSE_BUTTON_RIGHT:construction.cancel()
+			else:
+				aim=ground_point(event.position);aim_sample_pending=false
+				construction.confirm()
+			get_viewport().set_input_as_handled()
+			return
 		if event.button_index==MOUSE_BUTTON_RIGHT and (phase=="day" or phase=="night"):
 			var click_point:=ground_point(event.position)
 			aim=click_point
@@ -2440,7 +2465,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			aim_sample_pending=false
 			plan_hero_path(click_point)
 		if event.button_index==MOUSE_BUTTON_WHEEL_UP:camera.size=maxf(21,camera.size-1.5)
-		if event.button_index==MOUSE_BUTTON_WHEEL_DOWN:camera.size=minf(42,camera.size+1.5)
+		if event.button_index==MOUSE_BUTTON_WHEEL_DOWN:camera.size=minf(52,camera.size+1.5)
 	if event is InputEventKey and event.pressed and not event.echo:
 		flush_pending_aim()
 		if event.keycode==KEY_M and music:
@@ -2454,6 +2479,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode==KEY_F1:
 			if phase=="day" or phase=="night":paused_from=phase;phase="paused"
 			music_credits_open=not music_credits_open
+			return
+		if event.keycode==KEY_ESCAPE and construction and construction.active and phase in ["day","night"]:
+			construction.cancel()
 			return
 		if event.keycode==KEY_ESCAPE and music_credits_open:
 			music_credits_open=false
@@ -2509,6 +2537,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")
 			KEY_K:choose_tower_specialization("control")
+			KEY_Y:toggle_tower_construction()
 			KEY_F:interact()
 			KEY_G:toggle_tower_mode()
 			KEY_H:repair_tower()
@@ -2520,7 +2549,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E:cast(2,true)
 			KEY_R:cast(3,true)
 			KEY_X:cast(4,true)
-			KEY_SPACE:camera.size=31
+			KEY_SPACE:camera.size=38
 			KEY_ESCAPE:
 				if phase=="paused":phase=paused_from
 				elif phase=="day" or phase=="night":paused_from=phase;phase="paused"
@@ -2610,6 +2639,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	cores.clear()
+	if construction:construction.clear()
 	if squads:squads.clear()
 	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()

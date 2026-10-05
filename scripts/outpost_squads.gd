@@ -5,6 +5,7 @@ extends Node3D
 ## setup(controller, false) enables shields only; true also enables ranged.
 
 const UnitScript = preload("res://scripts/unit.gd")
+const Layout := preload("res://scripts/outpost_layout.gd")
 const MAX_SQUADS := 2
 const MEMBERS_PER_SQUAD := 3
 const HIRE_COST := {"shield": 70, "ranged": 80}
@@ -88,7 +89,7 @@ func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
 	var x := (float(slot) - 1.0) * 1.6
 	var z := 3.9 + float(squad.id) * .9
 	if order == HOLD:
-		z = (13.4 - float(squad.id) * 2.3) if squad.kind == "shield" else (5.0 + float(squad.id) * .85)
+		z = ((13.4 - float(squad.id) * 2.3) if squad.kind == "shield" else (5.0 + float(squad.id) * .85)) + Layout.EXPANSION_OFFSET
 	var point := Vector3(x, 0, z)
 	point.y = _ground_height(point)
 	return point

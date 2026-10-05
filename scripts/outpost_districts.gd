@@ -4,6 +4,7 @@ extends Node3D
 const BUILD_COST: int = 60
 const UPGRADE_COST: int = 80
 const MAX_LEVEL: int = 2
+const Layout := preload("res://scripts/outpost_layout.gd")
 const INTERACTION_RADIUS: float = 2.6
 const BARRACKS: String = "barracks"
 const WORKSHOP: String = "workshop"
@@ -104,7 +105,7 @@ func upgrade(index: int) -> Dictionary:
 	return {"ok": true, "reason": "", "cost": UPGRADE_COST, "scrap": int(game.scrap), "index": index, "kind": String(plot.kind), "level": int(plot.level)}
 
 func guard_regen(point: Vector3) -> float:
-	if not is_instance_valid(game) or absf(point.x) > 6.4 or absf(point.z) > 6.4:
+	if not is_instance_valid(game) or not point.is_finite() or not Layout.contains_castle(point):
 		return 0.0
 	if not game.outpost_walkable(point) or absf(point.y - float(game.outpost_height(point))) > 0.75:
 		return 0.0
