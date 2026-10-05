@@ -137,6 +137,9 @@ func setup(unit_kind: String, faction: int) -> void:
 	add_child(visual)
 	if kind == "minion" or kind == "monster": BattleVisuals.paint_model(visual)
 	if kind == "hero":
+		# Cloth on both the guardian and barracks troops uses filtered fibres;
+		# their authored metal, leather and emissive glass keep native PBR.
+		BattleVisuals.paint_model(visual, true)
 		visual.scale = Vector3.ONE * 1.25
 		# glTF converts Blender's -Y front to Godot's +Z front.
 		visual_yaw_offset = PI

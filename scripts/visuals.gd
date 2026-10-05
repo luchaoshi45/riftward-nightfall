@@ -2,23 +2,25 @@ class_name BattleVisuals
 extends RefCounted
 static var painted_cache: Dictionary = {}
 
-static func paint_model(root: Node) -> void:
+static func paint_model(root: Node, only_cloth: bool = false) -> void:
 	if root is MeshInstance3D:
 		for index in root.mesh.get_surface_count():
 			var original = root.mesh.surface_get_material(index)
 			if not original is StandardMaterial3D or original.emission_enabled: continue
+			var label: String = original.resource_name.to_lower()
+			var cloth := "cloth" in label or "woven" in label or "cloak" in label or "velvet" in label
+			if only_cloth and not cloth: continue
 			var key: String = original.resource_path + original.resource_name
 			if not painted_cache.has(key):
 				var mat := ShaderMaterial.new()
 				mat.shader = load("res://assets/shaders/painted_surface.gdshader")
 				mat.set_shader_parameter("base_color", original.albedo_color)
-				var label: String = original.resource_name.to_lower()
 				var foliage := "foliage" in label or "canopy" in label
-				mat.set_shader_parameter("surface_kind", 2.0 if foliage else (1.0 if "cloth" in label else 0.0))
+				mat.set_shader_parameter("surface_kind", 2.0 if foliage else (1.0 if cloth else 0.0))
 				mat.set_shader_parameter("metal", minf(original.metallic, .25))
 				painted_cache[key] = mat
 			root.set_surface_override_material(index, painted_cache[key])
-	for child in root.get_children(): paint_model(child)
+	for child in root.get_children(): paint_model(child, only_cloth)
 ## Shared low-poly geometry and short-lived combat effects.
 
 static func material(color: Color, glow: float = 0.0) -> StandardMaterial3D:

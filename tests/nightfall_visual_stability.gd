@@ -145,6 +145,19 @@ func actual_frames() -> void:
 	game.skill_lights.tick(.08,game.phase)
 	view(game.hero.position,31.0)
 	await photograph("inferno")
+	var enemy: BattleUnit = game.spawn_creature(true,"basic")
+	enemy.hp = 10000.0
+	enemy.max_hp = 10000.0
+	enemy.position = game.hero.position + Vector3.RIGHT*1.3
+	enemy.attack_timer = 0.0
+	enemy.attack_queued = false
+	game.update_creature(enemy,.01)
+	check(not game.target_warning_snapshot().is_empty(),"The real enemy windup still shows a target warning")
+	game.beacon_hp -= 20.0
+	game.record_beacon_hit(20.0)
+	game.world.wave_warning = true
+	game.world._process(.35)
+	await photograph("warning")
 
 func run() -> void:
 	if render_test and DisplayServer.get_name() == "headless":
@@ -180,9 +193,27 @@ func run() -> void:
 	check(game.tower_count() == 9,"Nine live towers in the visual stress scene")
 	var enemy: BattleUnit = game.spawn_creature(false,"stalker")
 	enemy.position = Vector3(34.4,0,31.0)
+	var painted_surfaces := 0
+	for mesh in enemy.visual.find_children("*","MeshInstance3D",true,false):
+		for index in mesh.mesh.get_surface_count():
+			var material := mesh.get_active_material(index) as ShaderMaterial
+			if material and material.shader.resource_path == "res://assets/shaders/painted_surface.gdshader": painted_surfaces += 1
+	check(painted_surfaces > 0,"Filtered material must be on the actual creature model, not the replaced golem")
+	observations["actual_creature_painted_surfaces"] = painted_surfaces
 	game.notice_time = 0.0
 	view(Vector3(0,5,0))
 	lighting_samples()
+	if game.hud.has_method("alarm_outline_alpha"):
+		var prior_alpha: float = game.hud.alarm_outline_alpha()
+		game.phase = "paused"
+		game.world._process(3.0)
+		check(is_equal_approx(prior_alpha,game.hud.alarm_outline_alpha()),"Paused warning outline must remain stable")
+		game.phase = "night"
+		game.combat.reduced_effects = true
+		prior_alpha = game.hud.alarm_outline_alpha()
+		game.world._process(.35)
+		check(is_equal_approx(prior_alpha,game.hud.alarm_outline_alpha()),"F2 keeps the necessary warning steadily visible")
+		game.combat.reduced_effects = false
 	if render_test: await actual_frames()
 	observations["renderer"] = RenderingServer.get_current_rendering_method()
 	observations["quality"] = {"msaa":root.msaa_3d,"camera_near":game.camera.near,"shadow_mode":game.world.sun.directional_shadow_mode}

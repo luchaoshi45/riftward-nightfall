@@ -772,6 +772,9 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var model_path: String="res://assets/models/night_breaker_v2.glb" if night and roll<.06+day_number*.025 else ("res://assets/models/night_light_eater.glb" if is_light_eater else "res://assets/models/night_stalker_v2.glb")
 	creature.visual=(load(model_path) as PackedScene).instantiate() as Node3D
 	creature.add_child(creature.visual)
+	# setup() painted the temporary golem, which is replaced above. Apply the
+	# production material to the actual night creature rather than that stub.
+	BattleVisuals.paint_model(creature.visual)
 	creature.bind_stalker_rig()
 	creature.visual_yaw_offset=PI
 	creature.visual.scale=Vector3.ONE*(1.12 if night else 1.0)
