@@ -5,6 +5,7 @@ const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
+const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -1699,6 +1700,9 @@ func collect_memory_upgrades() -> void:
 	while essence>=run.memory_cost():
 		essence-=run.register_memory_upgrade()
 		run.grant("战斗记忆 · 第%d次铭刻" % run.memory_level)
+
+func growth_snapshot() -> Dictionary:
+	return GrowthGuidanceScript.snapshot(self)
 
 func request_upgrade() -> bool:
 	if phase not in ["day","night"] or run.pending<=0:return false

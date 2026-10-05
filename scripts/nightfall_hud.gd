@@ -13,6 +13,8 @@ var mode_rects: Array[Rect2] = []
 const BOSS_PANEL_RECT := Rect2(457,24,570,110)
 const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
 const EXPLORATION_TOAST_TOP := 451.0
+const GROWTH_PANEL_RECT := Rect2(1050,620,365,111)
+const GROWTH_MEMORY_RECT := Rect2(1050,620,365,46)
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -125,9 +127,7 @@ func _draw() -> void:
 		label(alarm_text,Vector2(720-alarm_width*.5,60),20,Color("ff9d80"))
 	draw_minimap()
 	draw_squads()
-	if game.run.pending>0 and game.phase in ["day","night"]:
-		box(Rect2(1050,620,365,46),Color(.07,.11,.10,.95),amber)
-		label("V / 点击铭刻 · 待选 %d 张" % game.run.pending,Vector2(1071,650),18,amber)
+	draw_growth_guidance()
 	if game.notice_time>0:
 		box(Rect2(368,192,704,48),Color(.035,.046,.050,.86),Color("9a7051"))
 		var width:=font.get_string_size(game.notice,HORIZONTAL_ALIGNMENT_LEFT,-1,19).x
@@ -203,7 +203,7 @@ func draw_combat_floats() -> void:
 	var occupied: Array[Rect2]=[
 		Rect2(24,22,405,160),Rect2(1050,22,365,173),
 		Rect2(EXPLORATION_PANEL_RECT.position,Vector2(340,EXPLORATION_TOAST_TOP-EXPLORATION_PANEL_RECT.position.y+game.reward_toasts.size()*70)),
-			Rect2(1161,195,254,373),Rect2(1050,480,365,125),Rect2(1050,620,365,46),Rect2(300,746,840,129),Rect2(492,670,456,48)
+			Rect2(1161,195,254,373),Rect2(1050,480,365,125),GROWTH_PANEL_RECT,Rect2(300,746,840,129),Rect2(492,670,456,48)
 	]
 	if game.phase=="night" and game.has_method("boss_snapshot") and not game.boss_snapshot().is_empty():
 		occupied.append(BOSS_PANEL_RECT)
@@ -494,6 +494,32 @@ func draw_squads() -> void:
 		label("小队%d  ·  %s %s  ·  存活 %d/%d  ·  生命 %.0f" % [index+1,kind_label,order_label,int(row.alive),int(row.capacity),float(row.hp)],Vector2(1071,558+index*18),11,kind_color if String(row.order)=="hold" else muted)
 	label("U盾卫70 · I弩手80 · O驻守/撤回 · L白昼补员",Vector2(1071,596),11,amber)
 
+func growth_memory_text(snapshot: Dictionary) -> String:
+	var memory: Dictionary=snapshot.memory
+	if int(memory.pending)>0:
+		return "V / 点击铭刻%d张 · 下张差%d记忆" % [int(memory.pending),int(memory.shortfall)]
+	return "下一张强化还差 %d 记忆" % int(memory.shortfall)
+
+func growth_lines(snapshot: Dictionary) -> Array[String]:
+	var tower: Dictionary=snapshot.tower
+	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","零件可用于维修、城区或小队","塔改装与城区选择均由你决定"]
+	var action: String={"build":"建造一级","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
+	var state: String="可负担" if bool(tower.affordable) else "还差%d" % int(tower.shortfall)
+	return ["防线：%s · %s" % [String(tower.label),action],
+		"%d零件 · %s · 到塔旁 %s" % [int(tower.cost),state,String(tower.key)],String(tower.benefit)]
+
+func draw_growth_guidance() -> void:
+	if game.phase not in ["day","night"]:return
+	var snapshot: Dictionary=game.growth_snapshot()
+	var queued: bool=int(snapshot.memory.pending)>0
+	box(GROWTH_PANEL_RECT,Color(.035,.073,.067,.95),amber if queued else Color("527c6b"))
+	label(growth_memory_text(snapshot),Vector2(1071,649),14,amber if queued else ink)
+	var lines: Array[String]=growth_lines(snapshot)
+	var affordable: bool=not snapshot.tower.is_empty() and bool(snapshot.tower.affordable)
+	label(lines[0],Vector2(1071,674),13,Color("a6decb"))
+	label(lines[1],Vector2(1071,695),12,amber if affordable else muted)
+	label(lines[2],Vector2(1071,716),11,muted)
+
 func draw_exploration_rewards() -> void:
 	if not game.discoveries:return
 	var ready:=0
@@ -591,7 +617,7 @@ func draw_result() -> void:
 func _gui_input(event: InputEvent) -> void:
 	if game.phase in ["day","night"] and game.run.pending>0 and event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 		var point: Vector2=event.position*Vector2(1440,900)/get_viewport_rect().size
-		if Rect2(1050,480,365,46).has_point(point):
+		if GROWTH_MEMORY_RECT.has_point(point):
 			game.request_upgrade();accept_event();return
 	if game.music_credits_open:
 		if event is InputEventMouseButton and event.pressed:
