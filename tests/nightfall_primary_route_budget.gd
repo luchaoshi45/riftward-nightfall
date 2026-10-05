@@ -139,12 +139,11 @@ func read_state() -> Dictionary:
 
 func assert_text_width(value: Dictionary, offer_index: int = -1) -> void:
 	var index: int = game.contracts.selected_offer if offer_index < 0 else offer_index
-	var choice_hint: String = "4/5/6 换方案" if not game.contracts.progress_started else "方案已锁定"
 	var rows: Array[Dictionary] = [
 		{"text": Budget.travel_text(value), "font_size": 14},
 		{"text": Budget.timing_text(value), "font_size": 12},
 		{"text": game.contracts.offer_summary(index), "font_size": 11},
-		{"text": "P指路 · F行动 · " + choice_hint + " · " + Budget.condition_text(value), "font_size": 11}]
+		{"text": "P指路/F行动 · " + game.contracts.choice_hint() + " · " + Budget.condition_text(value), "font_size": 11}]
 	for row: Dictionary in rows:
 		var text: String = row.text
 		if text.is_empty(): continue

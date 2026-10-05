@@ -118,8 +118,7 @@ func _draw() -> void:
 			label(contract.primary_travel_text(budget),Vector2(477,79),14,ink)
 			label(contract.primary_timing_text(budget),Vector2(477,99),12,budget_color)
 			label(contract.offer_summary(contract.selected_offer),Vector2(477,119),11,amber)
-			var choice_hint: String="4/5/6 换方案" if not contract.progress_started else "方案已锁定"
-			label("P指路 · F行动 · "+choice_hint+" · "+contract.primary_condition_text(budget),Vector2(477,142),11,muted)
+			label("P指路/F行动 · "+contract.choice_hint()+" · "+contract.primary_condition_text(budget),Vector2(477,142),11,muted)
 		else:
 			var goal: Vector3=game.contract_goal()
 			var detail: String="日落前完成并返回灯塔"
@@ -129,7 +128,7 @@ func _draw() -> void:
 			if goal!=Vector3.INF:detail="P 前往目标 · %.0f米 · 日落前回灯塔交付" % game.hero.position.distance_to(goal)
 			label(detail,Vector2(477,84),15,ink)
 			label(contract.offer_summary(contract.selected_offer),Vector2(477,110),13,amber)
-			label("4/5/6 切换方案 · 完成第一项后锁定" if not contract.progress_started else "委托已开始 · 方案已锁定",Vector2(477,130),12,Color("a3c7b7"))
+			label("4/5/6 切换方案 · 首次行动即锁定" if not contract.progress_started else "委托已开始 · 方案已锁定",Vector2(477,130),12,Color("a3c7b7"))
 	if game.phase=="day":draw_day_forecast()
 	box(Rect2(1050,22,365,173),panel,Color("665343"))
 	label("灯塔耐久",Vector2(1071,55),17,ink)

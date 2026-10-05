@@ -210,6 +210,7 @@ func _ready() -> void:
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self)
 	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self,run.seed_value)
 	add_child(contracts);contracts.setup(self,run.seed_value)
+	contracts.target_started.connect(trigger_contract_risk)
 	districts.setup(self)
 	construction=ConstructionScript.new();construction.setup(self)
 	squads.set_health_multiplier(districts.squad_health_multiplier())
@@ -2227,35 +2228,25 @@ func interact_contract_target(action: Dictionary) -> bool:
 		return discoveries.interact_index(index)
 	match contracts.kind:
 		"salvage":
-			var collected:=collect_salvage(index)
-			if collected:
-				contracts.mark_target_started()
-				trigger_contract_risk(action.position)
-			return collected
+			return collect_salvage(index)
 		"generator":
 			if String(action.state)=="ready":
 				var started:=expeditions.start_generator(index)
-				if started:
-					contracts.mark_target_started()
-					trigger_contract_risk(action.position)
+				if started:contracts.on_action()
 				return started
 			# Consume F while the marked site is charging; never start a nearby
 			# unrelated action or restart the same generator.
+			contracts.on_action()
 			return true
 		"escort":
 			if String(action.state)=="waiting":
 				var started:=expeditions.start_camp(index)
-				if started:
-					contracts.mark_target_started()
-					trigger_contract_risk(action.position)
+				if started:contracts.on_action()
 				return started
+			contracts.on_action()
 			return true
 		"nest":
-			var sealed:=interact_nest(index)
-			if sealed:
-				contracts.mark_target_started()
-				trigger_contract_risk(action.position)
-			return sealed
+			return interact_nest(index)
 	return false
 
 func collect_salvage(index: int=-1) -> bool:
@@ -2277,6 +2268,7 @@ func interact_nest(index: int=-1) -> bool:
 		notify("先清除夜巢周围的守卫",2)
 		return false
 	nest.cleansed=true
+	contracts.on_action()
 	var active_nest: Node3D=nest.node
 	var seal: Node3D=nest.sealed_node
 	seal.visible=true
@@ -2299,7 +2291,10 @@ func interact() -> bool:
 	if phase!="day" and phase!="night":return false
 	var contract_action:=contracts.active_target_interaction()
 	if not contract_action.is_empty():return interact_contract_target(contract_action)
-	if expeditions.interaction_prompt()!="":return expeditions.interact()
+	if expeditions.interaction_prompt()!="":
+		var acted:=expeditions.interact()
+		if acted:contracts.on_action()
+		return acted
 	if discoveries.interaction_prompt()!="":return discoveries.interact()
 	if wildlife.interaction_prompt()!="":return wildlife.interact()
 	var index:=nearest_salvage()
@@ -2693,11 +2688,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			var offer_index: int = int(event.keycode)-KEY_4
 			if contracts.choose_offer(offer_index):
-				notify("已切换委托方案%d · 完成第一项后锁定" % (offer_index+1),2)
-			elif contracts.status=="active" and contracts.progress_started:
-				notify("委托已开始 · 方案已锁定",2)
+				notify("已切换委托方案%d · 首次行动即锁定" % (offer_index+1),2)
 			else:
-				notify("当前没有可切换的委托方案",2)
+				notify(contracts.offer_rejection_reason if not contracts.offer_rejection_reason.is_empty() else "当前没有可切换的委托方案",2)
 			return
 		if phase=="day" and event.keycode in [KEY_7,KEY_8,KEY_9]:
 			var countermeasure_index: int=int(event.keycode)-KEY_7

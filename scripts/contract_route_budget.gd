@@ -19,6 +19,13 @@ static func evaluate(contract: Node, offer_index: int = -1) -> Dictionary:
 	if index < 0 or index >= offers.size():return result
 	var offer: Dictionary = offers[index]
 	var selected: bool = index == selected_index
+	if not selected:
+		var choice: Dictionary = contract.offer_choice_state(index)
+		if not bool(choice.available):
+			result.active = true
+			result.risk = "unavailable_offer"
+			result["offer_reason"] = String(choice.reason)
+			return result
 	var kind: String = String(contract.get("kind")) if selected else String(offer.get("kind", ""))
 	var targets: Array = contract.get("targets") if selected else offer.get("targets", [])
 	var done: Dictionary = contract.get("done") if selected else {}
@@ -184,6 +191,7 @@ static func _unreachable(result: Dictionary) -> Dictionary:
 
 static func travel_text(budget: Dictionary) -> String:
 	if not bool(budget.get("active", false)):return ""
+	if String(budget.get("risk", "")) == "unavailable_offer":return String(budget.get("offer_reason", "方案不可选"))
 	if not bool(budget.get("available", false)):return "目标或返家路线不可达"
 	# The centre-to-centre routes estimate travel; actual interaction and home
 	# checks accept a radius, so this is not a strict minimum-duration promise.
@@ -192,6 +200,7 @@ static func travel_text(budget: Dictionary) -> String:
 
 static func timing_text(budget: Dictionary) -> String:
 	if not bool(budget.get("active", false)):return ""
+	if String(budget.get("risk", "")) == "unavailable_offer":return "当前委托不变 · 可自由探索"
 	if not bool(budget.get("available", false)):return "无法估算主委托行程"
 	var target_spare: int = floori(float(budget.deadline_spare_seconds))
 	var home_spare: int = floori(float(budget.spare_seconds))
@@ -204,6 +213,7 @@ static func timing_text(budget: Dictionary) -> String:
 
 static func condition_text(budget: Dictionary) -> String:
 	if not bool(budget.get("active", false)):return ""
+	if String(budget.get("risk", "")) == "unavailable_offer":return "自由探索仍保留原奖励"
 	if not bool(budget.get("available", false)):return "估时不含战斗 · 请先恢复通路"
 	if bool(budget.escort):return "估时不含战斗 · 哨兵%.1f米/秒" % float(budget.get("follow_speed", 0.0))
 	var guards: int = int(budget.guard_count)

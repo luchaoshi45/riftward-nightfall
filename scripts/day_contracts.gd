@@ -1,6 +1,7 @@
 extends Node
 ## Optional overlay on existing actions. Controller owns rewards and all visuals.
 signal progress_changed(text: String)
+signal target_started(position: Vector3)
 
 const RouteBudget = preload("res://scripts/contract_route_budget.gd")
 const TITLES := {"salvage":"废墟补给", "generator":"能源交接", "escort":"哨兵归队", "nest":"封巢报告"}
@@ -30,6 +31,9 @@ var targets: Array[Dictionary] = []
 var offers: Array[Dictionary] = []
 var selected_offer := 0
 var progress_started := false
+var offer_touched: Dictionary = {}
+var start_notified := false
+var offer_rejection_reason := ""
 var selected_reward := {"scrap": REWARD_SCRAP, "memory": REWARD_MEMORY, "risk": 0, "risk_hunters": 0, "risk_seconds": 0.0}
 var risk_spawned := false
 var risk_spawn_count := 0
@@ -58,6 +62,9 @@ func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	offers.clear()
 	selected_offer=0
 	progress_started=false
+	offer_touched.clear()
+	start_notified=false
+	offer_rejection_reason=""
 	done.clear()
 	pending_reward.clear()
 	bonus_target.clear()
@@ -129,6 +136,9 @@ func on_day() -> void:
 	offers.clear()
 	selected_offer=0
 	progress_started=false
+	offer_touched.clear()
+	start_notified=false
+	offer_rejection_reason=""
 	pending_reward.clear()
 	bonus_target.clear()
 	bonus_done=false
@@ -180,11 +190,89 @@ func on_night() -> void:
 	emit_progress()
 
 func choose_offer(index: int) -> bool:
-	if game.phase!="day" or status!="active" or progress_started:return false
-	if index<0 or index>=offers.size():return false
+	offer_rejection_reason=""
+	if not is_instance_valid(game) or game.phase!="day" or status!="active":
+		offer_rejection_reason="当前没有可切换的委托方案"
+		return false
+	# Ordinary exploration can start a live target immediately before another
+	# key event. Reconcile that action before allowing any reward-tier change.
+	observe_offer_actions()
+	if progress_started:
+		offer_rejection_reason="委托已开始 · 方案已锁定"
+		return false
+	var choice:=offer_choice_state(index)
+	if not bool(choice.available):
+		offer_rejection_reason=String(choice.reason)
+		return false
 	_select_offer(index)
 	emit_progress()
 	return true
+
+func source_started(offer_kind: String, source: Dictionary) -> bool:
+	if source.is_empty():return false
+	match offer_kind:
+		"salvage":return bool(source.get("collected",false))
+		"generator":return String(source.get("state","ready"))!="ready"
+		"escort":return String(source.get("state","waiting"))!="waiting"
+		"nest":return bool(source.get("cleansed",false))
+	return false
+
+func offer_has_started(index: int) -> bool:
+	if index<0 or index>=offers.size():return false
+	var offer: Dictionary=offers[index]
+	for target: Dictionary in offer.get("targets",[]):
+		if source_started(String(offer.kind),target.get("source",{})):return true
+	return false
+
+func selected_risk_seconds() -> float:
+	var seconds:=float(selected_reward.get("risk_seconds",0.0))
+	if seconds<=0.0 and selected_offer>=0 and selected_offer<offers.size():
+		seconds=float(offers[selected_offer].get("risk_seconds",0.0))
+	return maxf(0.0,seconds)
+
+func observe_offer_actions() -> void:
+	if not is_instance_valid(game) or game.phase!="day" or status!="active":return
+	for index in offers.size():
+		if offer_has_started(index):offer_touched[index]=true
+	if not offer_touched.has(selected_offer):return
+	progress_started=true
+	if start_notified:return
+	# Set both latches before the synchronous signal. A reward callback or
+	# reentrant tick must never emit the same first-action risk twice.
+	start_notified=true
+	if game.phase_time<=selected_risk_seconds():return
+	for target: Dictionary in targets:
+		var source: Dictionary=target.get("source",{})
+		if source_started(kind,source):
+			target_started.emit(source.get("position",target.position))
+			break
+
+func offer_choice_state(index: int) -> Dictionary:
+	# Presentation queries remain read-only: they cannot mark a target, lock
+	# the current route, or spawn hunters. Live state covers the pre-tick frame.
+	var selected:=index==selected_offer
+	if index<0 or index>=offers.size():
+		return {"available":false,"reason":"当前没有这个委托方案","tag":"不可用","selected":selected}
+	if not is_instance_valid(game) or status!="active":
+		return {"available":false,"reason":"当前没有可切换的委托方案","tag":"不可用","selected":selected}
+	var day_context: bool=game.phase=="day" or (game.phase=="paused" and game.paused_from=="day") or (game.phase=="draft" and game.return_phase=="day")
+	if not day_context:
+		return {"available":false,"reason":"仅白昼可以选择委托方案","tag":"不可用","selected":selected}
+	var touched:=offer_touched.has(index) or offer_has_started(index)
+	if not selected and touched:
+		return {"available":false,"reason":"目标已探索 · 请先选方案再行动","tag":"已探索","selected":false}
+	if not selected and (progress_started or offer_touched.has(selected_offer) or offer_has_started(selected_offer)):
+		return {"available":false,"reason":"委托已开始 · 方案已锁定","tag":"锁定","selected":false}
+	if not (selected and (progress_started or touched)) and game.phase_time<=float(offers[index].get("risk_seconds",0.0)):
+		return {"available":false,"reason":"该方案目标已截止 · 请选择其他未探索方案","tag":"已截止","selected":selected}
+	return {"available":true,"reason":"当前方案" if selected else "可在行动前选择","tag":"已选" if selected else "可选","selected":selected}
+
+func choice_hint() -> String:
+	var parts: Array[String]=[]
+	for index in offers.size():
+		var choice:=offer_choice_state(index)
+		parts.append("%d%s" % [4+index,String(choice.tag)])
+	return " · ".join(parts)
 
 func choose_bonus(index: int) -> bool:
 	if game.phase!="day" or status!="bonus_offer":return false
@@ -441,13 +529,13 @@ func tick(delta: float) -> void:
 			pending_reward=build_reward(early,bonus_done)
 			emit_progress()
 		return
-	var risk_seconds := float(selected_reward.get("risk_seconds", 0.0))
-	if risk_seconds <= 0.0 and selected_offer < offers.size():
-		risk_seconds = float(offers[selected_offer].get("risk_seconds", 0.0))
+	var risk_seconds := selected_risk_seconds()
 	if done.size() < targets.size() and risk_seconds > 0.0 and game.phase_time <= risk_seconds:
 		status = "expired"
 		emit_progress()
 		return
+	observe_offer_actions()
+	if status!="active":return
 	for target in targets:
 		var source: Dictionary = target.source
 		var completed := false
@@ -508,7 +596,7 @@ func progress_text() -> String:
 		elif kind == "escort" and source.state == "escort":
 			instruction += " · 哨兵跟随中"
 	var reward_text: String=offer_summary(selected_offer)
-	var switch_hint := " · 4/5/6 可换方案" if not progress_started and offers.size()>1 else (" · 方案已锁定" if progress_started else "")
+	var switch_hint := " · "+choice_hint() if offers.size()>1 else (" · 方案已锁定" if progress_started else "")
 	return "可选 · 方案%d/%d · %s %d/%d · %s · %s · 日落前交回，提前15秒再+10零件%s" % [selected_offer+1,offers.size(),TITLES[kind], done.size(), targets.size(), instruction, reward_text, switch_hint]
 
 func emit_progress() -> void:
