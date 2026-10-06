@@ -36,7 +36,7 @@ func on_destroyed(pad: Dictionary) -> void:
 	# 已射出的短时牵制仍自然到期，不因毁塔永久残留。
 
 func heavy(enemy: BattleUnit) -> bool:
-	return str(enemy.get_meta("threat", "")) in ["breaker", "sapper"]
+	return str(enemy.get_meta("threat", "")) in ["breaker", "sapper", "shellguard"]
 
 func eligible(enemy: Variant) -> bool:
 	return is_instance_valid(enemy) and enemy is BattleUnit and enemy.alive and enemy.kind == "monster" and enemy.team == 2

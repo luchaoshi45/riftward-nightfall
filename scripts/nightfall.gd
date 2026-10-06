@@ -14,6 +14,7 @@ const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const LobberScript = preload("res://scripts/nightfall_lobber.gd")
 const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
 const WarderScript = preload("res://scripts/nightfall_warder.gd")
+const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -760,14 +761,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["summoner","warder","light_eater","lobber","sapper","breaker","runner"]:
+	for role in ["summoner","warder","light_eater","lobber","sapper","breaker","shellguard","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"summoner":"召潮者", "warder":"织壳者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"summoner":"召潮者", "warder":"织壳者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "shellguard":"甲壳卫", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -787,7 +788,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper","lobber","summoner","warder":recommended_index=2
+		"sapper","lobber","summoner","warder","shellguard":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -941,6 +942,7 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
 	var is_warder: bool=night and role=="warder"
+	var is_shellguard: bool=night and role=="shellguard"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
@@ -970,7 +972,9 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	creature.attack_range=1.6
 	creature.attack_interval=1.1
 	if night:
-		if is_warder:
+		if is_shellguard:
+			ShellguardScript.configure(creature)
+		elif is_warder:
 			creature.set_meta("threat","warder")
 			creature.title="织壳者"
 			creature.max_hp*=.82
@@ -2194,7 +2198,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"summoner":0,"warder":1,"light_eater":2,"lobber":3,"sapper":4,"breaker":5}.get(threat,99)
+	return {"summoner":0,"warder":1,"light_eater":2,"lobber":3,"sapper":4,"breaker":5,"shellguard":6}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")

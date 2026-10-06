@@ -626,7 +626,7 @@ func hud_layout(tag: String,kind: String,baseline_panels: Array = []) -> void:
     check(row.point.x >= 426 and row.point.x+float(row.width) <= 1014
      and row.point.y-float(row.ascent) >= 20 and row.point.y+float(row.descent) <= 96,"Actual preview counter hint fits both horizontal and vertical objective bounds")
   elif kind == "defense":
-   check(advice.size() >= 1 and advice.size() <= 2 and joined == "召潮2.4秒/最多2援军；织壳1秒/32盾4秒/最多3次；击杀或牵制打断。","Actual F3 defense shows the complete combined counter rule within its real one-or-two-line font budget")
+   check(advice.size() >= 1 and advice.size() <= 2 and joined == "召潮2.4秒/最多2援军；织壳1秒/32盾4秒/最多3次；击杀或牵制打断。甲壳60甲，J破甲忽略半甲/C集火。","Actual F3 defense shows the complete combined counter rule within its real one-or-two-line font budget")
   elif kind == "hunter":
    check(advice.size() == 1 and joined == "未耗尽召潮/织壳、疾行/噬灯/投蚀30伤；其余12","Actual selected hunter third page includes the full active-source thirty-damage rule")
   elif kind == "mixed":

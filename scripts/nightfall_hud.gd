@@ -218,6 +218,7 @@ func _draw() -> void:
 	draw_lobber_warnings()
 	draw_summoner_warnings()
 	draw_warder_warnings()
+	draw_shellguard_armor()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
@@ -479,6 +480,16 @@ func draw_warder_warnings() -> void:
 		var text_value:="护盾%d · %.1f秒" % [ceili(float(value.shield)),float(value.shield_time)]
 		_draw_shell_label(value.position+Vector3.UP*1.65,text_value,Color("b8dcd3"),occupied)
 
+func draw_shellguard_armor() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	for value: Variant in game.enemies:
+		if not is_instance_valid(value) or value.is_queued_for_deletion() or not value.alive:continue
+		if value.get_meta("threat","")!="shellguard" or float(value.armor)<=0.0:continue
+		# The local label reads actual armor; support timers take placement priority.
+		_draw_shell_label(value.position+Vector3.UP*2.1,"甲%d" % ceili(float(value.armor)),Color("d8cda3"),occupied)
+
 func _draw_shell_label(point: Vector3, text_value: String, tint: Color, occupied: Array[Rect2]) -> void:
 	var screen: Variant=_world_screen(point)
 	if screen==null:return
@@ -685,6 +696,8 @@ func draw_minimap() -> void:
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-4),enemy_marker+Vector2(4,0),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(0,-4)]),Color("c4a9e5"),1.8)
 		elif threat=="warder":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(-3,-3),enemy_marker+Vector2(3,-3),enemy_marker+Vector2(3,1),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-3,1),enemy_marker+Vector2(-3,-3)]),Color("d4dec3") if bool(creature.get_meta("warder_active",false)) else muted,1.6)
+		elif threat=="shellguard":
+			draw_polyline(PackedVector2Array([enemy_marker+Vector2(-2,-3.5),enemy_marker+Vector2(2,-3.5),enemy_marker+Vector2(4,0),enemy_marker+Vector2(2,3.5),enemy_marker+Vector2(-2,3.5),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(-2,-3.5)]),Color("d8cda3"),1.7)
 		elif threat=="lobber":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-3.5),enemy_marker+Vector2(3.5,3),enemy_marker+Vector2(-3.5,3),enemy_marker+Vector2(0,-3.5)]),Color("ced78b"),1.8)
 		else:

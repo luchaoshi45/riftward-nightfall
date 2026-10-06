@@ -78,7 +78,7 @@ func _priority(target: BattleUnit) -> int:
 	var role := String(target.get_meta("threat", ""))
 	if role == "summoner" and bool(target.get_meta("summoner_active", false)): return 0
 	if role == "warder" and bool(target.get_meta("warder_active", false)): return 1
-	return int({"lobber": 2, "light_eater": 3, "runner": 4, "breaker": 6, "sapper": 6}.get(role, 5))
+	return int({"lobber": 2, "light_eater": 3, "runner": 4, "breaker": 6, "sapper": 6, "shellguard": 6}.get(role, 5))
 
 func _block_signature() -> int:
 	return hash(game.get("construction_blocks")) if bool(roster.get("_has_construction_blocks")) else 0

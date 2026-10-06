@@ -6,7 +6,10 @@
 
 第二夜第三波、第三/四夜第一和第五波各以一名甲壳卫替换padding后的普通随从，原shuffle前原位替换且不额外抽随机数；首夜、原专职、召潮/织壳/首领、人数、封巢减员和每波24零件预算保持。保存实际数量并在原预告/F3防线补反制，末波须保留原首领打断说明。只加局部可辨壳片/小地图标记、不增加常驻面板；复用原创GLB附原生壳甲，属玩法原型，不登记专业新模型/蒙皮。
 
-内部战斗代理独占新`scripts/nightfall_shellguard.gd`和`tower_specializations.gd`的重敌分类必要改动；计划代理独占`nightfall_encounters.gd`及其fixture；验收代理独占新`tests/nightfall_shellguards.gd`与`nightfall_planned_waves.gd`必要夹具适配；主机A负责根控制器出生/威胁、两HUD、文档/Git/GPU，旧织壳固定HUD断言由主机A按最终文案必要适配。另一台勿并发这些范围。所有业务/测试逐文件安全上报，真实出生/甲盾/塔分支、南门行动、冻结/生命周期、保存计划/账本和Mac双后端三视口逐项验收；隔离夹具不冒称真人难度平衡。测试后台隐藏、无焦点、屏幕外、Dummy音频串行GPU，用户编辑器PID77795及两cfg原hash保留不提交。正式0.8.37、47/100和Windows成品0.8.25保持，原生成品未验不计数。
+内部战斗代理独占新`scripts/nightfall_shellguard.gd`及`tower_specializations.gd`的重敌分类、`outpost_hunters.gd`和`outpost_squads.gd`必要优先级集成；计划代理独占`nightfall_encounters.gd`及其fixture；验收代理独占新`tests/nightfall_shellguards.gd`与`nightfall_planned_waves.gd`必要夹具适配；主机A负责根控制器出生/威胁、两HUD、文档/Git/GPU，旧织壳固定HUD断言由主机A按最终文案必要适配。另一台勿并发这些范围。所有业务/测试逐文件安全上报，真实出生/甲盾/塔分支、南门行动、冻结/生命周期、保存计划/账本和Mac双后端三视口逐项验收；隔离夹具不冒称真人难度平衡。测试后台隐藏、无焦点、屏幕外、Dummy音频串行GPU，用户编辑器PID77795及两cfg原hash保留不提交。正式0.8.37、47/100和Windows成品0.8.25保持，原生成品未验不计数。
+
+
+生产接入检查点：甲壳出生真实数值、保留关节的五枚哑光壳片、重敌/远程/猎手优先级、真实保存计划、局部实际护甲标签/小地图甲片、短预告和F3最多两行已接入；没有新增控制器或常驻面板。全部修改生产文件已完成sec-code安全扫描并上报风险情况，无确认风险；根控制器与两HUD、新模块/重敌/优先级Godot4.7.2 check-only均实际退出0。保存计划fixture18235项实际退出0、全文干净，原冻结顺序/早期文案摘要保持，四模式/四夜/五种子/一至三封巢、末波原首领建议和无basic跳过通过。旧planned_waves原断言L57在当前计划实测退出1，另三个shellguard=0且warder=1的真实规划波见证旧期望恰多一个basic；这是此前织壳漏扣的夹具缺漏，不冒称旧HEAD整体或甲壳新缺陷。验收代理将最小适配并保留独立证据；新生产专项与GPU仍待完成，版本/计数保持。
 
 ## 2026-10-06有限护盾织壳者（主机A，源码及Mac验收完成）
 
