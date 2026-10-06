@@ -401,7 +401,10 @@ func draw_target_warnings() -> void:
 				hero_source_title=String(warning.get("title","敌人"))
 		if target!=game.hero:
 			var text_width:=font.get_string_size(label_text,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x
-			label(label_text,position+Vector2(-text_width*.5,-radius-13),12,danger)
+			var label_point:=position+Vector2(-text_width*.5,-radius-13)
+			# Later support/armor labels must respect this actual target-side text.
+			world_warning_rects.append(Rect2(label_point-Vector2(3,font.get_ascent(12)+3),Vector2(text_width+6,font.get_ascent(12)+font.get_descent(12)+6)))
+			label(label_text,label_point,12,danger)
 	if hero_warning_count>0 and hero_remaining<INF:
 		var detail: String="被锁定 · %s · %.1f秒后命中" % [hero_source_title,hero_remaining]
 		box(Rect2(566,606,530,32),Color(.12,.035,.028,.95),Color("d87961"))

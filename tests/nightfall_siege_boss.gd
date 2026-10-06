@@ -2,8 +2,10 @@ extends SceneTree
 ## 生产入口回归：四夜末波首领、增援账本与清场结算。
 
 var failures: Array[String] = []
+var checks := 0
 
 func check(condition: bool, message: String) -> void:
+	checks += 1
 	if condition:return
 	failures.append(message)
 	push_error(message)
@@ -51,9 +53,14 @@ func run() -> void:
 		quit(1)
 		return
 
-	boss.position=Vector3(0,5,0)
-	game.hero.position=Vector3(8,5,0)
+	# Isolate the real boss windup in walkable courtyard space. The old
+	# centre-of-core placement was blocked and its hero was outside slam range.
+	boss.position=Vector3(8,5,0)
+	game.hero.position=Vector3(10,5,0)
+	check(game.outpost_walkable(boss.position) and game.outpost_walkable(game.hero.position),"首领与英雄夹具必须都在真实可通行庭院内")
+	check(game.can_traverse(boss.position,game.hero.position) and boss.position.distance_to(game.hero.position)<=float(game.boss_snapshot().radius),"真实首领目标必须路径可达且处于原3.2米拍击范围内")
 	check(game.siege_boss.advance(8.0) and game.boss_snapshot().phase=="windup","生产首领必须进入真实蓄力")
+	check((game.boss_snapshot().position as Vector3).is_equal_approx(game.hero.position),"真实蓄力必须锁定可达邻近英雄而非阻挡内的核心")
 	var windup_before: float=float(game.boss_snapshot().windup)
 	game.phase="paused"
 	check(game.siege_boss.advance(1.0) and is_equal_approx(float(game.boss_snapshot().windup),windup_before),"暂停期间首领蓄力必须冻结")
@@ -61,10 +68,14 @@ func run() -> void:
 	check(game.siege_boss.advance(1.0) and is_equal_approx(float(game.boss_snapshot().windup),windup_before),"选卡期间首领蓄力必须冻结")
 	game.phase="night"
 	boss.shield=1000.0
+	var shield_hp: float=boss.hp
 	boss.hurt(118.0,game.hero)
+	check(boss.hp==shield_hp and boss.shield<1000.0,"真实hurt必须消耗护盾且不扣首领生命")
 	check(game.siege_boss.advance(.1) and float(game.boss_snapshot().interrupt_damage)==0.0,"护盾伤害不能推进蓄力打断")
 	boss.shield=0.0
+	var interrupt_hp: float=boss.hp
 	boss.hurt(259.6,game.hero)
+	check(is_equal_approx(interrupt_hp-boss.hp,220.0),"原18护甲下真实hurt必须精确扣除220生命")
 	check(game.siege_boss.advance(.1) and game.boss_snapshot().phase=="exposed","220实际生命伤害必须进入4秒破绽")
 	check(boss.armor==0.0 and is_equal_approx(float(game.boss_snapshot().exposed),4.0),"破绽必须移除护甲并持续4秒")
 	boss.hp=1600.0
@@ -98,8 +109,8 @@ func run() -> void:
 	await process_frame
 	await create_timer(.15).timeout
 	if failures.is_empty():
-		print("NIGHTFALL_SIEGE_BOSS_OK production spawn, windup freeze, shield-safe interrupt, exposed, reinforcements, clearance")
+		print("NIGHTFALL_SIEGE_BOSS_OK checks=%d failures=0 production spawn, reachable courtyard, windup freeze, shield-safe interrupt, exposed, reinforcements, clearance" % checks)
 		quit(0)
 	else:
-		print("NIGHTFALL_SIEGE_BOSS_FAILED ",failures)
+		print("NIGHTFALL_SIEGE_BOSS_FAILED checks=%d failures=%d " % [checks,failures.size()],failures)
 		quit(1)
