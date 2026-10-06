@@ -426,12 +426,12 @@ static func _draw_help(ui: Control) -> void:
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
 		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
 		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。\nF3选生产营和集结点；集结工队需恢复自动采运。",
-		"指挥：点选/框选、Shift追加、Tab全选；O驻守。\n右键指挥/工队采运；Shift+右键攻击推进。",
+		"编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。\n指挥：点选/框选/Shift追加；Tab全选，O驻守。\n右键指挥/工队采运；Shift+右键攻击推进。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",
 	]
-	for text: String in groups:y=_paragraph(ui,text,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,21)+7.0
+	for text: String in groups:y=_paragraph(ui,text,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,21)+5.0
 
 static func _dictionary_property(object: Object, property_name: String) -> Dictionary:
 	var value: Variant=object.get(property_name)

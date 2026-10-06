@@ -4,6 +4,7 @@ const Layout = preload("res://scripts/outpost_layout.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const RallyScript = preload("res://scripts/outpost_rally.gd")
+const ControlGroupsScript = preload("res://scripts/outpost_control_groups.gd")
 const DemolitionScript = preload("res://scripts/outpost_demolition.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
@@ -74,6 +75,7 @@ var hud: Control
 var effects: Node3D
 var construction: Node3D
 var rally: RefCounted
+var control_groups = ControlGroupsScript.new()
 var construction_blocks: Array[Rect2] = []
 var building_approach_cache: Dictionary = {}
 var selection_dragging := false
@@ -245,6 +247,7 @@ func _ready() -> void:
 	refresh_construction_navigation()
 	logistics=LogisticsScript.new();logistics.setup(self)
 	rally=RallyScript.new();rally.setup(self)
+	control_groups.setup(self)
 	pickup_sound=make_pickup_sound()
 	world.night_mix=1.0;world.set_night(true)
 	run.grant("守夜者的第一段记忆")
@@ -696,6 +699,7 @@ func finish_night() -> void:
 	if squads:squads.on_day()
 	if day_number>=max_nights():
 		salvage_draw.clear()
+		control_groups.clear()
 		if rally:rally.clear()
 		if logistics:logistics.clear()
 		if squads:squads.clear()
@@ -2196,6 +2200,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
 	salvage_draw.clear()
+	control_groups.clear()
 	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
@@ -3094,6 +3099,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		if rally and rally.active and phase in ["day","night"]:
 			if event.keycode==KEY_Y:toggle_tower_construction()
 			return
+		if event.keycode in [KEY_1,KEY_2,KEY_3]:
+			if phase not in ["day","night"]:return
+			if construction.active:
+				hud.select_construction_slot(int(event.keycode)-KEY_1)
+				return
+			var slot:=int(event.keycode)-KEY_1+1
+			var saving: bool=event.ctrl_pressed
+			var result: Dictionary=control_groups.save(slot) if saving else control_groups.select(slot,event.shift_pressed)
+			if bool(result.ok):
+				var verb: String="已保存" if saving else ("追加选择" if event.shift_pressed else "已选中")
+				notify("编组%d · 已清空" % slot if saving and int(result.count)==0 else "编组%d · %s%d队" % [slot,verb,int(result.count)],2)
+			elif String(result.reason)=="empty_group":
+				notify("编组%d暂无存活部队 · 选队后Ctrl+%d保存" % [slot,slot],2)
+			hud.queue_redraw()
+			get_viewport().set_input_as_handled()
+			return
 		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
 			if contracts.status=="bonus_offer" and event.keycode in [KEY_4,KEY_5]:
 				var bonus_index: int=int(event.keycode)-KEY_4
@@ -3121,7 +3142,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_DELETE,KEY_BACKSPACE:
 				if construction.active:construction.toggle_sell()
-			KEY_1,KEY_2,KEY_3:hud.select_construction_slot(int(event.keycode)-KEY_1)
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()
 			KEY_N:train_troop("engineer")
@@ -3258,6 +3278,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 
 func _exit_tree() -> void:
 	salvage_draw.clear()
+	control_groups.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
@@ -3272,6 +3293,7 @@ func request_run_restart(same_seed: bool) -> void:
 	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode):return
 	restart_pending=true
 	salvage_draw.clear()
+	control_groups.clear()
 	hud.queue_redraw()
 	# Keep music/playback cleanup in the tree before replacing the entire run.
 	await prepare_shutdown()
@@ -3290,6 +3312,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	salvage_draw.clear()
+	control_groups.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()

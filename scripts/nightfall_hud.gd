@@ -838,6 +838,14 @@ func toggle_selected_medics() -> void:
 	game.notify(reason,3)
 	queue_redraw()
 
+func control_group_hint() -> String:
+	var counts: Array[int]=[0,0,0]
+	if is_instance_valid(game) and game.control_groups:
+		for row: Dictionary in game.control_groups.snapshot().groups:
+			var index:=int(row.slot)-1
+			if index>=0 and index<counts.size():counts[index]=int(row.count)
+	return "Ctrl+数字存组 · 数字召回 · Shift追加 · 1:%d 2:%d 3:%d" % counts
+
 func draw_squads() -> void:
 	training_cancel_buttons.clear()
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
@@ -894,7 +902,7 @@ func draw_squads() -> void:
 	label("恢复默认",RALLY_RESET_RECT.position+Vector2(36,19),13,amber if has_barracks and game.phase!="paused" else muted)
 	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
 	label("兵营%d · 训练%d组 · 页%d/%d%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint],Vector2(46,465),12,muted)
-	label("点选/框选 · Shift追加 · Tab全选 · O驻守",Vector2(46,494),14,amber)
+	label(control_group_hint(),Vector2(46,494),13,amber)
 	label("Shift+右键攻击推进 · 接敌停战后续走",Vector2(46,522),14,muted)
 	if troop_page==1:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)

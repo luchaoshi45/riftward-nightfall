@@ -243,13 +243,14 @@ func district_discounts_and_branches() -> void:
 	stand(Vector3(0, 5, 3.9))
 	game.aim = Vector3(-8, 5, -7)
 	game.aim_sample_pending = false
+	await press(KEY_Y)
 	await press(KEY_2)
 	await press(KEY_F)
 	await press(KEY_ESCAPE)
-	check(game.districts.plots.size() == 1, "Real 2/F must append the first freely placed barracks")
+	check(game.districts.plots.size() == 1, "Real Y/2/F must append the first freely placed barracks")
 	if game.districts.plots.is_empty(): return
 	check(game.districts.plots[0].kind == "barracks" and game.scrap == 440,
-		"Production 2/F must freely construct the actual 60-scrap barracks")
+		"Production Y/2/F must freely construct the actual 60-scrap barracks")
 	stand(Vector3(-10, Layout.FORT_HEIGHT, 9))
 	game.hero.hp = game.hero.max_hp - 100.0
 	var hp_before: float = game.hero.hp
@@ -261,13 +262,14 @@ func district_discounts_and_branches() -> void:
 	stand(Vector3(0, 5, 3.9))
 	game.aim = Vector3(8, 5, -7)
 	game.aim_sample_pending = false
+	await press(KEY_Y)
 	await press(KEY_3)
 	await press(KEY_F)
 	await press(KEY_ESCAPE)
-	check(game.districts.plots.size() == 2, "Real 3/F must append the freely placed workshop")
+	check(game.districts.plots.size() == 2, "Real Y/3/F must append the freely placed workshop")
 	if game.districts.plots.size() < 2: return
 	check(game.districts.plots[1].kind == "workshop" and game.scrap == 380,
-		"Production 3/F must freely construct the actual 60-scrap workshop")
+		"Production Y/3/F must freely construct the actual 60-scrap workshop")
 	candidate(0, 2)
 	stand(game.world.tower_pads[0].position)
 	game.scrap = 68

@@ -242,9 +242,10 @@ func exercise_refresh() -> Dictionary:
 func build_via_keys(kind: String, point: Vector3) -> void:
 	var before: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
 	game.aim = point
+	press(KEY_Y)
 	press({"tower": KEY_1, "barracks": KEY_2, "workshop": KEY_3}[kind])
 	var placement: Dictionary = game.construction.snapshot()
-	check(game.construction.active and bool(placement.valid), "A real %s key must open a legal live preview" % kind)
+	check(game.construction.active and bool(placement.valid), "Real Y then the %s key must select a legal live preview" % kind)
 	if not bool(placement.valid): return
 	var balance: int = game.scrap
 	press(KEY_F)
@@ -347,9 +348,12 @@ func dirty_run() -> void:
 	press(KEY_ESCAPE)
 	var before_reward: int = game.scrap
 	var before_pending: int = game.run.pending
+	# Real preceding contracts differ by seed; the next discovery may be the
+	# fifth and must keep its native milestone rather than pretending it is 23.
+	var milestone_reward: int=55 if (game.exploration_count+1)%5==0 else 0
 	game.grant_exploration_reward("回归夹具物资", game.hero.position, 23, 0.0, 0.0, "salvage")
-	check(game.scrap == before_reward + 23 and game.run.pending == before_pending and game.phase == "day",
-		"Exploration income must credit shared scrap without automatically purchasing or opening cards")
+	check(game.scrap == before_reward + 23 + milestone_reward and game.run.pending == before_pending and game.phase == "day",
+		"Exploration income and its real fifth-discovery milestone must credit shared scrap without automatically purchasing or opening cards")
 	var before_upgrade: int = game.scrap
 	var upgrade_cost: int = game.run.memory_cost()
 	var before_level: int = game.run.memory_level

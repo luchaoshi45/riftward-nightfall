@@ -523,6 +523,20 @@ func select_all() -> int:
 	_refresh_selection()
 	return selected_ids.size()
 
+func select_ids(ids: Array[int], add: bool = false) -> Array[int]:
+	if not _active() or game.is_queued_for_deletion(): return selected_ids.duplicate()
+	var candidates: Array[int] = []
+	if add: candidates.assign(selected_ids)
+	candidates.append_array(ids)
+	var next_ids: Array[int] = []
+	for id: int in candidates:
+		if id < 0 or id >= squads.size() or id in next_ids: continue
+		var squad: Dictionary = squads[id]
+		if int(squad.get("id", -1)) == id and _squad_alive(squad): next_ids.append(id)
+	selected_ids.assign(next_ids)
+	_refresh_selection()
+	return selected_ids.duplicate()
+
 func select_at(point: Vector3, add: bool = false) -> int:
 	if not _active(): return selected_count()
 	var chosen := -1

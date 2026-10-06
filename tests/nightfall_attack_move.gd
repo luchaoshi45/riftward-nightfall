@@ -635,7 +635,7 @@ func measure_hud(tag: String, help: bool = false) -> void:
 				hint_seen=true
 				check(int(row.size)==13 and float(row.width)<=272 and String(row.text) in ["右键指挥 · Shift+右键推进","工队右键采运 · Shift+右键推进","选点中 · 原部队命令保留"],"Complete actual13px selected hint fits the original272px budget")
 			if row.point==Vector2(38,783):check(int(row.size)==14 and float(row.width)<=272,"Actual selected title fits the original272px budget at14px")
-			if row.point==Vector2(46,494):check(int(row.size)==14 and float(row.width)<=496 and row.text=="点选/框选 · Shift追加 · Tab全选 · O驻守","Complete actual command row fits its original496px column")
+			if row.point==Vector2(46,494):check(int(row.size)==13 and float(row.width)<=496 and row.text==game.hud.control_group_hint(),"Complete actual shortcut-group row fits its original496px column")
 			if row.point==Vector2(46,522):
 				army_seen=true; check(int(row.size)==14 and float(row.width)<=496 and row.text=="Shift+右键攻击推进 · 接敌停战后续走","Complete actual attack-move instruction fits496px at14px")
 			if help and row.point.x==46 and row.point.y>=230:help_bottom=maxf(help_bottom,float(row.point.y)+float(row.descent))
