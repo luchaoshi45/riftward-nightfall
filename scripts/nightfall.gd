@@ -2953,7 +2953,7 @@ func flush_pending_aim() -> void:
 	aim_sample_pending=false
 
 func handle_strategy_mouse(event: InputEvent) -> bool:
-	if phase not in ["day","night"] or music_credits_open:return false
+	if quitting or restart_pending or phase not in ["day","night"] or music_credits_open:return false
 	if event is InputEventMouseMotion:
 		pending_aim_screen=event.position
 		aim_sample_pending=true
@@ -3001,6 +3001,10 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 	var click_point:=ground_point(event.position)
 	aim=click_point;aim_sample_pending=false
 	if squads.selected_count()>0:
+		if event.shift_pressed:
+			var advance_result: Dictionary=squads.command_attack_move(click_point)
+			notify(String(advance_result.reason),2)
+			return true
 		var target: BattleUnit
 		var distance:=14.0*get_viewport().get_visible_rect().size.x/1440.0
 		for enemy: BattleUnit in enemies:

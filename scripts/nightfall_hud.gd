@@ -837,7 +837,7 @@ func draw_squads() -> void:
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
 	var snapshot: Dictionary=game.squads.snapshot()
 	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(46,184),17,Color("a9d8cf"))
-	label("存活 %d/%d人 · L补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
+	label("存活 %d/%d人 · L白昼补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
 	var kinds:=visible_training_kinds()
 	for index in kinds.size():
 		var kind:=kinds[index]
@@ -888,8 +888,8 @@ func draw_squads() -> void:
 	label("恢复默认",RALLY_RESET_RECT.position+Vector2(36,19),13,amber if has_barracks and game.phase!="paused" else muted)
 	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
 	label("兵营%d · 训练%d组 · 页%d/%d%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint],Vector2(46,465),12,muted)
-	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
-	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
+	label("点选/框选 · Shift追加 · Tab全选 · O驻守",Vector2(46,494),14,amber)
+	label("Shift+右键攻击推进 · 接敌停战后续走",Vector2(46,522),14,muted)
 	if troop_page==1:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
@@ -924,7 +924,7 @@ func draw_squads() -> void:
 			label("未耗尽召潮/织壳、疾行/噬灯/投蚀30伤；其余12",Vector2(46,580),14,amber)
 			CleanHud._paragraph(self,"前摇0.22秒 · 间隔1.4秒 · 需活工坊",Vector2(46,609),496,14,muted,21,1)
 			CleanHud._paragraph(self,"驻守追击8米 · 指定敌越出落点8米就返回",Vector2(46,648),496,13,ink,20,1)
-			CleanHud._paragraph(self,"移动/召回不追敌 · 脆皮，留盾卫保护后排",Vector2(46,681),496,12,muted,18,1)
+			CleanHud._paragraph(self,"普通移动/召回不追敌 · Shift右键沿途迎击",Vector2(46,681),496,12,muted,18,1)
 		else:
 			label("迫击炮 · 射程5.5–16米 · 半径2.2米 / 32伤",Vector2(46,553),14,ink)
 			label("前摇1秒 + 飞行0.8秒 · 发射后间隔4.8秒",Vector2(46,580),14,amber)

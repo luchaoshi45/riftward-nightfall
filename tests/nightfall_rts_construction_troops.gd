@@ -278,8 +278,8 @@ func hud_training_buttons() -> void:
 		var button: Dictionary = game.hud.training_cancel_buttons[0]
 		await click_ui(button.rect)
 	check(game.scrap == balance and members().is_empty(), "Actual HUD cancellation buttons must refund every unfinished order once")
-	check(game.hud.font.get_string_size("点选/框选 · Shift追加 · 右键指挥 · O驻守", HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x <= 344,
-		"The Chinese troop instructions must fit inside their visible panel")
+	check(game.hud.font.get_string_size("点选/框选 · Shift追加 · Tab全选 · O驻守", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x <= 496,
+		"The actually drawn Chinese troop instructions must fit their current drawer at14px")
 	await click_ui(Rect2(46, 480, 350, 20))
 	check(not game.selection_dragging and game.scrap == balance, "Passive troop-panel text must consume world clicks without spending")
 	check(not game.hud.CleanHud.HERO_RECT.intersects(game.hud.MEMORY_BUTTON_RECT),

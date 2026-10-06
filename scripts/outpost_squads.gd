@@ -22,6 +22,7 @@ const MEDIC_COST := 2
 const HOLD := "hold"
 const RECALL := "recall"
 const MOVE := "move"
+const AMOVE := "attack_move"
 const ATTACK := "attack"
 const GUARD := "guard"
 const HAUL := "haul"
@@ -128,6 +129,12 @@ func _owns_squad(squad: Dictionary, generation: int) -> bool:
 	var id := int(squad.get("id", -1))
 	return id >= 0 and id < squads.size() and is_same(squads[id], squad)
 
+func _owns_member(soldier: BattleUnit, generation: int) -> bool:
+	if generation != _epoch or not _active() or not _living(soldier): return false
+	for squad: Dictionary in squads:
+		if soldier in squad.members: return true
+	return false
+
 func _create_squad(kind: String, origin: Vector3) -> int:
 	var generation := _epoch
 	if not _active(): return -1
@@ -136,7 +143,7 @@ func _create_squad(kind: String, origin: Vector3) -> int:
 	var initial_order := HAUL if kind == "hauler" else (RECALL if str(game.get("phase")) == "day" else HOLD)
 	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members,
 		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0,
-		"rally_pending": false, "rally_stations": []}
+		"rally_pending": false, "rally_stations": [], "attack_move_stations": []}
 	if kind == "medic":
 		squad.merge({"therapy_enabled": false, "treatments": 0, "healed_hp": 0.0, "spent": 0})
 	squads.append(squad)
@@ -290,6 +297,7 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.name = "Outpost_%s_%d_%d" % [squad.kind, squad.id, slot]
 	soldier.set_meta("outpost_squad", true)
 	soldier.set_meta("squad_kind", squad.kind)
+	soldier.set_meta("amove_engaged", false)
 	soldier.title = String(Catalog.troop(String(squad.kind)).title)
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
@@ -317,6 +325,9 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	return soldier
 
 func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
+	var march_stations: Array = squad.get("attack_move_stations", [])
+	if order == AMOVE and march_stations.size() == MEMBERS_PER_SQUAD:
+		return march_stations[slot]
 	var rally_stations: Array = squad.get("rally_stations", [])
 	if order in [MOVE, GUARD] and rally_stations.size() == MEMBERS_PER_SQUAD:
 		return rally_stations[slot]
@@ -327,7 +338,7 @@ func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
 			var point: Vector3 = logistics.call("destination_for", int(squad.id), member.get_instance_id())
 			return point if point.is_finite() else member.position
 		return member.position if _living(member) else squad.destination
-	if order in [MOVE, ATTACK, GUARD]:
+	if order in [MOVE, AMOVE, ATTACK, GUARD]:
 		var index := int(squad.get("formation_index", 0))
 		var offset := Vector3((slot - 1) * 1.25 + float([0, -1, 1][index % 3]) * 3.7, 0, float(int(index / 3)) * 2.2)
 		return _resolve_destination((squad.destination as Vector3) + offset)
@@ -552,11 +563,17 @@ func _command(order: String, point: Vector3, target: BattleUnit = null, exclude_
 		squad.formation_index = index
 		squad.attack_target = weakref(target) if is_instance_valid(target) else null
 		if String(squad.kind) == "hunter" and order == ATTACK: squad.hunter_attack_anchor = point
+		if order == AMOVE:
+			var stations: Array[Vector3] = []
+			for slot in MEMBERS_PER_SQUAD: stations.append(_station(squad, slot, AMOVE))
+			squad.attack_move_stations = stations
 		index += 1
 	if index == 0: return _result(false, "没有已选护卫部队")
-	return _result(true, {MOVE: "部队前往指定位置", ATTACK: "部队攻击指定敌人", GUARD: "部队守卫指定位置"}[order])
+	return _result(true, {MOVE: "部队前往指定位置", AMOVE: "部队沿路迎击，到点驻守", ATTACK: "部队攻击指定敌人", GUARD: "部队守卫指定位置"}[order])
 
 func command_move(point: Vector3) -> Dictionary: return _command(MOVE, point)
+
+func command_attack_move(point: Vector3) -> Dictionary: return _command(AMOVE, point)
 
 func command_move_non_haulers(point: Vector3) -> Dictionary: return _command(MOVE, point, null, true)
 
@@ -583,12 +600,14 @@ func _set_squad_order(squad: Dictionary, order: String) -> void:
 	# replace that command with the old barracks destination.
 	squad.rally_pending = false
 	squad.rally_stations = []
+	squad.attack_move_stations = []
 	if String(squad.kind) == "hauler" and order != HAUL:
 		var logistics := _logistics()
 		if is_instance_valid(logistics): logistics.call("on_manual_order", int(squad.id))
 	squad.order = order
 	for soldier: BattleUnit in squad.members:
 		if not _living(soldier): continue
+		soldier.set_meta("amove_engaged", false)
 		if String(squad.kind) == "medic": _cancel_medic(soldier, "order_changed")
 		if String(squad.kind) == "artillery" and is_instance_valid(artillery): artillery.cancel(soldier)
 		if String(squad.kind) == "hunter" and is_instance_valid(hunters): hunters.on_order(soldier)
@@ -830,6 +849,7 @@ func on_day() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
@@ -840,9 +860,19 @@ func on_night() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, HOLD)
+
+func _clear_attack_move_encounters() -> void:
+	for squad: Dictionary in squads:
+		if squad.order != AMOVE: continue
+		for soldier: BattleUnit in squad.members:
+			if not _living(soldier): continue
+			soldier.set_meta("amove_engaged", false)
+			soldier.target = null; soldier.attack_queued = false; soldier.attack_windup = 0.0
+			soldier.path.clear(); soldier.path_timer = 0.0
 
 func refill(squad_id: int = -1) -> Dictionary:
 	if not _active() or str(game.get("phase")) != "day": return _result(false, "只能在白昼付费补员休整")
@@ -910,7 +940,8 @@ func advance(delta: float, active: bool = true) -> void:
 				continue
 			if String(squad.kind) == "artillery":
 				_advance_artillery_member(squad,soldier,elapsed,designated,slot)
-				_animate_member(soldier)
+				if not _owns_squad(squad, generation): return
+				if _living(soldier): _animate_member(soldier)
 				continue
 			if String(squad.kind) == "medic":
 				# Attack commands retain their issued destination for medics.
@@ -919,6 +950,11 @@ func advance(delta: float, active: bool = true) -> void:
 				_move_member(soldier, medic_station, elapsed)
 				_advance_medic(squad, soldier, elapsed, medic_station)
 				_animate_member(soldier)
+				continue
+			if squad.order == AMOVE:
+				_advance_attack_move_member(squad, soldier, slot, elapsed)
+				if not _owns_squad(squad, generation): return
+				if _living(soldier): _animate_member(soldier)
 				continue
 			if squad.order == ATTACK and _enemy(designated) and _in_range(soldier, designated):
 				soldier.moving = false
@@ -933,6 +969,43 @@ func advance(delta: float, active: bool = true) -> void:
 			_animate_member(soldier)
 		if generation != _epoch or not _active(): return
 		_finish_training_rally(squad)
+		if not _owns_squad(squad, generation): return
+		_finish_attack_move(squad)
+
+func _advance_attack_move_member(squad: Dictionary, soldier: BattleUnit, slot: int, delta: float) -> void:
+	var generation := _epoch
+	var target: BattleUnit
+	if String(squad.kind) != "hauler":
+		if soldier.attack_queued and _enemy(soldier.target) and soldier.target in game.get("enemies") and _in_range(soldier, soldier.target):
+			target = soldier.target
+		else:
+			soldier.attack_queued = false; soldier.attack_windup = 0.0; soldier.target = null
+			target = _pick_enemy(soldier, true)
+	if is_instance_valid(target):
+		soldier.moving = false; soldier.path.clear()
+		soldier.set_meta("amove_engaged", true)
+		if String(squad.kind) == "engineer": _repair_nearby(soldier, delta)
+		if not _owns_member(soldier, generation): return
+		_attack(soldier, delta, target)
+		return
+	soldier.set_meta("amove_engaged", false)
+	_move_member(soldier, _station(squad, slot, AMOVE), delta)
+	if not soldier.moving and String(squad.kind) == "engineer": _repair_nearby(soldier, delta)
+
+func _finish_attack_move(squad: Dictionary) -> void:
+	var generation := _epoch
+	if not _owns_squad(squad, generation) or squad.order != AMOVE: return
+	var stations: Array = squad.get("attack_move_stations", [])
+	if stations.size() != MEMBERS_PER_SQUAD: return
+	var alive := 0
+	for slot in MEMBERS_PER_SQUAD:
+		var soldier: BattleUnit = squad.members[slot]
+		if not _living(soldier): continue
+		alive += 1
+		if _ground_distance(soldier.position, stations[slot]) > .16 + .000001: return
+	if alive == 0: return
+	_set_squad_order(squad, GUARD)
+	if _owns_squad(squad, generation): squad.rally_stations = stations
 
 func _finish_training_rally(squad: Dictionary) -> void:
 	var generation := _epoch
@@ -963,6 +1036,16 @@ func _stop_artillery(soldier: BattleUnit) -> void:
 func _advance_artillery_member(squad: Dictionary, soldier: BattleUnit, delta: float, designated: BattleUnit, slot: int) -> void:
 	if artillery.casting(soldier):
 		artillery.advance_unit(soldier,delta)
+		return
+	if squad.order == AMOVE:
+		var march_focus: Variant = game.get("focus_target")
+		var march_preferred: BattleUnit = march_focus as BattleUnit if artillery.real_enemy(march_focus) and float(game.get("focus_time")) > 0.0 else null
+		var march_target: BattleUnit = artillery.pick_target(soldier, march_preferred)
+		if is_instance_valid(march_target):
+			_stop_artillery(soldier)
+			artillery.begin(soldier, march_target)
+		else:
+			_move_member(soldier, _station(squad, slot, AMOVE), delta)
 		return
 	var preferred: BattleUnit = designated if artillery.real_enemy(designated) else null
 	if preferred == null and squad.order not in [MOVE,RECALL]:
@@ -1093,9 +1176,11 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 		if soldier.attack_windup > 0.0: return
 		var victim := soldier.target
 		var impact := victim.position + Vector3.UP
+		var generation := _epoch
 		soldier.attack_queued = false; soldier.attack_timer = soldier.attack_interval
 		soldier.attack_pose = 1.0
 		victim.hurt(soldier.damage, soldier) # Never source hero or mark a player attack.
+		if not _owns_member(soldier, generation): return
 		if str(soldier.get_meta("squad_kind")) == "ballista":
 			_beam(soldier.position + Vector3.UP, impact, Color("efb774"), .065, .24, .95)
 		elif str(soldier.get_meta("squad_kind")) == "ranged": _beam(soldier.position + Vector3.UP, impact)
@@ -1108,9 +1193,9 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 	soldier.attack_windup = soldier.windup_duration
 	soldier.face(target.position, delta)
 
-func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
+func _pick_enemy(soldier: BattleUnit, real_only: bool = false) -> BattleUnit:
 	var focus: Variant = game.get("focus_target")
-	if _enemy(focus) and float(game.get("focus_time")) > 0.0 and _in_range(soldier, focus as BattleUnit): return focus as BattleUnit
+	if _enemy(focus) and (not real_only or focus in game.get("enemies")) and float(game.get("focus_time")) > 0.0 and _in_range(soldier, focus as BattleUnit): return focus as BattleUnit
 	var selected: BattleUnit
 	var score := -INF
 	for candidate: Variant in game.get("enemies"):
@@ -1139,9 +1224,10 @@ func blocker_for(enemy: Variant) -> BattleUnit:
 	var closest: BattleUnit
 	var distance := 3.2
 	for squad in squads:
-		if squad.kind != "shield" or squad.order not in [HOLD, GUARD]: continue
+		if squad.kind != "shield" or squad.order not in [HOLD, GUARD, AMOVE]: continue
 		for soldier: BattleUnit in squad.members:
 			if not _living(soldier) or soldier.moving: continue
+			if squad.order == AMOVE and not bool(soldier.get_meta("amove_engaged", false)): continue
 			var separation := _ground_distance(soldier.position, enemy.position)
 			if separation < distance and _traversable(enemy.position, soldier.position):
 				closest = soldier; distance = separation
@@ -1203,6 +1289,8 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 func _is_holding(soldier: BattleUnit) -> bool:
 	for squad in squads:
 		if squad.kind == "shield" and squad.order in [HOLD, GUARD] and soldier in squad.members: return true
+		if squad.kind == "shield" and squad.order == AMOVE and soldier in squad.members:
+			return not soldier.moving and bool(soldier.get_meta("amove_engaged", false))
 	return false
 
 func _cancel_enemy_intercept(enemy: BattleUnit) -> void:

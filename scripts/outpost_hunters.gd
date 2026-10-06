@@ -20,7 +20,7 @@ func setup(controller: Node3D, squad_roster: Node3D) -> void:
 func register(source: BattleUnit, squad_id: int, slot: int) -> void:
 	_units[source.get_instance_id()] = {"unit": weakref(source), "squad_id": squad_id,
 		"slot": slot, "phase": "idle", "anchor": source.position, "target": null,
-		"stuck": 0.0, "blocked": {}, "hits": 0, "cancel_reason": ""}
+		"stuck": 0.0, "blocked": {}, "hits": 0, "cancel_reason": "", "encounter": false}
 
 func _living(value: Variant) -> bool:
 	return is_instance_valid(value) and value is BattleUnit and not value.is_queued_for_deletion() and value.alive and value.hp > 0.0
@@ -85,6 +85,10 @@ func _block_signature() -> int:
 
 func _blocked(state: Dictionary, target: BattleUnit) -> bool:
 	var row: Dictionary = (state.blocked as Dictionary).get(target.get_instance_id(), {})
+	# A fleeing victim must return to its original encounter area before it
+	# can lure this march again. Moving farther cannot refresh the old leash.
+	if row.has("leash_anchor"):
+		return distance(row.leash_anchor, target.position) > LEASH + .000001
 	return not row.is_empty() and distance(row.point, target.position) <= .8 and int(row.signature) == _block_signature()
 
 func pick_target(source: BattleUnit, anchor: Vector3) -> BattleUnit:
@@ -111,6 +115,7 @@ func cancel(source: BattleUnit, reason: String = "order_changed") -> void:
 	if state.is_empty(): return
 	if source.attack_queued: _cancellations += 1
 	state.phase = "idle"; state.target = null; state.stuck = 0.0
+	state.encounter = false
 	state.cancel_reason = reason
 	source.target = null; source.attack_queued = false; source.attack_windup = 0.0
 	source.path.clear(); source.path_timer = 0.0
@@ -153,7 +158,20 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 	var order := String(squad.order)
 	var station: Vector3 = roster.call("_station", squad, slot, order)
 	var anchor: Vector3 = squad.get("hunter_attack_anchor", squad.destination) if order == "attack" else station
-	state.anchor = anchor
+	if order == "attack_move":
+		if not bool(state.encounter):
+			var encountered: BattleUnit = pick_target(source, source.position)
+			if not real_enemy(encountered):
+				state.anchor = source.position
+				_return(source, state, station, delta)
+				if source.moving: state.phase = "command_move"
+				return
+			state.encounter = true
+			state.anchor = source.position
+			state.target = weakref(encountered)
+		anchor = state.anchor
+	else:
+		state.anchor = anchor
 	if order in ["move", "recall"]:
 		if source.attack_queued or state.target != null: cancel(source, "moving")
 		state.anchor = station
@@ -164,7 +182,19 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 		_return(source, state, station, delta)
 		return
 	var target: Variant = (state.target as WeakRef).get_ref() if state.target is WeakRef else null
-	if order == "attack":
+	if order == "attack_move":
+		if not legal_target(source, target, anchor):
+			if real_enemy(target) and distance(anchor, target.position) > LEASH + .000001:
+				(state.blocked as Dictionary)[target.get_instance_id()] = {"leash_anchor": anchor}
+			cancel(source, "target_invalid")
+			_return(source, state, station, delta)
+			if source.moving: state.phase = "command_move"
+			return
+		elif not source.attack_queued:
+			# Reuse the normal focus and threat priorities inside this encounter's
+			# fixed leash. A new victim never moves the encounter anchor.
+			target = pick_target(source, anchor)
+	elif order == "attack":
 		target = (squad.attack_target as WeakRef).get_ref() if squad.attack_target is WeakRef else null
 		if not legal_target(source, target, anchor) or (real_enemy(target) and _blocked(state, target)):
 			cancel(source, "target_unreachable")
@@ -176,17 +206,25 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 		return
 	elif target == null:
 		target = pick_target(source, anchor)
-	elif not source.attack_queued:
+	elif not source.attack_queued and order != "attack_move":
 		target = pick_target(source, anchor)
 	if not real_enemy(target):
 		_return(source, state, station, delta)
 		return
 	state.target = weakref(target)
-	if source.attack_queued:
-		if source.target != target or not _contact(source, target):
+	if source.attack_queued and (source.target != target or not _contact(source, target)):
+		if order == "attack_move":
+			# Losing contact cancels only this preparation, keeping the finite
+			# encounter anchor while walking back into actual melee reach.
+			_cancellations += 1
+			source.target = null; source.attack_queued = false; source.attack_windup = 0.0
+			source.path.clear(); source.path_timer = 0.0
+			state.cancel_reason = "contact_lost"
+		else:
 			cancel(source, "contact_lost")
 			_return(source, state, station, delta)
 			return
+	if source.attack_queued:
 		source.moving = false; source.face(target.position, delta)
 		state.phase = "windup"
 		if source.attack_windup > 0.0: return
@@ -238,7 +276,7 @@ func snapshot() -> Dictionary:
 		if not real_source(source): continue
 		var target: Variant = (state.target as WeakRef).get_ref() if state.target is WeakRef else null
 		var row := {"unit": source, "source_token": source.get_instance_id(), "squad_id": state.squad_id, "slot": state.slot,
-			"phase": String(state.phase), "anchor": state.anchor, "target_token": target.get_instance_id() if real_enemy(target) else -1,
+			"phase": String(state.phase), "anchor": state.anchor, "encounter": bool(state.get("encounter", false)), "target_token": target.get_instance_id() if real_enemy(target) else -1,
 			"remaining": source.attack_windup if source.attack_queued else 0.0, "cooldown": source.attack_timer,
 			"hits": int(state.hits), "cancel_reason": String(state.cancel_reason)}
 		units.append(row)
