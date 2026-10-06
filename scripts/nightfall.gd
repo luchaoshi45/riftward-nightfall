@@ -2915,7 +2915,15 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 			var head:=camera.unproject_position(enemy.position+Vector3(0,1.7,0))
 			var candidate:=Geometry2D.get_closest_point_to_segment(event.position,feet,head).distance_to(event.position)
 			if candidate<distance:target=enemy;distance=candidate
-		var result: Dictionary=squads.command_attack(target) if is_instance_valid(target) else squads.command_move(click_point)
+		var result: Dictionary
+		if is_instance_valid(target):result=squads.command_attack(target)
+		elif is_instance_valid(logistics) and logistics.selected_hauler_count()>0:
+			var field_index: int=logistics.field_at_point(click_point)
+			if field_index>=0:
+				result=logistics.command_selected_field(field_index)
+				if bool(result.ok):squads.command_move_non_haulers(click_point)
+			else:result=squads.command_move(click_point)
+		else:result=squads.command_move(click_point)
 		notify(String(result.reason),2)
 	else:plan_hero_path(click_point)
 	return true

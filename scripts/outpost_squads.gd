@@ -454,22 +454,26 @@ func select_rect(camera: Camera3D, rect: Rect2, add: bool = false) -> int:
 	_refresh_selection()
 	return selected_ids.size()
 
-func _command(order: String, point: Vector3, target: BattleUnit = null) -> Dictionary:
+func _command(order: String, point: Vector3, target: BattleUnit = null, exclude_haulers: bool = false) -> Dictionary:
 	if not _active(): return _result(false, "暂停或选卡时不能指挥")
 	if selected_count() == 0: return _result(false, "请先选择部队")
 	if not point.is_finite(): return _result(false, "请选择可通行位置")
 	var index := 0
 	for squad in squads:
 		if int(squad.id) not in selected_ids: continue
+		if exclude_haulers and String(squad.kind) == "hauler": continue
 		_set_squad_order(squad, order)
 		squad.destination = _resolve_destination(point)
 		squad.formation_index = index
 		squad.attack_target = weakref(target) if is_instance_valid(target) else null
 		if String(squad.kind) == "hunter" and order == ATTACK: squad.hunter_attack_anchor = point
 		index += 1
+	if index == 0: return _result(false, "没有已选护卫部队")
 	return _result(true, {MOVE: "部队前往指定位置", ATTACK: "部队攻击指定敌人", GUARD: "部队守卫指定位置"}[order])
 
 func command_move(point: Vector3) -> Dictionary: return _command(MOVE, point)
+
+func command_move_non_haulers(point: Vector3) -> Dictionary: return _command(MOVE, point, null, true)
 
 func command_guard(point: Vector3) -> Dictionary: return _command(GUARD, point)
 

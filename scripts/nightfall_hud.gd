@@ -720,7 +720,7 @@ func selected_hauler_ids() -> Array[int]:
 	for squad: Dictionary in game.squads.squads:
 		if String(squad.kind)!="hauler" or not game.squads.selected_ids.has(int(squad.id)):continue
 		for member: BattleUnit in squad.members:
-			if is_instance_valid(member) and member.alive:
+			if is_instance_valid(member) and member.alive and not member.is_queued_for_deletion():
 				ids.append(int(squad.id));break
 	return ids
 
@@ -824,23 +824,24 @@ func draw_squads() -> void:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
 		var medics:=selected_medic_ids()
-		var support_hint:="采运 · "+("白昼装料，返中转站收款" if bool(eligibility.available) else String(eligibility.reason))
+		var support_hint:="工队右键废料堆指定采运 · 采尽后自动" if bool(eligibility.available) else "采运 · "+String(eligibility.reason)
 		if not medics.is_empty():support_hint="医护默认停疗 · 驻定治疗 · 前摇0.65秒 / 间隔4秒"
 		CleanHud._paragraph(self,support_hint,Vector2(46,580),496,14,amber,21,1)
 		if is_instance_valid(game.logistics):
 			var transport: Dictionary=game.logistics.snapshot()
 			label("废料%d · 在途%d · 送达%d · 丢失%d" % [int(transport.remaining),int(transport.cargo),int(transport.delivered),int(transport.lost)],Vector2(46,609),13,muted)
 			var selected:=selected_hauler_ids()
-			var status:="选择工队后可恢复采运"
+			var status:="选择工队后可指定资源线"
 			for team: Dictionary in transport.teams:
 				if selected.has(int(team.id)):
-					status="工队%d · %s · 载货%d" % [int(team.id)+1,String(team.state_title),int(team.cargo)]
+					var route:="指定堆%d" % (int(team.preferred_field)+1) if int(team.preferred_field)>=0 else "自动" if bool(team.automatic) else "手动"
+					status="工队%d · %s · %s · 货%d" % [int(team.id)+1,route,String(team.state_title),int(team.cargo)]
 					break
 			if selected.is_empty() and not medics.is_empty():status="已选医护%d队 · %s" % [medics.size(),"治疗全开" if selected_medics_enabled() else "尚未全部开启"]
 			CleanHud._paragraph(self,status,Vector2(46,648),296,13,ink,20,1)
 			if haul_button_visible():
 				box(HAUL_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
-				label("恢复采运" if game.phase!="paused" else "暂停 · 恢复后采运",HAUL_BUTTON_RECT.position+Vector2(12,21),13,amber if game.phase!="paused" else muted)
+				label("恢复自动采运" if game.phase!="paused" else "暂停 · 自动采运",HAUL_BUTTON_RECT.position+Vector2(12,21),13,amber if game.phase!="paused" else muted)
 		if medic_button_visible():
 			var medical: Dictionary=game.squads.medic_snapshot()
 			CleanHud._paragraph(self,"医护合计%d次 · 恢复%.0f · 花费%d" % [int(medical.treatments),float(medical.healed_hp),int(medical.spent)],Vector2(46,681),296,12,muted,18,1)

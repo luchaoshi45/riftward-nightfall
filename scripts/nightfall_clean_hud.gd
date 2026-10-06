@@ -160,7 +160,8 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	if int(snapshot.get("selected",0))<=0:return
 	ui.box(Rect2(24,762,300,54),Color(.027,.047,.042,.93),Color("52695c"))
 	ui.label("已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)],Vector2(38,783),14,GREEN)
-	ui.label("右键移动/攻击 · O 驻守",Vector2(38,808),13,ui.muted)
+	var hauling: bool=is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
+	ui.label("工队右键废料堆 · O驻守取消" if hauling else "右键移动/攻击 · O 驻守",Vector2(38,808),13,ui.muted)
 
 static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()
@@ -359,7 +360,7 @@ static func _draw_help(ui: Control) -> void:
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
 		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
 		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。",
-		"指挥：点选/框选、Shift追加、Tab全选；右键指挥，O驻守。",
+		"指挥：点选/框选、Shift追加、Tab全选；O驻守。\n右键移动/攻击；工队右键废料堆指定采运。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",

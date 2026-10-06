@@ -79,7 +79,7 @@ func _sync_teams() -> void:
 		if String(squad.kind) != "hauler": continue
 		var id := int(squad.id)
 		if not _teams.has(id):
-			_teams[id] = {"id": id, "state": "idle", "reason": "", "field": -1, "home": -1,
+			_teams[id] = {"id": id, "state": "idle", "reason": "", "field": -1, "preferred_field": -1, "home": -1,
 				"loading": 0.0, "automatic": String(squad.order) == HAUL, "retry": 0.0,
 				"destinations": {}, "homes": {}, "unloading": {}, "tokens": [], "positions": {},
 				"stalled": 0.0, "blocked_fields": {}}
@@ -116,8 +116,10 @@ func advance(delta: float) -> void:
 			continue
 		if not bool(team.automatic):
 			_release_field(team); team.destinations.clear(); team.unloading.clear()
+			team.preferred_field = -1
 			_set_state(team, "manual", "载货保留 · 点击恢复采运")
 			continue
+		_clear_empty_preference(team)
 		if _team_cargo(int(team.id)) > 0:
 			_release_field(team)
 			_advance_return(team, delta, true)
@@ -126,6 +128,73 @@ func advance(delta: float) -> void:
 			_advance_return(team, delta, false)
 		else:
 			_advance_field(team, delta)
+	_refresh_route_markers()
+
+func _field_live(index: int) -> bool:
+	if index < 0 or index >= fields.size(): return false
+	var node: Variant = fields[index].get("node")
+	return is_instance_valid(node) and node is Node3D and not node.is_queued_for_deletion() and node.get_parent() == self and (fields[index].position as Vector3).is_finite()
+
+func field_at_point(point: Vector3) -> int:
+	# Picking also finds empty heaps so the command can explain their depletion.
+	# Reading the map must never claim stock, refresh routes or advance a clock.
+	if not point.is_finite() or absf(point.y - _height(point)) > .75: return -1
+	var found := -1
+	var nearest := FIELD_RADIUS
+	for index in fields.size():
+		if not _field_live(index): continue
+		var distance := _distance(point, fields[index].position)
+		if distance <= nearest:
+			found = index; nearest = distance
+	return found
+
+func selected_hauler_count() -> int:
+	var squads := _squads()
+	if not is_instance_valid(squads): return 0
+	var count := 0
+	for squad: Dictionary in squads.get("squads"):
+		if String(squad.kind) != "hauler" or int(squad.id) not in squads.get("selected_ids"): continue
+		for member: Variant in squad.members:
+			if _living(member):
+				count += 1
+				break
+	return count
+
+func command_selected_field(index: int) -> Dictionary:
+	if not _active(): return {"ok": false, "count": 0, "reason": "暂停或选卡时不能指定采运"}
+	if not _field_live(index): return {"ok": false, "count": 0, "reason": "请选择真实废料堆"}
+	if int(fields[index].remaining) <= 0: return {"ok": false, "count": 0, "reason": "废料堆已采尽 · 请选择其他资源线"}
+	if selected_hauler_count() <= 0: return {"ok": false, "count": 0, "reason": "请先选择存活采运工队"}
+	var squads := _squads()
+	_sync_teams()
+	var commanded := 0
+	for id: int in squads.get("selected_ids"):
+		if not _teams.has(id) or (_teams[id].tokens as Array).is_empty(): continue
+		var team: Dictionary = _teams[id]
+		# A repeated order is genuinely inert, including an unload already in progress.
+		if bool(team.automatic) and int(team.preferred_field) == index:
+			commanded += 1
+			continue
+		var has_goods := _team_cargo(id) > 0
+		# An automatic loaded carrier retains its current depot route and unload timer.
+		# Other changes clear unit paths through the existing squad order API.
+		if (not bool(team.automatic) or not has_goods) and not bool(squads.call("set_haul_order", id)): continue
+		_release_field(team)
+		team.preferred_field = index; team.automatic = true; team.retry = 0.0
+		if not has_goods:
+			team.destinations.clear(); team.homes.clear(); team.unloading.clear(); team.home = -1
+			_set_state(team, "idle" if String(_property("phase")) == "day" else "night_wait", "指定堆%d · 夜间不采料" % (index + 1) if String(_property("phase")) == "night" else "")
+		elif String(team.state) != "unloading":
+			_set_state(team, "returning", "先卸已有载货，再前往指定堆%d" % (index + 1))
+		commanded += 1
+	_refresh_route_markers()
+	return {"ok": commanded > 0, "count": commanded,
+		"reason": "%d队指定废料堆%d · %s" % [commanded, index + 1, "夜间先返站，天亮续线" if String(_property("phase")) == "night" else "载货先卸，白昼循环采运"] if commanded > 0 else "请先选择存活采运工队"}
+
+func _clear_empty_preference(team: Dictionary) -> void:
+	var index := int(team.preferred_field)
+	if index >= 0 and _team_cargo(int(team.id)) <= 0 and (not _field_live(index) or int(fields[index].remaining) <= 0):
+		team.preferred_field = -1
 
 func start_selected_hauling() -> Dictionary:
 	if not _active(): return {"ok": false, "reason": "暂停或选卡时不能恢复采运", "count": 0}
@@ -138,9 +207,11 @@ func start_selected_hauling() -> Dictionary:
 		if not bool(squads.call("set_haul_order", id)): continue
 		var team: Dictionary = _teams[id]
 		_release_field(team); team.automatic = true; team.retry = 0.0
+		team.preferred_field = -1
 		team.homes.clear(); team.unloading.clear(); team.destinations.clear()
 		_set_state(team, "returning" if _team_cargo(id) > 0 else "idle", "")
 		started += 1
+	_refresh_route_markers()
 	return {"ok": started > 0, "count": started,
 		"reason": ("%d队恢复采运" % started if String(_property("phase")) == "day" else "%d队返站 · 夜间不采料" % started) if started > 0 else "请先选择存活采运工队"}
 
@@ -148,9 +219,11 @@ func on_manual_order(squad_id: int) -> void:
 	if not _teams.has(squad_id): return
 	var team: Dictionary = _teams[squad_id]
 	_release_field(team); team.automatic = false
+	team.preferred_field = -1
 	team.destinations.clear(); team.homes.clear(); team.unloading.clear()
 	team.home = -1
 	_set_state(team, "manual", "载货保留 · 点击恢复采运")
+	_refresh_route_markers()
 
 func on_member_defeated(member_token: int) -> void:
 	var row: Dictionary = _cargo.get(member_token, {})
@@ -164,17 +237,20 @@ func on_member_defeated(member_token: int) -> void:
 		_release_field(team)
 		team.destinations.erase(member_token); team.homes.erase(member_token); team.unloading.erase(member_token)
 		team.retry = 0.0
+	_refresh_route_markers()
 
 func on_night() -> void:
 	for team: Dictionary in _teams.values():
 		_release_field(team); team.retry = 0.0
 		if bool(team.automatic):
 			_set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "night_wait", "天黑停止采料 · 载货继续返站")
+	_refresh_route_markers()
 
 func on_day() -> void:
 	for team: Dictionary in _teams.values():
 		_release_field(team); team.retry = 0.0
 		if bool(team.automatic): _set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "idle", "")
+	_refresh_route_markers()
 
 func destination_for(squad_id: int, member_token: int) -> Vector3:
 	if _teams.has(squad_id):
@@ -209,13 +285,16 @@ func _advance_field(team: Dictionary, delta: float) -> void:
 		team.retry = PLANNING_INTERVAL
 		if field_index < 0:
 			team.destinations.clear()
-			_set_state(team, "exhausted" if _remaining() <= 0 else "waiting_field", "本局废料已采尽" if _remaining() <= 0 else "无空闲可达废料堆")
+			if int(team.preferred_field) >= 0:
+				_set_state(team, "waiting_field", String(team.reason))
+			else:
+				_set_state(team, "exhausted" if _remaining() <= 0 else "waiting_field", "本局废料已采尽" if _remaining() <= 0 else "无空闲可达废料堆")
 			return
 		team.field = field_index; fields[field_index].claimed_by = int(team.id)
 		team.homes.clear(); team.unloading.clear(); team.home = -1
 		team.positions.clear(); team.stalled = 0.0
 	var field: Dictionary = fields[field_index]
-	if int(field.remaining) <= 0 or int(field.claimed_by) != int(team.id):
+	if not _field_live(field_index) or int(field.remaining) <= 0 or int(field.claimed_by) != int(team.id):
 		_release_field(team); team.destinations.clear(); team.retry = 0.0
 		return
 	var all_arrived := true
@@ -268,10 +347,24 @@ func _advance_field(team: Dictionary, delta: float) -> void:
 func _choose_field(team: Dictionary) -> int:
 	var member := _unit(int(team.tokens[0]))
 	if not _living(member): return -1
+	var preferred := int(team.preferred_field)
+	if preferred >= 0:
+		team.reason = "等待指定堆%d可达 · 保持资源线" % (preferred + 1)
+		if not _field_live(preferred): return -1
+		var field: Dictionary = fields[preferred]
+		if int(field.remaining) <= 0: return -1
+		if int(field.claimed_by) >= 0 and int(field.claimed_by) != int(team.id):
+			team.reason = "指定堆%d被其他工队预约 · 保持资源线" % (preferred + 1)
+			return -1
+		if float((team.blocked_fields as Dictionary).get(preferred, 0.0)) > _elapsed: return -1
+		for slot in (team.tokens as Array).size():
+			var carrier := _unit(int(team.tokens[slot]))
+			if not _living(carrier) or _route_cost(carrier.position, _field_destination(field.position, slot)) < 0.0: return -1
+		return preferred
 	var candidates: Array[int] = []
 	for index in fields.size():
 		var field: Dictionary = fields[index]
-		if int(field.remaining) <= 0 or int(field.claimed_by) >= 0: continue
+		if not _field_live(index) or int(field.remaining) <= 0 or int(field.claimed_by) >= 0: continue
 		if float((team.blocked_fields as Dictionary).get(index, 0.0)) > _elapsed: continue
 		candidates.append(index)
 	candidates.sort_custom(func(left: int, right: int) -> bool: return _distance(member.position, fields[left].position) < _distance(member.position, fields[right].position))
@@ -332,6 +425,7 @@ func _advance_return(team: Dictionary, delta: float, has_goods: bool) -> void:
 		game.set("scrap", int(_property("scrap")) + amount)
 		_show_cargo(member_token, 0)
 	team.destinations = destinations
+	_clear_empty_preference(team)
 	if float(team.retry) <= 0.0: team.retry = PLANNING_INTERVAL
 	if waiting: _set_state(team, "waiting_home", "保留载货 · 等待可达存活中转站" if has_goods else "等待可达存活中转站 · 夜间不采料")
 	elif has_goods: _set_state(team, "unloading" if unloading else "returning", "")
@@ -414,7 +508,7 @@ func snapshot() -> Dictionary:
 				"alive": _living(member), "position": member.position if _living(member) else Vector3.INF,
 				"destination": (team.destinations as Dictionary).get(token, Vector3.INF), "unloading_progress": progress})
 		rows.append({"id": int(team.id), "state": String(team.state), "state_title": STATE_TITLES.get(String(team.state), "采运"),
-			"reason": String(team.reason), "field": int(team.field), "home": int(team.home), "automatic": bool(team.automatic),
+			"reason": String(team.reason), "field": int(team.field), "preferred_field": int(team.preferred_field), "home": int(team.home), "automatic": bool(team.automatic),
 			"cargo": _team_cargo(int(team.id)), "loading_progress": clampf(float(team.loading) / LOAD_SECONDS, 0.0, 1.0),
 			"unloading_progress": unload_progress, "members": members})
 	return {"remaining": _remaining(), "cargo": total_cargo, "delivered": delivered, "lost": lost, "fields": field_rows, "teams": rows}
@@ -496,19 +590,41 @@ func _create_field(id: int, point: Vector3) -> Dictionary:
 		chunk.rotation.y = float(piece) * .63
 	var ring := BattleVisuals.ring(anchor, Vector3(0, .07, 0), 1.04, Color("8ba57a"), .025)
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var route_ring := BattleVisuals.ring(anchor, Vector3(0, .09, 0), 1.30, Color("b9d49e"), .04)
+	route_ring.name = "SelectedHaulRoute"
+	route_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF; route_ring.visible = false
 	var label := Label3D.new(); anchor.add_child(label)
 	label.position = Vector3(0, 1.34, 0); label.font_size = 24; label.pixel_size = .006
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED; label.outline_size = 4; label.modulate = Color("b8cba8")
-	var field := {"id": id, "node": anchor, "label": label, "heap": heap, "position": point, "remaining": FIELD_STOCK, "stock": FIELD_STOCK, "claimed_by": -1}
+	var field := {"id": id, "index": fields.size(), "node": anchor, "label": label, "heap": heap, "route_ring": route_ring, "position": point, "remaining": FIELD_STOCK, "stock": FIELD_STOCK, "claimed_by": -1}
 	_refresh_field(field)
 	return field
 
 func _refresh_field(field: Dictionary) -> void:
-	if is_instance_valid(field.label): (field.label as Label3D).text = "废料 · %d" % int(field.remaining)
+	_refresh_field_marker(field)
 	if is_instance_valid(field.heap):
 		var pieces := ceili(float(field.remaining) / FIELD_STOCK * 8.0)
 		for index in (field.heap as Node).get_child_count():
 			(field.heap as Node).get_child(index).visible = index < pieces
+
+func _refresh_field_marker(field: Dictionary) -> void:
+	var selected := _selected_route_field(int(field.index))
+	if is_instance_valid(field.label): (field.label as Label3D).text = "指定堆%d · 剩余%d" % [int(field.index) + 1, int(field.remaining)] if selected else "废料 · %d" % int(field.remaining)
+	if is_instance_valid(field.get("route_ring")): (field.route_ring as Node3D).visible = selected
+
+func _selected_route_field(index: int) -> bool:
+	var squads := _squads()
+	if not is_instance_valid(squads): return false
+	for squad: Dictionary in squads.get("squads"):
+		var id := int(squad.id)
+		if String(squad.kind) != "hauler" or id not in squads.get("selected_ids") or not _teams.has(id): continue
+		if not bool(_teams[id].automatic) or int(_teams[id].preferred_field) != index: continue
+		for member: Variant in squad.members:
+			if _living(member): return true
+	return false
+
+func _refresh_route_markers() -> void:
+	for field: Dictionary in fields: _refresh_field_marker(field)
 
 func _exit_tree() -> void:
 	clear()
