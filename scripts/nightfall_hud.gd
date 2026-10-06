@@ -97,11 +97,11 @@ func box(rect: Rect2,fill: Color=Color(.022,.035,.045,.88),outline: Color=Color(
 	# hitbox while removing the heavy shadow/border treatment that made the
 	# battlefield look like a stack of opaque windows.
 	var quiet:=fill.a<0.55
-	style.border_color=Color(outline,outline.a*(0.56 if quiet else 1.0))
+	style.border_color=Color(outline,outline.a*(0.42 if quiet else 1.0))
 	style.set_border_width_all(1 if not quiet else 0)
-	style.set_corner_radius_all(8 if quiet else 6)
-	style.shadow_color=Color(0,0,0,.045 if quiet else .20)
-	style.shadow_size=1 if quiet else 3
+	style.set_corner_radius_all(5 if quiet else 6)
+	style.shadow_color=Color(0,0,0,.02 if quiet else .16)
+	style.shadow_size=0 if quiet else 3
 	style.shadow_offset=Vector2(0,1 if quiet else 2)
 	draw_style_box(style,rect)
 
@@ -812,8 +812,8 @@ func draw_minimap() -> void:
 		# faint ring and corner marks so it remains discoverable without pulling
 		# attention away from the battlefield.
 		var compact_center:=map_rect.get_center()+Vector2(0,2)
-		draw_circle(compact_center,58.0,Color(.018,.034,.041,.08))
-		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.38),1.0)
+		draw_circle(compact_center,58.0,Color(.018,.034,.041,.045))
+		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.28),1.0)
 		draw_line(map_rect.position+Vector2(0,1),map_rect.position+Vector2(26,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
@@ -841,12 +841,12 @@ func draw_minimap() -> void:
 				draw_circle(nest_marker,4.2,Color("d75b77",.78))
 		var shown_threats:=0
 		for creature in game.enemies:
-			if shown_threats>=4:break
+			if shown_threats>=2:break
 			if not is_instance_valid(creature) or not creature.alive:continue
 			if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
 			var threat: String=creature.get_meta("threat","")
 			var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
-			draw_circle(enemy_marker,3.0,Color("ed945b",.82) if threat=="breaker" else Color("d7a4d9",.78))
+			draw_circle(enemy_marker,2.8,Color("ed945b",.68) if threat=="breaker" else Color("d7a4d9",.60))
 			shown_threats+=1
 		draw_circle(center,5.0,Color(amber,.9))
 		if game.beacon_alarm_time>0:
