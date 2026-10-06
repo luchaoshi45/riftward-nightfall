@@ -18,6 +18,14 @@ const TEXT_X := 46.0
 const TEXT_WIDTH := 496.0
 const GREEN := Color("a3d7bd")
 const BLUE := Color("8ec8d8")
+# Keep the default battlefield quiet: permanent cards share a translucent
+# hierarchy while urgent states still supply stronger tints at the call site.
+const PHASE_FILL := Color(.028,.045,.046,.80)
+const OBJECTIVE_DAY_FILL := Color(.026,.060,.048,.84)
+const OBJECTIVE_NIGHT_FILL := Color(.075,.050,.046,.84)
+const RESOURCE_FILL := Color(.030,.046,.049,.84)
+const HERO_FILL := Color(.022,.038,.044,.86)
+const DRAWER_FILL := Color(.021,.037,.040,.94)
 
 static func draw_live(ui: Control) -> void:
 	var game: Node3D=ui.get("game") as Node3D
@@ -42,8 +50,10 @@ static func _phase(game: Node3D) -> String:
 static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
-	ui.box(PHASE_RECT,ui.panel,Color("645e4c"))
+	ui.box(PHASE_RECT,PHASE_FILL,Color("645e4c"))
 	ui.label("第%d%s · %s" % [game.day_number,"夜" if night else "日","守卫" if night else "搜寻"],Vector2(40,45),18,tint)
+	# A quiet divider separates the persistent phase label from its clock.
+	ui.draw_line(Vector2(171,31),Vector2(171,54),Color("7d7660",.55),1.0)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
 	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(185,45),17,ui.ink)
 	var detail: String=game.run_mode_title()
@@ -56,7 +66,7 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
 	var rect:=OBJECTIVE_RECT
 	if not boss.is_empty():rect.size.y=110
-	ui.box(rect,ui.panel,Color("815e4b") if phase=="night" else Color("587768"))
+	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color("815e4b") if phase=="night" else Color("587768"))
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
@@ -116,13 +126,13 @@ static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 
 static func _draw_resources(ui: Control, game: Node3D) -> void:
 	var threatened:=float(game.beacon_alarm_time)>0.0
-	ui.box(RESOURCE_RECT,ui.panel,ui.red if threatened else Color("665b45"))
+	ui.box(RESOURCE_RECT,Color("6f3e3b",.86) if threatened else RESOURCE_FILL,ui.red if threatened else Color("665b45"))
 	ui.label("零件 %d" % int(game.scrap),Vector2(1097,45),18,ui.ink)
 	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1246,44),14,ui.red if threatened else ui.amber)
 	ui.progress(Rect2(1097,56,302,5),float(game.beacon_hp)/float(game.BEACON_MAX),ui.red if threatened else ui.amber)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
-	ui.box(HERO_RECT,Color(.022,.038,.044,.94),Color("53635d"))
+	ui.box(HERO_RECT,HERO_FILL,Color("53635d"))
 	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,826),14,ui.ink)
 	ui.progress(Rect2(360,835,178,7),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
 	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,860),13,BLUE)
@@ -229,7 +239,7 @@ static func _draw_active_tags(ui: Control, game: Node3D) -> void:
 	ui.label(_active_tags_text(game),rect.position+Vector2(13,20),13,GREEN)
 
 static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
-	ui.box(DRAWER_RECT,Color(.021,.037,.040,.97),Color("62776a"))
+	ui.box(DRAWER_RECT,DRAWER_FILL,Color("62776a"))
 	for index in TAB_IDS.size():
 		var rect: Rect2=ui.details_tab_rect(index)
 		var selected: bool=tab==TAB_IDS[index]
@@ -345,6 +355,8 @@ static func _draw_bonus_routes(ui: Control, game: Node3D, contract: Node) -> voi
 			ui.label("去程%.0f米/%.0f秒 · 回程%.0f米/%.0f秒 · 行动%.0f秒" % [outbound,ceilf(outbound/speed),returning,ceilf(returning/speed),ceilf(float(budget.action_seconds))],rect.position+Vector2(12,58),13,ui.muted)
 			var spare: int=floori(float(budget.spare_seconds))
 			var timing: String="日落前难返家" if spare<0 else "余%d秒整备%s" % [spare," · 时间紧" if String(budget.risk)=="tight" else ""]
+			if bool(budget.get("guard_blocked",false)):
+				timing=("守卫离场 · 箱仍锁 · " if int(budget.get("guard_lost",0))>0 else "守卫%d · 战斗另计 · " % int(budget.get("guard_remaining",0)))+timing
 			if not can_act:timing+=" · 当前仅查看"
 			ui.label(timing,rect.position+Vector2(12,76),13,_budget_color(ui,budget))
 		else:

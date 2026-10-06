@@ -559,6 +559,7 @@ func return_budget() -> Dictionary:
 func _bonus_budget(candidate: Dictionary, requires_target: bool = true) -> Dictionary:
 	var outbound:=0.0
 	var action_seconds:=0.0
+	var guard_state: Dictionary={}
 	var actor_valid:=_bonus_actor_valid()
 	var hero: Variant=game.get("hero") if is_instance_valid(game) else null
 	var speed: float=maxf(1.0,float(hero.get("speed"))) if is_instance_valid(hero) else 1.0
@@ -572,19 +573,24 @@ func _bonus_budget(candidate: Dictionary, requires_target: bool = true) -> Dicti
 			return_from=source.position
 			if String(source.kind)=="supply_cache":
 				action_seconds=maxf(0.0,game.discoveries.CHANNEL_SECONDS-float(source.progress)) if String(source.state)=="channel" else game.discoveries.CHANNEL_SECONDS
+				guard_state=game.discoveries.cache_guards.snapshot(int(candidate.get("index",-1)))
 	var returning_distance:=route_distance(return_from,RETURN_HOME) if actor_valid else INF
 	if not requires_target and status=="returning" and actor_valid and returned_home():returning_distance=0.0
 	available=available and is_finite(outbound) and is_finite(returning_distance)
 	var total_seconds: float=(outbound+returning_distance)/speed+action_seconds if available else INF
 	var spare_seconds: float=float(game.phase_time)-total_seconds if is_instance_valid(game) else -INF
 	var risk: String="unreachable" if not available else ("late" if spare_seconds<0.0 else ("tight" if spare_seconds<EARLY_RETURN_SECONDS else "ready"))
-	return {"available":available,"candidate":candidate.duplicate(),"outbound_distance":outbound,"return_distance":returning_distance,"action_seconds":action_seconds,"total_seconds":total_seconds,"spare_seconds":spare_seconds,"risk":risk,"speed":speed}
+	return {"available":available,"candidate":candidate.duplicate(),"outbound_distance":outbound,"return_distance":returning_distance,"action_seconds":action_seconds,"total_seconds":total_seconds,"spare_seconds":spare_seconds,"risk":risk,"speed":speed,
+		"guarded":bool(guard_state.get("guarded",false)),"guard_blocked":bool(guard_state.get("blocked",false)),"guard_remaining":int(guard_state.get("remaining",0)),"guard_lost":int(guard_state.get("lost",0))}
 
 func return_budget_text(budget: Dictionary) -> String:
-	if not budget.available:return "追加目标不可达 · 主委托保底保留"
-	if String(budget.risk)=="late":return "预计回灯塔 %.0f秒 · 日落前难返家，主委托保底保留" % ceili(float(budget.total_seconds))
+	var guard_text:=""
+	if bool(budget.get("guard_blocked",false)):
+		guard_text="守卫离场，箱仍锁 · " if int(budget.get("guard_lost",0))>0 else "守卫%d未清，战斗另计 · " % int(budget.get("guard_remaining",0))
+	if not budget.available:return guard_text+"追加目标不可达 · 主委托保底保留"
+	if String(budget.risk)=="late":return guard_text+"预计回灯塔 %.0f秒 · 日落前难返家，主委托保底保留" % ceili(float(budget.total_seconds))
 	var spare:=maxi(0,floori(float(budget.spare_seconds)))
-	return "预计回灯塔 %.0f秒 · 余%d秒整备%s" % [ceili(float(budget.total_seconds)),spare," · 时间紧" if String(budget.risk)=="tight" else ""]
+	return guard_text+"预计回灯塔 %.0f秒 · 余%d秒整备%s" % [ceili(float(budget.total_seconds)),spare," · 时间紧" if String(budget.risk)=="tight" else ""]
 
 func active_target_interaction() -> Dictionary:
 	# The controller uses this read-only view before ordinary F actions. Keep

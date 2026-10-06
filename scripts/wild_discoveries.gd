@@ -3,6 +3,7 @@ extends Node3D
 ## Short excursions: choose recovery, supplies, or a temporary safe light.
 const ITEM_COUNT := 18
 const Layout := preload("res://scripts/outpost_layout.gd")
+const CacheGuardsScript := preload("res://scripts/supply_cache_guards.gd")
 const USE_RADIUS := 3.2
 const CHANNEL_RADIUS := 4.0
 const CHANNEL_SECONDS := 3.0
@@ -30,6 +31,7 @@ var motivation_cache_request := ""
 var motivation_cache: Dictionary = {}
 var motivation_refresh_time := 0.0
 var motivation_route_queries := 0
+var cache_guards: Node3D
 
 func _init() -> void:
 	rng.randomize()
@@ -73,6 +75,13 @@ func setup(owner_game: Node3D, run_seed: int = 0) -> void:
 		items.append(item)
 		replace_model(item)
 		clear_visual_space(point)
+	if is_instance_valid(cache_guards):
+		cache_guards.clear()
+		cache_guards.queue_free()
+	cache_guards=CacheGuardsScript.new()
+	cache_guards.name="SupplyCacheGuards"
+	add_child(cache_guards)
+	cache_guards.setup(game,self)
 	update_lights()
 
 func gameplay_active() -> bool:
@@ -167,12 +176,21 @@ func interaction_prompt() -> String:
 		if item.state=="channel":return "开启补给箱 %d%% · 留在 4 米内" % roundi(float(item.progress)/CHANNEL_SECONDS*100)
 	var index:=nearest_item()
 	if index<0:return ""
+	var guard_prompt:=cache_guard_prompt(index)
+	if not guard_prompt.is_empty():return guard_prompt
 	match items[index].kind:
 		"ember_bloom":return "F 采集余烬花 · +12 零件，恢复 70 生命"
 		"memory_crystal":return "F 采集余烬晶簇 · +12 零件，恢复 45 法力"
 		"supply_cache":return "F 开启补给箱 · 守住 3 秒，+46 零件"
 		"waylight":return "F 点亮引路灯碑 · 30 秒护盾灯区"
 	return ""
+
+func cache_guard_prompt(index: int) -> String:
+	if not is_instance_valid(cache_guards):return ""
+	var state: Dictionary=cache_guards.snapshot(index)
+	if not bool(state.blocked):return ""
+	if not bool(state.day_active):return "日落未清 · 补给箱仍封锁，次日再试"
+	return "先清守卫%d/2 · 清后3秒/46零件" % int(state.remaining)
 
 func interact() -> bool:
 	if not gameplay_active():return false
@@ -184,6 +202,9 @@ func interact() -> bool:
 
 func interact_index(index: int) -> bool:
 	if not gameplay_active() or index<0 or index>=items.size():return false
+	if items[index].kind=="supply_cache" and is_instance_valid(cache_guards) and not cache_guards.can_open(index):
+		game.notify(cache_guard_prompt(index),2)
+		return false
 	for item: Dictionary in items:
 		if item.state=="channel":return item == items[index]
 	var item: Dictionary=items[index]
@@ -215,6 +236,7 @@ func begin_cooling(item: Dictionary, seconds: float) -> void:
 	item.state="cooling";item.respawn=seconds;item.progress=0.0;item.remaining=0.0
 	item.node.visible=false;item.lamp.light_energy=0.0
 	item.field.visible=false;item.label.visible=false;item.ring.visible=false
+	if is_instance_valid(cache_guards):cache_guards.tick()
 
 func apply_waylight(item: Dictionary) -> void:
 	if game.hero.alive and flat_distance(game.hero.position,item.position)<=WAYLIGHT_RADIUS:
@@ -231,11 +253,13 @@ func respawn_item(index: int) -> void:
 	item.kind=KINDS[(old_kind+rng.randi_range(1,3))%KINDS.size()]
 	item.position=point;item.node.position=point;item.serial+=1
 	item.state="ready";item.respawn=0.0
+	if is_instance_valid(cache_guards):cache_guards.tick()
 	replace_model(item)
 	clear_visual_space(point)
 
 func tick(delta: float) -> void:
 	if not gameplay_active():return
+	if is_instance_valid(cache_guards):cache_guards.tick()
 	motivation_refresh_time=maxf(0.0,motivation_refresh_time-delta)
 	elapsed+=delta
 	for index in items.size():
@@ -244,7 +268,10 @@ func tick(delta: float) -> void:
 		item.feedback_time=maxf(0.0,float(item.feedback_time)-delta)
 		match item.state:
 			"channel":
-				if game.hero.position.distance_to(item.position)>CHANNEL_RADIUS:
+				if is_instance_valid(cache_guards) and not cache_guards.can_open(index):
+					item.state="ready";item.progress=0.0
+					game.notify(cache_guard_prompt(index),2)
+				elif game.hero.position.distance_to(item.position)>CHANNEL_RADIUS:
 					item.state="ready";item.progress=0.0
 					game.notify("补给箱开启中断 · 回到附近可重新尝试",2)
 				else:
@@ -261,6 +288,7 @@ func tick(delta: float) -> void:
 				if item.respawn<=0:respawn_item(index)
 		var distance: float=game.hero.position.distance_to(item.position)
 		item.label.visible=item.state!="cooling" and distance<11.0 and item.feedback_time<=0.0
+		if is_instance_valid(cache_guards) and bool(cache_guards.snapshot(index).blocked):item.label.visible=false
 		item.ring.visible=(item.state=="ready" or item.state=="channel") and distance<5.5
 		item.field.visible=item.state=="active" and distance<18.0
 		if item.state=="channel":item.label.text="补给箱 %d%%" % roundi(float(item.progress)/CHANNEL_SECONDS*100)

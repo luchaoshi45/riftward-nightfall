@@ -405,6 +405,9 @@ func simulate(delta: float) -> void:
 			enemies.remove_at(i)
 			continue
 		creature.tick(delta)
+		if discoveries.cache_guards.owns(creature):
+			discoveries.cache_guards.advance(creature,delta)
+			continue
 		if creature.get_meta("siege_boss",false) and boss_action_handled:
 			continue
 		if creature.get_meta("threat","")=="lobber" and bool(lobber_actions.get(creature.get_instance_id(),false)):
@@ -500,6 +503,7 @@ func start_night() -> void:
 	wave_index=0;wave_warning_issued=false
 	world.set_night(true)
 	world.wave_warning=false
+	discoveries.cache_guards.on_night()
 	clear_contract_hunters()
 	for creature in enemies:
 		if is_instance_valid(creature):creature.queue_free()
@@ -702,6 +706,7 @@ func finish_night() -> void:
 		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
+		discoveries.cache_guards.clear()
 		salvage_draw.clear()
 		control_groups.clear()
 		repairs.clear()
@@ -748,6 +753,7 @@ func begin_day() -> void:
 	if squads:squads.on_day()
 	if exploration:exploration.begin_day(day_number)
 	salvage_draw.begin_day()
+	discoveries.cache_guards.begin_day()
 	contracts.on_day()
 	prepare_next_night_plan(true)
 	spawn_timer=4
@@ -1269,6 +1275,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			creature.attack_windup=creature.windup_duration
 
 func choose_enemy_target(creature: BattleUnit) -> Dictionary:
+	if is_instance_valid(discoveries) and discoveries.cache_guards.owns(creature):
+		return discoveries.cache_guards.target_for(creature)
 	# Day scavengers defend against nearby troops outside the walls. They do
 	# not inherit the night assault's beacon/building fallback or unlimited chase.
 	if phase=="day":
@@ -2154,6 +2162,8 @@ func beacon_pulse() -> void:
 	if hits>0:BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),10.5,Color("ffaa58"),.28)
 
 func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
+	if is_instance_valid(discoveries) and not discoveries.cache_guards.on_defeated(creature):
+		return
 	specializations.forget_enemy(creature)
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase
@@ -2233,6 +2243,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
@@ -3332,6 +3343,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 	return stream
 
 func _exit_tree() -> void:
+	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
@@ -3368,6 +3380,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
