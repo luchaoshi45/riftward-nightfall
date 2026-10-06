@@ -1805,6 +1805,8 @@ func update_towers(delta: float) -> void:
 		for creature in enemies:
 			if not is_instance_valid(creature) or not creature.alive:continue
 			var distance: float=pad.position.distance_to(creature.position)
+			# Priority changes the target, never the tower's strict attack radius.
+			if distance>=range_limit:continue
 			if distance<nearest:selected=creature;nearest=distance
 			if pad.mode=="breaker" and creature.get_meta("threat","")=="breaker" and distance<breaker_distance:
 				breaker=creature;breaker_distance=distance
