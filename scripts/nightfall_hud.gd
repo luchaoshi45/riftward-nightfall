@@ -36,6 +36,10 @@ var training_page := 0
 var construction_page := 0
 var troop_page := 0
 const BOSS_PANEL_RECT := Rect2(457,24,570,110)
+const WAVE_WAGER_TARGET_WIDTH := 158.0
+const WAVE_WAGER_TARGET_HEIGHT := 48.0
+const WAVE_WAGER_TARGET_GAP := 4.0
+const WAVE_WAGER_RISK_RECT := Rect2(46,0,158,36)
 const EXPLORATION_PANEL_RECT := Rect2(24,197,340,244)
 const EXPLORATION_TOAST_TOP := 451.0
 const GROWTH_PANEL_RECT := Rect2(1050,732,365,111)
@@ -179,6 +183,47 @@ func countermeasure_rect(index: int) -> Rect2:
 
 func bounty_rect() -> Rect2:
 	return Rect2(46,352,496,30)
+
+func wave_wager_visible() -> bool:
+	if not is_instance_valid(game) or game.phase != "day" or not game.has_method("wave_wager_snapshot"):return false
+	var state: Dictionary=game.wave_wager_snapshot()
+	return bool(state.get("enabled",false)) and String(state.get("state", "")) in ["offered", "selected"]
+
+func wave_wager_origin_y() -> float:
+	var bounty_state: Dictionary=game.bounty_snapshot()
+	return 466.0 if game.day_number==2 and String(bounty_state.get("state", "")) in ["offered", "selected"] else 394.0
+
+func wave_wager_target_rect(index: int) -> Rect2:
+	var row: int=index/3
+	var column: int=index%3
+	return Rect2(46+column*(WAVE_WAGER_TARGET_WIDTH+WAVE_WAGER_TARGET_GAP),wave_wager_origin_y()+28+row*(WAVE_WAGER_TARGET_HEIGHT+WAVE_WAGER_TARGET_GAP),WAVE_WAGER_TARGET_WIDTH,WAVE_WAGER_TARGET_HEIGHT)
+
+func wave_wager_risk_rect(index: int) -> Rect2:
+	return Rect2(46+index*168,wave_wager_origin_y()+139,158,36)
+
+func draw_wave_wager() -> void:
+	if not wave_wager_visible():return
+	var state: Dictionary=game.wave_wager_snapshot()
+	var origin:=wave_wager_origin_y()
+	var title_y:=origin+18
+	label("夜战押注 · 选一波，再选风险档",Vector2(46,title_y),17,amber)
+	label("天黑锁定投入 · 目标波完整清除才派彩 · 失败不退款",Vector2(46,title_y+20),12,muted)
+	var targets: Array=state.get("targets",[])
+	for index in targets.size():
+		var target: Dictionary=targets[index]
+		var rect:=wave_wager_target_rect(index)
+		var selected:=int(state.get("target_index",-1))==index
+		box(rect,Color(.08,.13,.105,.96) if selected else Color(.032,.052,.048,.94),CleanHud.GREEN if selected else Color("4e6559"))
+		label("%d波 · %d只" % [index+1,int(target.get("count",0))],rect.position+Vector2(10,19),14,CleanHud.GREEN if selected else ink)
+		label("%.0f秒到达" % float(target.get("time",0.0)),rect.position+Vector2(10,38),12,amber if selected else muted)
+	var risks: Array=game.wave_wager.risk_options()
+	for index in risks.size():
+		var risk: Dictionary=risks[index]
+		var rect:=wave_wager_risk_rect(index)
+		var selected:=String(state.get("selected_tier", ""))==String(risk.get("id", ""))
+		box(rect,Color(.12,.09,.05,.98) if selected else Color(.035,.052,.048,.96),amber if selected else Color("586756"))
+		label("%s · 投%d / 回%d" % [String(risk.get("label", "风险")),int(risk.get("stake",0)),int(risk.get("reward",0))],rect.position+Vector2(9,23),13,amber if selected else ink)
+	label("点目标绑定波次 · 点风险档完成下注",Vector2(46,origin+191),12,Color("a3c7b7"))
 
 func visible_hud_rects() -> Array[Rect2]:
 	return live_panel_rects()
@@ -1275,6 +1320,14 @@ func _gui_input(event: InputEvent) -> void:
 					for button: Dictionary in training_cancel_buttons:
 						if (button.rect as Rect2).has_point(point):game.cancel_troop_training(int(button.barracks),int(button.queue_index));training_cancel_buttons.clear();queue_redraw();accept_event();return
 				elif detail_tab=="defense" and game.phase=="day":
+					if wave_wager_visible():
+						var wager_targets: Array=game.wave_wager_target_options()
+						for index in wager_targets.size():
+							if wave_wager_target_rect(index).has_point(point):
+								game.select_wave_wager_target(index);queue_redraw();accept_event();return
+						for index in game.wave_wager.risk_options().size():
+							if wave_wager_risk_rect(index).has_point(point):
+								game.place_wave_wager(index);queue_redraw();accept_event();return
 					var bounty_state: Dictionary=game.bounty_snapshot()
 					if String(bounty_state.state) in ["offered","selected"] and game.day_number==2 and bounty_rect().has_point(point):
 						if not game.select_bounty():game.notify(String(bounty_state.reason),2)

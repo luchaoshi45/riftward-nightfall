@@ -12,6 +12,7 @@ const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
 const LogisticsScript = preload("res://scripts/outpost_logistics.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
+const WaveWagerScript = preload("res://scripts/nightfall_wave_wager.gd")
 const BountyScript = preload("res://scripts/nightfall_bounty.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const SalvageDrawScript = preload("res://scripts/salvage_draw.gd")
@@ -104,6 +105,7 @@ var countermeasure_consumed := false
 var countermeasure_light_time := 0.0
 var countermeasure_tower_time := 0.0
 var wave_rewards=WaveRewardsScript.new()
+var wave_wager=WaveWagerScript.new()
 var bounty=BountyScript.new()
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
@@ -488,9 +490,11 @@ func start_night() -> void:
 	districts.begin_night(day_number)
 	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
 		prepare_next_night_plan(false)
+	_lock_wave_wager_for_night()
 	if String(bounty.snapshot().state)=="selected":
 		if not bounty.lock(night_plan,(day_number-1)*WAVES_PER_NIGHT+2):
 			night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+			_settle_wave_wager_loss("plan_changed")
 	activate_countermeasure()
 	wave_rewards.reset()
 	active_wave_reward_id=-1
@@ -540,6 +544,125 @@ func spawn_night_wave() -> void:
 	if wave_index>1:notify("第 %d/%d 波 · %s · %d 只" % [wave_index,WAVES_PER_NIGHT,entry.title,entry.count],3)
 	if bool(entry.get("boss_entry",false)):
 		notify("末夜首领已抵达 · 先打断蓄力，再清理残敌",4)
+
+func _wave_wager_signature(plan: Array[Dictionary]) -> String:
+	var parts: Array[String] = []
+	for entry: Dictionary in plan:
+		var roles: Array = entry.get("roles", [])
+		parts.append("%d@%.2f:%s:%d:%s:%d" % [
+			int(entry.get("index", -1)), float(entry.get("time", 0.0)),
+			"|".join(roles), int(entry.get("count", 0)),
+			"1" if bool(entry.get("boss_entry", false)) else "0",
+			int(entry.get("night", day_number)),
+		])
+	return "night-plan:%d:%s" % [day_number, ";".join(parts)]
+
+func wave_wager_target_options() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if run_mode == "teaching" or night_plan.is_empty():
+		return result
+	var signature := _wave_wager_signature(night_plan)
+	for index in night_plan.size():
+		var entry: Dictionary = night_plan[index]
+		var reward_id: int = (day_number - 1) * WAVES_PER_NIGHT + index
+		result.append({
+			"index": index,
+			"day": day_number,
+			"night": day_number,
+			"title": String(entry.get("title", "第%d波" % (index + 1))),
+			"time": float(entry.get("time", 0.0)),
+			"target_reward_id": reward_id,
+			"reward_id": reward_id,
+			"target_count": int(entry.get("count", 0)),
+			"count": int(entry.get("count", 0)),
+			"plan_signature": signature,
+		})
+	return result
+
+func _refresh_wave_wager_offer() -> void:
+	if run_mode == "teaching" or night_plan.is_empty():
+		wave_wager.clear()
+		return
+	var options := wave_wager_target_options()
+	if options.is_empty():
+		wave_wager.clear()
+		return
+	var signature := String(options[0].plan_signature)
+	var current: Dictionary = wave_wager.snapshot()
+	var current_state := String(current.get("state", "idle"))
+	if int(current.get("night_id", -1)) == day_number:
+		if String(current.get("plan_signature", "")) == signature:
+			return
+		if current_state == "locked":
+			wave_wager.expire("plan_changed")
+			return
+		if current_state in ["won", "lost", "expired"]:
+			return
+		wave_wager.clear()
+	elif int(current.get("night_id", -1)) > day_number:
+		return
+	var first: Dictionary = options[0]
+	wave_wager.begin_night(day_number, signature, int(first.target_reward_id), int(first.target_count))
+
+func wave_wager_snapshot() -> Dictionary:
+	var result: Dictionary = wave_wager.snapshot()
+	var enabled := run_mode != "teaching" and not night_plan.is_empty()
+	result["enabled"] = enabled
+	result["available"] = enabled and phase == "day" and String(result.get("state", "")) in ["offered", "selected"] and not quitting and not restart_pending
+	result["target_index"] = int(result.get("target_reward_id", -1)) - (day_number - 1) * WAVES_PER_NIGHT
+	result["targets"] = wave_wager_target_options()
+	return result
+
+func select_wave_wager_target(index: int) -> bool:
+	if phase != "day" or run_mode == "teaching" or quitting or restart_pending:
+		return false
+	var options := wave_wager_target_options()
+	if index < 0 or index >= options.size():
+		return false
+	var state := String(wave_wager.snapshot().get("state", "idle"))
+	if state not in ["offered", "selected"]:
+		return false
+	if state == "selected":
+		notify("风险档已选 · 天黑前不能更换目标", 2)
+		return false
+	var target: Dictionary = options[index]
+	var current: Dictionary = wave_wager.snapshot()
+	if int(current.get("target_reward_id", -1)) == int(target.target_reward_id):
+		return true
+	wave_wager.clear()
+	return wave_wager.begin_night(day_number, String(target.plan_signature), int(target.target_reward_id), int(target.target_count))
+
+func place_wave_wager(index: int) -> Dictionary:
+	if phase != "day" or run_mode == "teaching" or quitting or restart_pending:
+		return {"ok": false, "reason": "not_available", "wallet_delta": 0}
+	var result: Dictionary = wave_wager.place_risk(index, day_number, wave_wager_target_options(), scrap)
+	if bool(result.get("ok", false)):
+		notify("夜战押注 · %s档已锁定目标 · 天黑时扣除%d零件" % [String(result.get("tier_id", "")), int(result.get("stake", 0))], 3)
+	else:
+		notify("夜战押注 · " + String(result.get("reason", "不可用")), 2)
+	return result
+
+func _lock_wave_wager_for_night() -> void:
+	var state: Dictionary = wave_wager.snapshot()
+	var wager_state := String(state.get("state", ""))
+	if wager_state == "offered":
+		wave_wager.expire("not_selected")
+		return
+	if wager_state != "selected":
+		return
+	var result: Dictionary = wave_wager.lock(String(state.get("plan_signature", "")), int(state.get("target_reward_id", -1)), int(state.get("target_count", 0)), scrap)
+	if bool(result.get("ok", false)):
+		scrap += int(result.get("wallet_delta", 0))
+		notify("夜战押注已入场 · 风险档投入%d零件 · 清波派彩%d" % [int(result.get("stake", 0)), int(result.get("reward", 0))], 4)
+	else:
+		wave_wager.expire(String(result.get("reason", "lock_failed")))
+		notify("夜战押注未能入场 · " + String(result.get("reason", "不可用")), 3)
+
+func _settle_wave_wager_loss(reason: String) -> void:
+	var state: Dictionary = wave_wager.snapshot()
+	if String(state.get("state", "")) != "locked":
+		return
+	wave_wager.settle_loss(String(state.get("plan_signature", "")), int(state.get("target_reward_id", -1)), int(state.get("target_count", 0)), reason)
 
 func register_active_wave_enemy(enemy: Variant) -> bool:
 	if run_mode=="teaching" or active_wave_reward_id<0 or not is_instance_valid(enemy):return false
@@ -687,6 +810,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	_settle_wave_wager_loss("night_end")
 	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
@@ -756,6 +880,7 @@ func begin_day() -> void:
 	discoveries.cache_guards.begin_day()
 	contracts.on_day()
 	prepare_next_night_plan(true)
+	_refresh_wave_wager_offer()
 	spawn_timer=4
 	var day_lines:=["许弦：废墟里还有能源芯和失联哨兵。带他们回家。",
 		"林舟：启动发电机会惊醒潜伏体，先准备好再接通。",
@@ -778,8 +903,10 @@ func prepare_next_night_plan(reset_countermeasure: bool = false) -> bool:
 		var selected_plan: Array[Dictionary]=encounters.with_bounty(night_plan)
 		if selected_plan.is_empty():
 			bounty.deselect()
+			_refresh_wave_wager_offer()
 			return true
 		night_plan=selected_plan
+	_refresh_wave_wager_offer()
 	return false
 
 func bounty_snapshot() -> Dictionary:
@@ -808,6 +935,7 @@ func select_bounty() -> bool:
 	var selected_plan: Array[Dictionary]=encounters.with_bounty(baseline)
 	if selected_plan.is_empty() or not bounty.select(baseline):return false
 	night_plan=selected_plan
+	_refresh_wave_wager_offer()
 	countermeasure_selected=-1
 	notify("已选甲壳悬赏 · 放弃免费反制，第三波清完额外+48零件",3)
 	return true
@@ -869,6 +997,7 @@ func select_countermeasure(index: int) -> bool:
 	if String(bounty.snapshot().state)=="selected":
 		bounty.deselect()
 		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+		_refresh_wave_wager_offer()
 	countermeasure_selected=index
 	notify("已选战前反制：%s · 天黑前可更换" % countermeasure_title(index),3)
 	return true
@@ -2185,6 +2314,12 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	if bonus>0:
 		scrap+=bonus
 		notify("甲壳悬赏完成 · 额外 +%d 零件" % bonus,4)
+	var wager_state: Dictionary=wave_wager.snapshot()
+	if String(wager_state.get("state", "")) == "locked" and reward_id == int(wager_state.get("target_reward_id", -1)) and int(ledger.get("kills", 0)) == int(wager_state.get("target_count", 0)) and int(ledger.get("kills", 0)) == previous_kills + 1:
+		var wager_result: Dictionary=wave_wager.settle_wave(String(wager_state.get("plan_signature", "")), reward_id, int(wager_state.get("target_count", 0)), int(ledger.get("kills", 0)), phase == "night" and not quitting and not restart_pending and is_instance_valid(hero) and hero.alive and hero.hp > 0.0 and beacon_hp > 0.0)
+		if bool(wager_result.get("ok", false)):
+			scrap += int(wager_result.get("wallet_delta", 0))
+			notify("夜战押注派彩 · +%d零件" % int(wager_result.get("payout", 0)), 4)
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
 		kill_chain_time=6.0
@@ -2243,6 +2378,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	_settle_wave_wager_loss("defeat")
 	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
 	control_groups.clear()
@@ -3361,6 +3497,7 @@ func _exit_tree() -> void:
 	control_groups.clear()
 	repairs.clear()
 	bounty.reset()
+	wave_wager.reset()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()
@@ -3373,6 +3510,8 @@ func request_run_restart(same_seed: bool) -> void:
 	var next_seed: int=run.seed_value if same_seed else RunSessionScript.fresh_seed(run.seed_value)
 	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode):return
 	restart_pending=true
+	_settle_wave_wager_loss("retry")
+	wave_wager.reset()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
@@ -3398,6 +3537,7 @@ func prepare_shutdown() -> void:
 	control_groups.clear()
 	repairs.clear()
 	bounty.reset()
+	wave_wager.reset()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()

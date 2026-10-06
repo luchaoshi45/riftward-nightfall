@@ -1,5 +1,11 @@
 # 《余烬守望》项目规则、双机派工与交接
 
+## 2026-10-07夜战波次押注与F3防线页收尾（主机A，源码及Mac验收完成）
+
+在已交付的清爽默认HUD上继续收敛信息入口：新增 run-local 夜战波次押注，但不增加默认常驻区域。标准/围城/暗翼模式的白昼 F3 防线页显示五个真实保存波次和三档风险：稳押投入20、派彩50；加码投入40、派彩120；梭哈投入60、派彩240。先选目标波，再选风险档；天黑时才从唯一零件钱包扣款。计划签名绑定夜晚编号、每波 index/time/roles/count/boss_entry，奖励 ID 使用`(day_number-1)*WAVES_PER_NIGHT+wave_index`，与甲壳悬赏账本分离。教学模式禁用，未选目标、计划重建、日落、灯塔失守、重试和关闭均不返 stake；目标波真实全部死亡才一次派彩，重复死亡回调不重复支付，原每波24零件预算保持。
+
+本轮新增 `scripts/nightfall_wave_wager.gd`、`tests/nightfall_wave_wager.gd` 及生产接入专项 `tests/nightfall_wave_wager_integration.gd`；控制器接入 `scripts/nightfall.gd`，F3 防线页接入 `scripts/nightfall_hud.gd` / `scripts/nightfall_clean_hud.gd`。为匹配当前清爽信息轨道，甲壳悬赏专项中的旧 HUD 字号断言同步到现行16/12px标题与支持行，生产行为和文字内容不变。Godot 4.7.2 无头押注模块`100 checks`、生产整合`35 checks`、清爽HUD`970 checks`、计划波次`7194 checks`、甲壳悬赏`7536 checks`、科技`575 checks`、RTS建造/部队`2011 checks`均0失败；Metal Forward+与OpenGL Compatibility隐藏无焦点屏幕外Dummy音频实际渲染清爽HUD各`970 checks`，均退出0。所有本轮修改的业务/测试文件均已完成sec-code安全扫描并上报风险情况。用户`project.godot`、`export_presets.cfg`仍保留本地未提交修改，未纳入提交；源码版本仍`0.8.37`、正式完成计数仍`47/100`、Windows成品仍`0.8.25`，未完成Windows原生验收前不增加正式计数。
+
 ## 2026-10-07聚焦HUD第四轮（主机A，源码及Mac验收完成）
 
 针对所有者再次反馈“界面太多东西、看着不清爽”，本轮继续收敛默认战场层：顶部阶段、目标、资源卡改为更低对比度的半透明信息轨道，统一减少边框与阴影；英雄技能栏保持原命中区但改用更薄的搁板和半透明按键圆标；默认小地图保留灯塔、英雄、巢穴与近身威胁等导航信息，资源点、建筑、采运、远端探索和完整敌方标记改为点击地图后展开，避免常驻小点堆叠。F3五页详情、地图展开、Y建设、暂停、警报和所有既有输入矩形未改变；用户的`project.godot`与`export_presets.cfg`未修改。

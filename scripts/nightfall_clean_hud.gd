@@ -452,7 +452,11 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 	var bounty: Dictionary=game.bounty_snapshot()
 	var bounty_state:=String(bounty.state)
 	var heading_y:=388.0
-	if _phase(game)=="day":ui.draw_day_forecast()
+	if _phase(game)=="day":
+		ui.draw_day_forecast()
+		if ui.wave_wager_visible():
+			ui.draw_wave_wager()
+			return
 	else:
 		ui.label("守夜防线",Vector2(TEXT_X,184),18,GREEN)
 		var title: String="未选择额外反制" if int(game.countermeasure_selected)<0 else game.countermeasure_title(int(game.countermeasure_selected))

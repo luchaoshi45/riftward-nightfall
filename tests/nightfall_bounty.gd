@@ -257,10 +257,10 @@ func actual_hud(tag: String) -> void:
 				var expected_detail: String="全清+48 · 甲壳60甲/J破甲 · 投蚀落点2米 · F3 防线"
 				var title_rows: Array[Dictionary]=[]; var detail_rows: Array[Dictionary]=[]
 				for row: Dictionary in game.hud.drawn_labels:
-					if row.point==Vector2(444,46):title_rows.append(row)
-					if row.point==Vector2(444,72):detail_rows.append(row)
-				check(title_rows.size()==1 and String(title_rows[0].text)==expected_title and int(title_rows[0].size)==18 and float(title_rows[0].width)<=552.0,"Actual18px third-wave title includes the complete real population and rounded deadline within552px in "+str(viewport))
-				check(detail_rows.size()==1 and String(detail_rows[0].text)==expected_detail and int(detail_rows[0].size)==14 and float(detail_rows[0].width)<=552.0,"Actual third-wave detail includes the complete reward, armor counter and two-meter warning within552px in "+str(viewport))
+					if row.point==Vector2(444,45):title_rows.append(row)
+					if row.point==Vector2(444,68):detail_rows.append(row)
+				check(title_rows.size()==1 and String(title_rows[0].text)==expected_title and title_rows[0].point==Vector2(444,45) and int(title_rows[0].size)==16 and float(title_rows[0].width)<=552.0,"Actual compact third-wave title includes the complete real population and rounded deadline within552px in "+str(viewport))
+				check(detail_rows.size()==1 and String(detail_rows[0].text)==expected_detail and detail_rows[0].point==Vector2(444,68) and int(detail_rows[0].size)==12 and float(detail_rows[0].width)<=552.0,"Actual compact third-wave detail includes the complete reward, armor counter and two-meter warning within552px in "+str(viewport))
 		(evidence.hud as Array).append({"tag":tag,"viewport":viewport,"bounty_labels":bounty_labels})
 	check(snapshot()==before,"Three-viewport bounty drawing does not spend, advance clocks, roll plans or move actors")
 	root.size=previous_viewport; root.content_scale_size=previous_viewport; await redraw()
