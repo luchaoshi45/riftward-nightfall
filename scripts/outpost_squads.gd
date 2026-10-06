@@ -1010,6 +1010,7 @@ func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
 			# A finite source can still add real units; ranged fire can prevent
 			# those births. Once spent it follows ordinary melee/interception.
 			if threat == "summoner" and bool(enemy.get_meta("summoner_active", false)): priority = 5
+			if threat == "warder" and bool(enemy.get_meta("warder_active", false)): priority = 5
 			candidate_score += float(priority) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected

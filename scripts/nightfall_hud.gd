@@ -217,6 +217,7 @@ func _draw() -> void:
 	draw_target_warnings()
 	draw_lobber_warnings()
 	draw_summoner_warnings()
+	draw_warder_warnings()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
@@ -464,6 +465,41 @@ func draw_summoner_warnings() -> void:
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("c4a9e5"))
 
+func draw_warder_warnings() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	for warning: Dictionary in game.warder_warning_snapshot():
+		var text_value:="织壳 %.1f秒 · 余%d/3" % [maxf(0.0,float(warning.remaining)),maxi(0,int(warning.max_casts)-int(warning.casts))]
+		_draw_shell_label((warning.position as Vector3)+Vector3.UP*2.1,text_value,Color("d4dec3"),occupied)
+	# Read the recipient's real shield, even after the source has been killed.
+	for value: Variant in game.enemies:
+		if not is_instance_valid(value) or value.is_queued_for_deletion() or not value.alive:continue
+		if not bool(value.get_meta("warder_shield",false)) or value.shield<=0.0 or value.shield_time<=0.0:continue
+		var text_value:="护盾%d · %.1f秒" % [ceili(float(value.shield)),float(value.shield_time)]
+		_draw_shell_label(value.position+Vector3.UP*1.65,text_value,Color("b8dcd3"),occupied)
+
+func _draw_shell_label(point: Vector3, text_value: String, tint: Color, occupied: Array[Rect2]) -> void:
+	var screen: Variant=_world_screen(point)
+	if screen==null:return
+	var center: Vector2=screen as Vector2
+	if center.x<0 or center.x>1440 or center.y<0 or center.y>900:return
+	var width: float=font.get_string_size(text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+	var position:=Vector2(clampf(center.x-width*.5,10,1430-width),clampf(center.y-10,110,790))
+	for _attempt in 10:
+		if position.y<96:return
+		var footprint:=Rect2(position-Vector2(3,14),Vector2(width+6,19))
+		var overlaps:=false
+		for rect: Rect2 in occupied:
+			if rect.intersects(footprint):overlaps=true;break
+		if not overlaps:
+			occupied.append(footprint)
+			world_warning_rects.append(footprint)
+			draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
+			label(text_value,position,13,tint)
+			return
+		position.y-=22
+
 func draw_hero_damage_feedback() -> void:
 	if game.phase not in ["day","night","paused"]:return
 	if float(game.get("hero_damage_flash_time"))<=0.0:return
@@ -647,6 +683,8 @@ func draw_minimap() -> void:
 		var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
 		if threat=="summoner":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-4),enemy_marker+Vector2(4,0),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(0,-4)]),Color("c4a9e5"),1.8)
+		elif threat=="warder":
+			draw_polyline(PackedVector2Array([enemy_marker+Vector2(-3,-3),enemy_marker+Vector2(3,-3),enemy_marker+Vector2(3,1),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-3,1),enemy_marker+Vector2(-3,-3)]),Color("d4dec3") if bool(creature.get_meta("warder_active",false)) else muted,1.6)
 		elif threat=="lobber":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-3.5),enemy_marker+Vector2(3.5,3),enemy_marker+Vector2(-3.5,3),enemy_marker+Vector2(0,-3.5)]),Color("ced78b"),1.8)
 		else:
@@ -796,7 +834,7 @@ func draw_squads() -> void:
 	elif troop_page==2:
 		if not selected_hunter_ids().is_empty():
 			label("猎手 · 近战2.3米 / 移速5.4 · 无护甲",Vector2(46,553),14,ink)
-			label("疾行/噬灯/投蚀/活召潮30伤 · 其余12伤",Vector2(46,580),14,amber)
+			label("未耗尽召潮/织壳、疾行/噬灯/投蚀30伤；其余12",Vector2(46,580),14,amber)
 			CleanHud._paragraph(self,"前摇0.22秒 · 间隔1.4秒 · 需活工坊",Vector2(46,609),496,14,muted,21,1)
 			CleanHud._paragraph(self,"驻守追击8米 · 指定敌越出落点8米就返回",Vector2(46,648),496,13,ink,20,1)
 			CleanHud._paragraph(self,"移动/召回不追敌 · 脆皮，留盾卫保护后排",Vector2(46,681),496,12,muted,18,1)

@@ -71,12 +71,14 @@ func _contact(source: BattleUnit, target: Variant) -> bool:
 func bonus_target(target: Variant) -> bool:
 	if not real_enemy(target): return false
 	var role := String(target.get_meta("threat", ""))
-	return role in ["runner", "light_eater", "lobber"] or (role == "summoner" and bool(target.get_meta("summoner_active", false)))
+	return role in ["runner", "light_eater", "lobber"] or (role == "summoner" and bool(target.get_meta("summoner_active", false))) \
+		or (role == "warder" and bool(target.get_meta("warder_active", false)))
 
 func _priority(target: BattleUnit) -> int:
 	var role := String(target.get_meta("threat", ""))
 	if role == "summoner" and bool(target.get_meta("summoner_active", false)): return 0
-	return int({"lobber": 1, "light_eater": 2, "runner": 3, "breaker": 5, "sapper": 5}.get(role, 4))
+	if role == "warder" and bool(target.get_meta("warder_active", false)): return 1
+	return int({"lobber": 2, "light_eater": 3, "runner": 4, "breaker": 6, "sapper": 6}.get(role, 5))
 
 func _block_signature() -> int:
 	return hash(game.get("construction_blocks")) if bool(roster.get("_has_construction_blocks")) else 0

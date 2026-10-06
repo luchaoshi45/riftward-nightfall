@@ -13,6 +13,7 @@ const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const LobberScript = preload("res://scripts/nightfall_lobber.gd")
 const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
+const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -104,6 +105,7 @@ var specializations=preload("res://scripts/tower_specializations.gd").new()
 var siege_boss: Node
 var lobbers: Array[Node3D] = []
 var summoners: Array[Node3D] = []
+var warders: Array[Node3D] = []
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -338,6 +340,7 @@ func simulate(delta: float) -> void:
 		if phase!="day" and phase!="night":return
 	if phase=="day" and not lobbers.is_empty():clear_lobbers()
 	if phase=="day" and not summoners.is_empty():clear_summoners()
+	if phase=="day" and not warders.is_empty():clear_warders()
 	# A committed projectile outlives a defeated thrower. Advance controllers
 	# once even when that host has already left the living enemy list.
 	var lobber_actions: Dictionary={}
@@ -374,6 +377,7 @@ func simulate(delta: float) -> void:
 			continue
 		summoner_actions[source.get_instance_id()]=summoner.advance(delta)
 		if phase not in ["day","night"]:return
+	var warder_actions:=pending_warder_actions()
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -386,6 +390,7 @@ func simulate(delta: float) -> void:
 		if creature.get_meta("threat","")=="lobber" and bool(lobber_actions.get(creature.get_instance_id(),false)):
 			continue
 		if bool(summoner_actions.get(creature.get_instance_id(),false)):continue
+		if bool(warder_actions.get(creature.get_instance_id(),false)):continue
 		if squads and squads.intercept_enemy(creature,delta):
 			continue
 		update_creature(creature,delta)
@@ -395,6 +400,10 @@ func simulate(delta: float) -> void:
 				eater.tick(delta)
 				for lamp_index in world.gate_lights.size():
 					world.gate_light_drain[lamp_index]=maxf(world.gate_light_drain[lamp_index],eater.drain_at(world.gate_lights[lamp_index].global_position))
+	# Every recipient has ticked before granting a new shield. Its four seconds
+	# start here, independent of the source/recipient order in the enemy roster.
+	advance_warders(delta)
+	if phase not in ["day","night"]:return
 	if countermeasure_light_time>0.0:
 		for lamp_index in world.gate_light_drain.size():world.gate_light_drain[lamp_index]*=.4
 	var gate_drain:=maxf(world.gate_light_drain[0],world.gate_light_drain[1])
@@ -438,6 +447,7 @@ func simulate(delta: float) -> void:
 func start_night() -> void:
 	clear_lobbers()
 	clear_summoners()
+	clear_warders()
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
@@ -548,6 +558,46 @@ func clear_summoners() -> void:
 		summoner.queue_free()
 	summoners.clear()
 
+func warder_warning_snapshot() -> Array[Dictionary]:
+	var warnings: Array[Dictionary]=[]
+	for value: Variant in warders:
+		if not is_instance_valid(value) or value.is_queued_for_deletion():continue
+		var warning: Dictionary=value.snapshot()
+		var source: Variant=warning.get("source")
+		if is_instance_valid(source) and not source.is_queued_for_deletion() and source.alive and source in enemies and String(warning.get("phase",""))=="windup":warnings.append(warning)
+	return warnings
+
+func pending_warder_actions() -> Dictionary:
+	var handled: Dictionary={}
+	for value: Variant in warders:
+		if not is_instance_valid(value) or value.is_queued_for_deletion():continue
+		var state: Dictionary=value.snapshot()
+		var source: Variant=state.get("source")
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:continue
+		handled[source.get_instance_id()]=String(state.phase) in ["windup","committing"] or (bool(source.get_meta("warder_active",false)) and specializations.movement_multiplier(source)<.9999)
+	return handled
+
+func advance_warders(delta: float) -> void:
+	for value: Variant in warders.duplicate():
+		if not is_instance_valid(value):
+			warders.erase(value)
+			continue
+		if value.is_queued_for_deletion() or value not in warders:continue
+		var source: Variant=value.get("host")
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:
+			value.clear();value.queue_free();warders.erase(value)
+			continue
+		value.advance(delta)
+		# A world callback may synchronously clear/setup the module or end a run.
+		if phase not in ["day","night"]:return
+
+func clear_warders() -> void:
+	for value: Variant in warders.duplicate():
+		if not is_instance_valid(value):continue
+		value.clear()
+		if not value.is_queued_for_deletion():value.queue_free()
+	warders.clear()
+
 func spawn_summoned_reinforcement(source: BattleUnit, point: Vector3) -> BattleUnit:
 	# The cast controller owns timing; the original source instance owns its
 	# lifetime budget. Recreating a controller cannot replenish that budget.
@@ -611,6 +661,7 @@ func finish_night() -> void:
 	if phase=="ended":return
 	clear_lobbers()
 	clear_summoners()
+	clear_warders()
 	clear_exploration_marker()
 	cores.clear()
 	specializations.reset_effects()
@@ -709,14 +760,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["summoner","light_eater","lobber","sapper","breaker","runner"]:
+	for role in ["summoner","warder","light_eater","lobber","sapper","breaker","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"summoner":"召潮者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"summoner":"召潮者", "warder":"织壳者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -736,7 +787,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper","lobber","summoner":recommended_index=2
+		"sapper","lobber","summoner","warder":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -889,6 +940,7 @@ func settle_contract_reward() -> void:
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
+	var is_warder: bool=night and role=="warder"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
@@ -918,7 +970,22 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	creature.attack_range=1.6
 	creature.attack_interval=1.1
 	if night:
-		if is_summoner:
+		if is_warder:
+			creature.set_meta("threat","warder")
+			creature.title="织壳者"
+			creature.max_hp*=.82
+			creature.hp=creature.max_hp
+			creature.armor=0.0
+			creature.damage=12.0
+			creature.speed=3.0
+			creature.attack_interval=1.4
+			creature.visual.scale=Vector3.ONE*1.08
+			var warder: Node3D=WarderScript.new()
+			warder.name="WarderController"
+			add_child(warder)
+			warder.setup(self,creature)
+			warders.append(warder)
+		elif is_summoner:
 			creature.set_meta("threat","summoner")
 			creature.title="召潮者"
 			creature.max_hp*=.84
@@ -1209,6 +1276,9 @@ func target_warning_snapshot() -> Array[Dictionary]:
 		if not is_instance_valid(summoner):continue
 		var cast: Dictionary=summoner.snapshot()
 		if String(cast.get("phase","")) not in ["windup","committing"]:continue
+		var source: Variant=cast.get("source")
+		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
+	for cast: Dictionary in warder_warning_snapshot():
 		var source: Variant=cast.get("source")
 		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
 	for creature: BattleUnit in enemies:
@@ -1813,6 +1883,7 @@ func update_towers(delta: float) -> void:
 			if pad.mode=="threat":
 				var rank:=tower_threat_rank(String(creature.get_meta("threat","")))
 				if creature.get_meta("threat","")=="summoner" and not creature.get_meta("summoner_active",false):rank=99
+				if creature.get_meta("threat","")=="warder" and not creature.get_meta("warder_active",false):rank=99
 				if rank<99 and (rank<threat_rank or (rank==threat_rank and distance<threat_distance)):
 					threat_target=creature;threat_rank=rank;threat_distance=distance
 		if breaker!=null:selected=breaker
@@ -1833,6 +1904,8 @@ func update_towers(delta: float) -> void:
 	# A real control shot must cancel preparation before this frame is drawn.
 	for summoner: Node3D in summoners:
 		if is_instance_valid(summoner):summoner.revalidate_cast()
+	for value: Variant in warders.duplicate():
+		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in warders:value.revalidate_cast()
 
 func update_focus(delta: float) -> void:
 	focus_cooldown=maxf(0.0,focus_cooldown-delta)
@@ -2047,6 +2120,7 @@ func end_defeat(message: String) -> void:
 	if phase=="ended":return
 	clear_lobbers()
 	clear_summoners()
+	clear_warders()
 	cores.clear()
 	specializations.reset_effects()
 	if logistics:logistics.clear()
@@ -2120,7 +2194,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"summoner":0,"light_eater":1,"lobber":2,"sapper":3,"breaker":4}.get(threat,99)
+	return {"summoner":0,"warder":1,"light_eater":2,"lobber":3,"sapper":4,"breaker":5}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
@@ -3024,6 +3098,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 func _exit_tree() -> void:
 	clear_lobbers()
 	clear_summoners()
+	clear_warders()
 	if is_instance_valid(effects):
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
@@ -3052,6 +3127,7 @@ func prepare_shutdown() -> void:
 	set_process(false)
 	clear_lobbers()
 	clear_summoners()
+	clear_warders()
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()

@@ -67,6 +67,7 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 		if not preview.is_empty():
 			title="下一波 · %s · %d只 · %.0f秒" % [String(preview.title),int(preview.count),float(preview.remaining)]
 			detail=String(preview.advice)
+			if int(preview.get("warder_count",0))>0:detail="织壳1秒 · 32盾/4秒 · 最多3次 · 击杀或牵制打断 · F3 防线"
 		elif bool(game.final_clearance_active):
 			title="末夜清场 · 清除剩余威胁"
 			detail="首领与残敌全部清除后结算"
@@ -320,9 +321,15 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 		if int(game.countermeasure_selected)>=0:
 			_paragraph(ui,game.countermeasure_summary(int(game.countermeasure_selected)),Vector2(TEXT_X,248),TEXT_WIDTH,15,ui.muted,22)
 		var reinforcement_cap:=0
-		for entry: Dictionary in game.night_plan:reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+		var shield_cast_cap:=0
+		for entry: Dictionary in game.night_plan:
+			reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+			shield_cast_cap+=int(entry.get("shield_cast_cap",0))
 		var advice:="反制在白昼按7/8/9选择，天黑前可更换。"
 		if reinforcement_cap>0:advice="召潮者引导2.4秒，单源最多2援军；击杀或牵制可打断。"
+		if shield_cast_cap>0:
+			advice="织壳1秒→32盾/4秒，每源最多3次；击杀或牵制可打断。"
+			if reinforcement_cap>0:advice="召潮2.4秒/最多2援军；织壳1秒/32盾4秒/最多3次；击杀或牵制打断。"
 		_paragraph(ui,advice,Vector2(TEXT_X,286),TEXT_WIDTH,15,ui.muted,22,2)
 		var gate:="路障%d耐久" % ceili(float(game.gate_barricade_hp)) if float(game.gate_barricade_hp)>0.0 else "路障未部署"
 		_paragraph(ui,"%s · 机关%d/%d · C集火%s" % [gate,game.gate_trap_charges,game.GATE_TRAP_MAX,"冷却%.0f秒" % ceilf(float(game.focus_cooldown)) if float(game.focus_cooldown)>0.0 else "就绪"],Vector2(TEXT_X,336),TEXT_WIDTH,15,ui.ink,22)

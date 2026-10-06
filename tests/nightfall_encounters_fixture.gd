@@ -4,7 +4,7 @@ const Encounters = preload("res://scripts/nightfall_encounters.gd")
 var encounters: RefCounted = Encounters.new()
 
 # Frozen from actual production plans at main e83a414 before summoner changes.
-# Restoring summoner to basic must reproduce the exact original order/counts.
+# Restoring summoner and warder to basic must reproduce original order/counts.
 const BASELINE_ROLE_DIGESTS := {
 	"echo:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
 	"echo:2": "4d28a37bc7398a86024e17a51dc0364022f2b505729efd4edc397395bb8a85f3",
@@ -35,6 +35,7 @@ const EARLY_METADATA_DIGESTS := {
 }
 const MODES := ["teaching", "standard", "siege", "echo"]
 const LOBBERS := {1: [0,0,0,0,0], 2: [0,0,1,0,1], 3: [0,1,2,1,2], 4: [0,2,3,2,3]}
+const WARDERS := {1: [0,0,0,0,0], 2: [0,0,0,1,0], 3: [0,1,0,1,0], 4: [0,1,0,1,0]}
 var checks := 0
 var failures: Array[String] = []
 
@@ -107,7 +108,7 @@ func _initialize() -> void:
 	check(encounters.next_preview(first, 5, 105.0).is_empty())
 	check(encounters.make_plan("unknown", 0, 17, 0) == encounters.make_plan("teaching", 1, 17, 0))
 	check(encounters.make_plan("standard", 99, 17, 0) == encounters.make_plan("standard", 4, 17, 0))
-	print("NIGHTFALL_ENCOUNTERS_FIXTURE_%s checks=%d failures=%d exact_baseline_order finite_source_caps initial_population seed_variants nest_reductions" % ["OK" if failures.is_empty() else "FAILED", checks, failures.size()])
+	print("NIGHTFALL_ENCOUNTERS_FIXTURE_%s checks=%d failures=%d exact_baseline_order finite_source_caps finite_shield_caps initial_population seed_variants nest_reductions" % ["OK" if failures.is_empty() else "FAILED", checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
 
 
@@ -121,12 +122,14 @@ func frozen_baselines() -> void:
 			for wave: Dictionary in plan:
 				var restored: Array = wave.roles.duplicate()
 				for index in restored.size():
-					if restored[index] == "summoner": restored[index] = "basic"
+					if restored[index] in ["summoner", "warder"]: restored[index] = "basic"
 				role_rows.append([restored, wave.count, wave.role_count, wave.boss_count])
-				early_rows.append([wave.title, wave.threat, wave.advice, wave.roles, wave.count, wave.role_count, wave.boss_count, wave.theme])
+				var restored_title := String(wave.title).trim_suffix(" · 织壳护卫")
+				var restored_advice := String(wave.advice).trim_suffix(" " + Encounters.WARDER_ADVICE)
+				early_rows.append([restored_title, wave.threat, restored_advice, restored, wave.count, wave.role_count, wave.boss_count, wave.theme])
 			check(JSON.stringify(role_rows).sha256_text() == BASELINE_ROLE_DIGESTS[key], key + ": restoring the replaced basic must reproduce exact original role order and initial population")
 			if night <= 2:
-				check(JSON.stringify(early_rows).sha256_text() == EARLY_METADATA_DIGESTS[key], key + ": first/second-night labels, guidance, roles, counts and random theme must stay unchanged")
+				check(JSON.stringify(early_rows).sha256_text() == EARLY_METADATA_DIGESTS[key], key + ": removing only shield-source additions must preserve exact first/second-night labels, guidance, roles, counts and random theme")
 
 func finite_source_matrix() -> void:
 	for mode: String in MODES:
@@ -137,15 +140,23 @@ func finite_source_matrix() -> void:
 				var context := "%s night%d seed%d" % [mode, night, seed_value]
 				check(plan == encounters.make_plan(mode, night, seed_value, 0), context + ": saved roles and finite ceilings must reproduce")
 				var sources := 0
+				var shield_sources := 0
 				for index in plan.size():
 					var wave: Dictionary = plan[index]
 					var less: Dictionary = reduced[index]
 					var count: int = wave.roles.count("summoner")
+					var warder_count: int = wave.roles.count("warder")
 					sources += count
+					shield_sources += warder_count
 					check(count == (1 if night >= 3 and index == 2 else 0), context + ": only later-night wave three may contain one source")
 					check(int(wave.reinforcement_cap) == count * 2 and int(less.reinforcement_cap) == count * 2, context + ": source lifetime cap must stay separate from initial population")
 					check(int(wave.count) == wave.roles.size() + int(wave.boss_count) and int(wave.role_count) == wave.roles.size(), context + ": unborn reinforcements must not inflate initial counts")
 					check(wave.roles.count("lobber") == int(LOBBERS[night][index]), context + ": all original lobber counts must stay intact")
+					check(warder_count == int(WARDERS[night][index]), context + ": finite shield sources replace one basic only in the declared later-night waves")
+					check(int(wave.warder_count) == warder_count and int(less.warder_count) == warder_count,
+						context + ": stored shield-source counts match actual saved roles before and after nest clearing")
+					check(int(wave.shield_cast_cap) == warder_count * 3 and int(less.shield_cast_cap) == warder_count * 3,
+						context + ": potential three-cast shield quota is separate from population and summoner births")
 					check(int(wave.count) - int(less.count) == 6 and wave.title == less.title and wave.advice == less.advice and wave.threat == less.threat, context + ": nest clearing must only reduce ordinary followers")
 					for role: String in Encounters.KNOWN_ROLES:
 						if role != "basic": check(wave.roles.count(role) == less.roles.count(role), context + ": nest clearing must retain every specialist and source")
@@ -155,10 +166,31 @@ func finite_source_matrix() -> void:
 							check(String(wave.advice).contains(text), context + ": counterplay must disclose " + text)
 					elif night == 2 and index == 2:
 						check(wave.threat == "lobber" and String(wave.advice).contains("2米") and String(wave.advice).contains("1.15秒"), context + ": second-night lobber guidance must stay unchanged")
+					if warder_count > 0:
+						var original_threat := "breaker" if index == 1 and String(wave.theme) == "siege" else ("runner" if index == 1 else "sapper")
+						check(wave.threat == original_threat and String(wave.title).ends_with(" · 织壳护卫"), context + ": shield warning supplements the original wave identity rather than replacing its primary threat")
+						check(String(wave.advice).ends_with(" " + Encounters.WARDER_ADVICE)
+							and String(wave.advice).length() > Encounters.WARDER_ADVICE.length() + 1,
+							context + ": shield guidance retains the original advice before its appended disclosure")
+						for text: String in ["1秒引导", "击杀", "牵制打断", "32护盾", "4秒", "间隔6秒", "每源最多3次"]:
+							check(String(wave.advice).contains(text), context + ": finite shield counterplay discloses " + text)
+					else:
+						check(not String(wave.title).contains("织壳护卫") and not String(wave.advice).contains("织壳者"), context + ": waves without a shield source must not advertise one")
 				check(sources == (1 if night >= 3 else 0), context + ": one whole night may have at most one finite source")
+				check(shield_sources == (0 if night == 1 else (1 if night == 2 else 2)), context + ": whole-night shield-source count stays zero/one/two across all seeds and modes")
 				check(not plan[4].roles.has("summoner") and int(plan[4].reinforcement_cap) == 0, context + ": original last-wave boss must not gain a summoner ceiling")
+				check(not plan[4].roles.has("warder") and int(plan[4].shield_cast_cap) == 0, context + ": original last-wave boss and specialists are not replaced by a shield source")
 	var stored: Array[Dictionary] = encounters.make_plan("siege", 3, 17, 0)
 	var preview: Dictionary = encounters.next_preview(stored, 2, 12.5)
 	check(preview.remaining == 27.5 and preview.roles.count("summoner") == 1 and preview.reinforcement_cap == 2, "Preview must separately expose one actual initial source and two potential future births")
 	preview.roles.clear(); preview.reinforcement_cap = 99; preview.advice = "测试修改"
 	check(stored[2].roles.count("summoner") == 1 and stored[2].reinforcement_cap == 2 and stored[2].advice == Encounters.SUMMONER_ADVICE, "Preview edits must not mutate the saved source, ceiling or guidance")
+	var shield_preview: Dictionary = encounters.next_preview(stored, 1, 12.5)
+	check(shield_preview.remaining == 7.5 and shield_preview.roles.count("warder") == 1
+		and shield_preview.warder_count == 1 and shield_preview.shield_cast_cap == 3
+		and shield_preview.reinforcement_cap == 0 and shield_preview.threat == "breaker",
+		"Preview separately exposes one initial shield source and its three finite casts while preserving the actual primary threat")
+	shield_preview.roles.clear(); shield_preview.warder_count = 99; shield_preview.shield_cast_cap = 99; shield_preview.advice = "测试修改"
+	check(stored[1].roles.count("warder") == 1 and stored[1].warder_count == 1 and stored[1].shield_cast_cap == 3
+		and stored[1].reinforcement_cap == 0 and String(stored[1].advice).ends_with(Encounters.WARDER_ADVICE),
+		"Preview edits must not mutate saved shield source, finite cast ceiling, original births or appended guidance")
