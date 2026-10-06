@@ -16,11 +16,13 @@ const RunSession = preload("res://scripts/run_session.gd")
 const RECORDING_HUD := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_labels: Array[Dictionary] = []
 var all_labels: Array[String] = []
+var all_drawn_labels: Array[Dictionary] = []
 var drawn_boxes: Array[Rect2] = []
 var recording_drawer := false
 func _draw() -> void:
 	drawn_labels.clear()
 	all_labels.clear()
+	all_drawn_labels.clear()
 	drawn_boxes.clear()
 	recording_drawer = false
 	super._draw()
@@ -31,11 +33,13 @@ func box(rect: Rect2, fill: Color = Color(.022,.035,.045,.88), outline: Color = 
 	super.box(rect,fill,outline)
 func label(value: String, point: Vector2, size_px: int, color: Color = Color(\"e7e1d3\"), latin: bool = false) -> void:
 	all_labels.append(value)
+	var actual_font: Font = display_font if latin else font
+	var row := {\"text\":value, \"point\":point, \"font_size\":size_px,
+		\"width\":actual_font.get_string_size(value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px).x,
+		\"ascent\":actual_font.get_ascent(size_px), \"descent\":actual_font.get_descent(size_px), \"color\":color}
+	all_drawn_labels.append(row)
 	if recording_drawer:
-		var actual_font: Font = display_font if latin else font
-		drawn_labels.append({\"text\":value, \"point\":point, \"font_size\":size_px,
-			\"width\":actual_font.get_string_size(value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px).x,
-			\"descent\":actual_font.get_descent(size_px)})
+		drawn_labels.append(row)
 	super.label(value,point,size_px,color,latin)
 """
 var game: Node3D
@@ -361,13 +365,16 @@ func tag_command_snapshot() -> Dictionary:
 				"windup": member.attack_windup, "path": member.path.duplicate(), "timer": member.path_timer})
 	return {"orders": orders(), "selection": tag_selection_state(), "members": members,
 		"formations": formations, "aim": game.aim, "notice": game.notice,
-		"notice_time": game.notice_time, "keyboard": game.hero_keyboard_active}
+		"notice_time": game.notice_time, "keyboard": game.hero_keyboard_active,
+		"pending_aim_screen": game.pending_aim_screen, "aim_sample_pending": game.aim_sample_pending}
 
 func restore_tag_commands(saved: Dictionary) -> void:
 	game.move_goal = saved.orders.goal
 	game.hero_path = saved.orders.path
 	game.hero_keyboard_active = saved.keyboard
 	game.aim = saved.aim
+	game.pending_aim_screen = saved.pending_aim_screen
+	game.aim_sample_pending = saved.aim_sample_pending
 	game.notice = saved.notice
 	game.notice_time = saved.notice_time
 	game.selection_dragging = saved.selection.dragging
@@ -402,6 +409,234 @@ func assert_tag_buttons(rect: Rect2, label: String) -> void:
 	restore_tag_commands(saved)
 	await assert_no_command(rect.get_center(),label)
 	restore_tag_commands(saved)
+
+func drawn_notice_box() -> Rect2:
+	# Identify the actually painted notification, independently of its helper.
+	for rect: Rect2 in game.hud.drawn_boxes:
+		if is_equal_approx(rect.end.y,788.0) and is_equal_approx(rect.get_center().x,720.0): return rect
+	return Rect2()
+
+func recorded_text_in(rect: Rect2) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for row: Dictionary in game.hud.all_drawn_labels:
+		if rect.has_point(row.point): result.append(row)
+	return result
+
+func check_text_inside(rect: Rect2, row: Dictionary, label: String) -> void:
+	var point: Vector2 = row.point
+	check(point.x >= rect.position.x and point.x + float(row.width) <= rect.end.x,
+		label + ": actual font width must fit its painted panel: " + String(row.text))
+	check(point.y - float(row.ascent) >= rect.position.y and point.y + float(row.descent) <= rect.end.y,
+		label + ": actual ascent/descent must fit its painted panel: " + String(row.text))
+
+func assert_free_world_input(point: Vector2, label: String) -> void:
+	var saved := tag_command_snapshot()
+	var uncovered := true
+	for rect: Rect2 in game.hud.visible_hud_rects(): uncovered = uncovered and not rect.has_point(point)
+	check(uncovered,label + ": released screen space must have no current HUD hitbox")
+	game.squads.cancel_selection()
+	await tag_mouse_button(point,MOUSE_BUTTON_LEFT,true)
+	check(game.selection_dragging,label + ": real left press must begin a world selection")
+	await tag_mouse_button(point,MOUSE_BUTTON_LEFT,false)
+	check(not game.selection_dragging,label + ": real left release must finish the selection")
+	restore_tag_commands(saved)
+	game.squads.cancel_selection()
+	var before := orders()
+	await click_at(point,MOUSE_BUTTON_RIGHT)
+	check(game.move_goal != before.goal or game.hero_path != before.path,
+		label + ": real right click must reach hero path planning")
+	check(orders().army == before.army,label + ": a hero command must retain troop orders")
+	restore_tag_commands(saved)
+	game.squads.cancel_selection()
+	press(KEY_TAB)
+	check(game.squads.selected_count() == 1,label + ": actual Tab must select the GUI-trained squad")
+	before = orders()
+	await click_at(point,MOUSE_BUTTON_RIGHT)
+	check(orders().army != before.army and game.squads.squads[0].order == game.squads.MOVE,
+		label + ": real right click must reach selected-troop movement")
+	check(game.move_goal == before.goal and game.hero_path == before.path,
+		label + ": selected-troop movement must retain hero path planning")
+	restore_tag_commands(saved)
+	check(orders() == saved.orders and tag_selection_state() == saved.selection
+		and game.aim_sample_pending == saved.aim_sample_pending and game.pending_aim_screen == saved.pending_aim_screen,
+		label + ": the input fixture must restore actual orders, selection and deferred aiming")
+
+func compact_notice_inputs() -> void:
+	var original_size: Vector2i = root.size
+	var original_content: Vector2i = root.content_scale_size
+	var saved := tag_command_snapshot()
+	var free_point := Vector2(352,772)
+	var old_notice := Rect2(344,740,752,48)
+	var long_text := "训练完成后可以选中部队，右键前往指定位置并守住南门。白昼探索获得零件，返回城堡后建设防线，入夜优先处理威胁最大的敌人，再保护受伤队员回到安全位置。"
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		var label := "Compact notification %dx%d" % [size.x,size.y]
+		game.notify("部队已就位",3.0)
+		await redraw()
+		var short_box := drawn_notice_box()
+		check(short_box.has_area() and short_box.size.x < old_notice.size.x and short_box.size.y == 34.0,
+			label + ": the actually drawn short notice must shrink to one compact line")
+		check(game.hud.visible_hud_rects().has(short_box) and not game.hud.visible_hud_rects().has(old_notice),
+			label + ": input coverage must match the compact painted notification")
+		var short_rows := recorded_text_in(short_box)
+		check(short_rows.size() == 1 and String(short_rows[0].text) == "部队已就位",
+			label + ": the real short Chinese notification must be drawn completely once")
+		for row: Dictionary in short_rows: check_text_inside(short_box,row,label)
+		await assert_tag_buttons(short_box,label + " visible short notice")
+		await assert_free_world_input(free_point,label + " released former-notice edge")
+		if size == Vector2i(1920,1200): await capture("notice-short")
+		game.notify(long_text,3.0)
+		await redraw()
+		var long_box := drawn_notice_box()
+		var long_rows := recorded_text_in(long_box)
+		check(long_box.has_area() and long_box.size.y == 54.0 and long_box.size.x <= old_notice.size.x,
+			label + ": the real long notice must use at most two lines without expanding across the battlefield")
+		check(long_rows.size() == 2,label + ": the real Chinese message must actually wrap into two drawn lines")
+		var rendered := ""
+		for row: Dictionary in long_rows:
+			rendered += String(row.text)
+			check_text_inside(long_box,row,label + " long notice")
+		check(rendered == long_text,label + ": wrapping must preserve the complete real Chinese message")
+		check(game.hud.visible_hud_rects().has(long_box),label + ": the two-line notice must register its actual drawn footprint")
+		await assert_tag_buttons(long_box,label + " visible long notice")
+		if size == Vector2i(1920,1200): await capture("notice-long")
+		for empty_text in [""," \t\n "]:
+			game.notify(empty_text,3.0)
+			await redraw()
+			check(not drawn_notice_box().has_area(),label + ": empty or whitespace-only notices must not draw a panel")
+			await assert_free_world_input(free_point,label + " empty notice")
+		# Expire through the actual controller tick while paused so unrelated
+		# production/army/economy does not advance during this input fixture.
+		game.squads.cancel_selection()
+		game.notify("即将消失的通知",.01)
+		press(KEY_ESCAPE)
+		var follow: Vector3 = game.camera_follow
+		var camera_point: Vector3 = game.camera.position
+		var rewards: Array = game.reward_toasts.duplicate(true)
+		game._process(.02)
+		game.camera_follow = follow
+		game.camera.position = camera_point
+		game.reward_toasts.assign(rewards)
+		press(KEY_ESCAPE)
+		await redraw()
+		check(game.phase == "day" and game.notice_time == 0.0 and not drawn_notice_box().has_area(),
+			label + ": actual notification expiry must remove its paint and current hitbox")
+		await assert_free_world_input(free_point,label + " expired notice")
+		game.notify("建设时保留的普通通知",3.0)
+		press(KEY_Y)
+		await redraw()
+		check(game.construction.active and not drawn_notice_box().has_area(),
+			label + ": real construction must hide the ordinary notification")
+		var covered := false
+		for rect: Rect2 in game.hud.visible_hud_rects(): covered = covered or rect.has_point(free_point)
+		check(not covered,label + ": the former notification edge must not retain a construction-time hitbox")
+		await click_at(free_point,MOUSE_BUTTON_RIGHT)
+		check(not game.construction.active,label + ": real right click on the released edge must cancel construction")
+		restore_tag_commands(saved)
+		var hp: float = game.hero.hp
+		var shield: float = game.hero.shield
+		var damage_time: float = game.hero_damage_flash_time
+		var damage_text: String = game.hero_damage_flash_text
+		game.notify("受击时保留的普通通知",3.0)
+		game.hero.hurt(37.0,null)
+		await redraw()
+		check(game.hero_damage_flash_time > 0.0 and not drawn_notice_box().has_area(),
+			label + ": actual confirmed damage must hide the ordinary notification")
+		await assert_free_world_input(free_point,label + " damage-priority released edge")
+		game.hero.hp = hp
+		game.hero.shield = shield
+		game.hero_damage_flash_time = damage_time
+		game.hero_damage_flash_text = damage_text
+		game.combat.clear_transients()
+		await redraw()
+		var resource_box := Rect2()
+		for rect: Rect2 in game.hud.drawn_boxes:
+			if rect.position == Vector2(1080,20): resource_box = rect
+		check(resource_box.has_area() and resource_box.size.y == 54.0 and game.hud.visible_hud_rects().has(resource_box),
+			label + ": the actually painted resource panel must use its smaller registered footprint")
+		var resource_text := recorded_text_in(resource_box)
+		check(resource_text.size() == 2,label + ": resources must retain only actual parts and beacon text")
+		for row: Dictionary in resource_text:
+			check("铭刻" not in String(row.text),label + ": paid-upgrade information must not duplicate the bottom V button")
+			check_text_inside(resource_box,row,label + " resources")
+		await assert_free_world_input(Vector2(1100,80),label + " released resource-panel bottom")
+	root.size = original_size
+	root.content_scale_size = original_content
+	restore_tag_commands(saved)
+	await redraw()
+	check(game.phase == "day" and not game.construction.active and game.hud.detail_tab == "",
+		"Compact notification fixtures must restore the live gameplay state")
+
+func compact_skill_readability() -> void:
+	var saved := tag_command_snapshot()
+	var mana: float = game.mana
+	var cooldowns: Array = game.cooldowns.duplicate()
+	var notice_key: String = game.skill_notice_key
+	var notice_until: float = game.skill_notice_until
+	var hero_action: Dictionary = {}
+	for property: String in ["hero_action","hero_action_time","hero_action_duration","hero_action_weight","hero_action_aim_yaw","hero_attack_variant"]:
+		hero_action[property] = game.hero.get(property)
+	game.notice_time = 0.0
+	await redraw()
+	for index in 5:
+		var cell := Rect2(558 + index*105,808,105,72)
+		check(game.skill_status(index) == "就绪","The live pre-cast skill fixture must begin with a genuinely ready skill")
+		var rows := recorded_text_in(cell)
+		check(rows.size() == 2,"A ready skill must draw only its actual key and name, without a repeated ready label")
+		for row: Dictionary in rows:
+			check(String(row.text) != "就绪","Ready skills must not repeat five status labels across the cleaned bottom bar")
+			check_text_inside(cell,row,"Ready skill")
+		check(not game.hud.drawn_boxes.has(Rect2(558+index*105,810,99,61)),
+			"The old large repeated skill frame must not remain painted")
+	# Isolate the mana boundary, then spend it through genuine keyboard casting.
+	# The fixture does not advance training or regenerate mana through simulate.
+	game.mana = float(game.COSTS[0]) + 10.0
+	game.aim_sample_pending = false
+	game.aim = game.hero.position + Vector3.RIGHT
+	press(KEY_Q)
+	check(game.mana == 10.0 and is_equal_approx(game.cooldowns[0],float(game.COOLDOWNS[0])*game.run.cooldown_factor()),
+		"Actual Q input must pay its real mana cost and start its real production cooldown")
+	await redraw()
+	var status: String = game.skill_status(0)
+	var q_rows := recorded_text_in(Rect2(558,808,105,72))
+	check(q_rows.size() == 3 and status != "就绪" and status in game.hud.all_labels,
+		"The actual Q cooldown number must remain drawn after removing repeated ready labels")
+	for row: Dictionary in q_rows: check_text_inside(Rect2(558,808,105,72),row,"Actual Q cooldown")
+	await capture("skill-cooldown")
+	var after_cast: float = game.mana
+	var cooldown: float = game.cooldowns[0]
+	press(KEY_Q)
+	check(game.mana == after_cast and game.cooldowns[0] == cooldown and "Q 斩光 · 冷却还剩" in game.notice,
+		"A second real Q must show the production cooldown rejection without paying or restarting it")
+	press(KEY_E)
+	check(game.mana == after_cast and game.cooldowns[2] == 0.0 and "E 突进 · 法力不足" in game.notice,
+		"Actual insufficient-mana E input after Q spending must retain its readable production rejection")
+	await redraw()
+	for index in [1,2,3]:
+		var cell := Rect2(558 + index*105,808,105,72)
+		var rows := recorded_text_in(cell)
+		var shortage := false
+		for row: Dictionary in rows:
+			check_text_inside(cell,row,"Actual insufficient mana")
+			if String(row.text) == "法力不足":
+				shortage = true
+				check(row.color == game.hud.red,"Actual insufficient-mana skill text must keep its urgent readable color")
+		check(shortage,"Each actually unaffordable positive-cost skill must retain its shortage text")
+	var rejection_box := drawn_notice_box()
+	var rejection_rows := recorded_text_in(rejection_box)
+	check(rejection_box.has_area() and not rejection_rows.is_empty(),"The actual mana rejection must retain a visible compact notification")
+	for row: Dictionary in rejection_rows: check_text_inside(rejection_box,row,"Mana-rejection notification")
+	await capture("skill-mana-shortage")
+	for character in "斩光屏障突进灯焰治疗法力不足冷却还剩秒需要":
+		check(game.hud.font.has_char(character.unicode_at(0)),"The actual skill and feedback font must resolve glyph " + character)
+	game.mana = mana
+	game.cooldowns.assign(cooldowns)
+	game.skill_notice_key = notice_key
+	game.skill_notice_until = notice_until
+	for property: String in hero_action: game.hero.set(property,hero_action[property])
+	restore_tag_commands(saved)
+	await redraw()
 
 func active_exploration_tag_inputs() -> void:
 	var original_size: Vector2i = root.size
@@ -772,6 +1007,8 @@ func run() -> void:
 	await rich_exploration_page()
 	await build_barracks()
 	await army_gui()
+	await compact_notice_inputs()
+	await compact_skill_readability()
 	await active_exploration_tag_inputs()
 	await defense_and_memory_gui()
 	await scale_and_hit_testing()
