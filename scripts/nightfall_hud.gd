@@ -756,7 +756,7 @@ func draw_squads() -> void:
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
 	if troop_page>0:
-		label("重弩12.8米/46伤 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
+		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
 		var medics:=selected_medic_ids()
 		var support_hint:="采运 · "+("白昼装料，返中转站收款" if bool(eligibility.available) else String(eligibility.reason))

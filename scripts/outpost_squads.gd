@@ -34,6 +34,7 @@ var training_queues: Dictionary = {}
 var selected_ids: Array[int] = []
 var _has_logistics := false
 var _has_hero := false
+var _has_construction_blocks := false
 var _medic_states: Dictionary = {}
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
@@ -42,6 +43,7 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) == "logistics": _has_logistics = true
 		if String(property.name) == "hero": _has_hero = true
+		if String(property.name) == "construction_blocks": _has_construction_blocks = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
 
@@ -504,7 +506,43 @@ func _medic_target_valid(soldier: BattleUnit, target: Variant) -> bool:
 	var source_height := _ground_height(soldier.position)
 	var target_height := _ground_height(patient.position)
 	if not is_finite(source_height) or not is_finite(target_height) or absf(source_height - target_height) > MEDIC_HEIGHT_LIMIT: return false
-	return _attack_line(soldier.position, patient.position)
+	return _medic_line(soldier.position, patient.position)
+
+func _medic_line(from: Vector3, to: Vector3) -> bool:
+	if not _attack_line(from, to): return false
+	if not _has_construction_blocks: return true
+	# Medical treatment reaches a real person, never a building surface.
+	# Apply the live building rectangles without adding a unit-body radius
+	# or reusing path reachability, which could reject a visible ramp target.
+	var blocks: Variant = game.get("construction_blocks")
+	if not blocks is Array: return false
+	var origin := Vector2(from.x, from.z)
+	var direction := Vector2(to.x - from.x, to.z - from.z)
+	for block_value: Variant in blocks:
+		if not block_value is Rect2: continue
+		var block: Rect2 = block_value
+		if game.has_method("segment_crosses_wall"):
+			if bool(game.call("segment_crosses_wall", origin, direction, block)): return false
+		elif _medic_segment_crosses_block(origin, direction, block): return false
+	return true
+
+func _medic_segment_crosses_block(origin: Vector2, direction: Vector2, block: Rect2) -> bool:
+	# Exact open-interior segment/slab check for isolated controllers that
+	# expose building rectangles but do not have the production helper.
+	var enter := 0.0
+	var leave := 1.0
+	for axis in 2:
+		var low: float = block.position[axis]
+		var high: float = block.end[axis]
+		if absf(direction[axis]) < .000001:
+			if origin[axis] <= low or origin[axis] >= high: return false
+		else:
+			var first: float = (low - origin[axis]) / direction[axis]
+			var last: float = (high - origin[axis]) / direction[axis]
+			enter = maxf(enter, minf(first, last))
+			leave = minf(leave, maxf(first, last))
+			if enter >= leave or leave <= 0.0 or enter >= 1.0: return false
+	return leave > 0.0 and enter < 1.0
 
 func _pick_medic_target(soldier: BattleUnit) -> BattleUnit:
 	var candidates: Array[BattleUnit] = []
@@ -572,7 +610,9 @@ func _advance_medic(squad: Dictionary, soldier: BattleUnit, delta: float, statio
 		_cancel_medic(soldier, "")
 		state.cooldown = MEDIC_COOLDOWN
 		soldier.attack_pose = .65
-		_beam(soldier.position + Vector3.UP, target.position + Vector3.UP, Color("95cdb9"), .022, .24, .12)
+		# Distinct attachment heights retain a visible short self-treatment
+		# pulse as well as the usual ally beam. Both use the frozen shot clock.
+		_beam(soldier.position + Vector3.UP * .9, target.position + Vector3.UP * 1.25, Color("95cdb9"), .022, .24, .12)
 		return
 	var target := _pick_medic_target(soldier)
 	if not is_instance_valid(target): return
@@ -962,6 +1002,8 @@ func _animate_member(soldier: BattleUnit) -> void:
 		arm.rotation.x = -soldier.attack_pose * .7 - (.25 if bool(soldier.get_meta("medic_casting", false)) else (.2 if soldier.attack_queued else 0.0))
 
 func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86"), width: float = .035, lifetime: float = .18, emission: float = 1.2) -> void:
+	var offset := to - from
+	if not from.is_finite() or not to.is_finite() or offset.length_squared() <= .000001: return
 	var node := MeshInstance3D.new()
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = width; mesh.bottom_radius = width
@@ -971,7 +1013,7 @@ func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86"), width: flo
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
 	node.position = (from + to) * .5
-	var direction := (to - from).normalized()
+	var direction := offset.normalized()
 	if absf(direction.dot(Vector3.UP)) < .999: node.quaternion = Quaternion(Vector3.UP, direction)
 	shots.append({"node": node, "time": lifetime, "duration": lifetime})
 
@@ -1023,6 +1065,7 @@ func clear() -> void:
 	shots.clear()
 	_has_logistics = false
 	_has_hero = false
+	_has_construction_blocks = false
 	_medic_states.clear()
 
 func _exit_tree() -> void:
