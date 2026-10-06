@@ -304,7 +304,11 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 		_paragraph(ui,"本夜反制 · "+title,Vector2(TEXT_X,215),TEXT_WIDTH,16,ui.ink,23)
 		if int(game.countermeasure_selected)>=0:
 			_paragraph(ui,game.countermeasure_summary(int(game.countermeasure_selected)),Vector2(TEXT_X,248),TEXT_WIDTH,15,ui.muted,22)
-		_paragraph(ui,"反制在白昼按7/8/9选择，天黑前可更换。",Vector2(TEXT_X,286),TEXT_WIDTH,15,ui.muted,22)
+		var reinforcement_cap:=0
+		for entry: Dictionary in game.night_plan:reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+		var advice:="反制在白昼按7/8/9选择，天黑前可更换。"
+		if reinforcement_cap>0:advice="召潮者引导2.4秒，单源最多2援军；击杀或牵制可打断。"
+		_paragraph(ui,advice,Vector2(TEXT_X,286),TEXT_WIDTH,15,ui.muted,22,2)
 		var gate:="路障%d耐久" % ceili(float(game.gate_barricade_hp)) if float(game.gate_barricade_hp)>0.0 else "路障未部署"
 		_paragraph(ui,"%s · 机关%d/%d · C集火%s" % [gate,game.gate_trap_charges,game.GATE_TRAP_MAX,"冷却%.0f秒" % ceilf(float(game.focus_cooldown)) if float(game.focus_cooldown)>0.0 else "就绪"],Vector2(TEXT_X,336),TEXT_WIDTH,15,ui.ink,22)
 	ui.label("整备建议",Vector2(TEXT_X,388),17,GREEN)

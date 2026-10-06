@@ -12,6 +12,7 @@ const ExplorationMotivationScript = preload("res://scripts/exploration_motivatio
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const LobberScript = preload("res://scripts/nightfall_lobber.gd")
+const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
@@ -102,6 +103,7 @@ var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var siege_boss: Node
 var lobbers: Array[Node3D] = []
+var summoners: Array[Node3D] = []
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -335,6 +337,7 @@ func simulate(delta: float) -> void:
 		boss_action_handled=siege_boss.advance(delta)
 		if phase!="day" and phase!="night":return
 	if phase=="day" and not lobbers.is_empty():clear_lobbers()
+	if phase=="day" and not summoners.is_empty():clear_summoners()
 	# A committed projectile outlives a defeated thrower. Advance controllers
 	# once even when that host has already left the living enemy list.
 	var lobber_actions: Dictionary={}
@@ -355,6 +358,22 @@ func simulate(delta: float) -> void:
 			lobber.clear()
 			lobber.queue_free()
 			lobbers.remove_at(index)
+	var summoner_actions: Dictionary={}
+	for index in range(summoners.size()-1,-1,-1):
+		var summoner: Node3D=summoners[index]
+		if not is_instance_valid(summoner):
+			summoners.remove_at(index)
+			continue
+		var source_value: Variant=summoner.get("host")
+		var source: BattleUnit=null
+		if is_instance_valid(source_value):source=source_value as BattleUnit
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive:
+			summoner.clear()
+			summoner.queue_free()
+			summoners.remove_at(index)
+			continue
+		summoner_actions[source.get_instance_id()]=summoner.advance(delta)
+		if phase not in ["day","night"]:return
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -366,6 +385,7 @@ func simulate(delta: float) -> void:
 			continue
 		if creature.get_meta("threat","")=="lobber" and bool(lobber_actions.get(creature.get_instance_id(),false)):
 			continue
+		if bool(summoner_actions.get(creature.get_instance_id(),false)):continue
 		if squads and squads.intercept_enemy(creature,delta):
 			continue
 		update_creature(creature,delta)
@@ -417,6 +437,7 @@ func simulate(delta: float) -> void:
 
 func start_night() -> void:
 	clear_lobbers()
+	clear_summoners()
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
@@ -484,6 +505,7 @@ func spawn_night_wave() -> void:
 
 func register_active_wave_enemy(enemy: Variant) -> bool:
 	if run_mode=="teaching" or active_wave_reward_id<0 or not is_instance_valid(enemy):return false
+	if enemy.get_meta("summoned_reinforcement",false):return false
 	var registered:=wave_rewards.register_enemy(active_wave_reward_id,enemy)
 	if registered:wave_rewards.seal_wave(active_wave_reward_id)
 	return registered
@@ -509,6 +531,51 @@ func clear_lobbers() -> void:
 		lobber.clear()
 		lobber.queue_free()
 	lobbers.clear()
+
+func summoner_warning_snapshot() -> Array[Dictionary]:
+	var warnings: Array[Dictionary]=[]
+	for summoner: Node3D in summoners:
+		if not is_instance_valid(summoner) or summoner.is_queued_for_deletion():continue
+		var warning: Dictionary=summoner.snapshot()
+		var source: Variant=warning.get("source")
+		if is_instance_valid(source) and source.alive and not source.is_queued_for_deletion() and String(warning.get("phase",""))=="windup":warnings.append(warning)
+	return warnings
+
+func clear_summoners() -> void:
+	for summoner: Node3D in summoners:
+		if not is_instance_valid(summoner):continue
+		summoner.clear()
+		summoner.queue_free()
+	summoners.clear()
+
+func spawn_summoned_reinforcement(source: BattleUnit, point: Vector3) -> BattleUnit:
+	# The cast controller owns timing; the original source instance owns its
+	# lifetime budget. Recreating a controller cannot replenish that budget.
+	if phase!="night" or not is_instance_valid(source) or not source.alive or source.is_queued_for_deletion():return null
+	if not enemies.has(source) or source.get_meta("threat","")!="summoner" or source.get_meta("summoned_reinforcement",false):return null
+	if int(source.get_meta("summoner_spawned",0))>=2 or specializations.movement_multiplier(source)<.9999:return null
+	var controller: Node3D=null
+	for candidate: Node3D in summoners:
+		if is_instance_valid(candidate) and not candidate.is_queued_for_deletion() and candidate.get("host")==source:
+			controller=candidate
+			break
+	if controller==null:return null
+	var cast: Dictionary=controller.snapshot()
+	if String(cast.get("phase",""))!="committing" or float(cast.get("remaining",1.0))>0.0:return null
+	var entry:=Vector3(clampf(float(source.get_meta("gate_lane",0.0)),-1.15,1.15),0,Layout.RAMP_END+3.0)
+	entry.y=outpost_height(entry)
+	if not point.is_finite() or point.distance_to(entry)>.001 or source.position.z<Layout.RAMP_END+.5:return null
+	if Vector2(source.position.x-entry.x,source.position.z-entry.z).length()>14.0:return null
+	var approach:=Vector3(entry.x,0,Layout.RAMP_END+.25)
+	approach.y=outpost_height(approach)
+	if not outpost_walkable(entry) or not can_traverse(entry,approach):return null
+	var reinforcement: BattleUnit=spawn_creature(true,"runner")
+	reinforcement.position=entry
+	reinforcement.title="应召疾行体"
+	reinforcement.set_meta("summoned_reinforcement",true)
+	reinforcement.set_meta("summoner_token",source.get_instance_id())
+	source.set_meta("summoner_spawned",int(source.get_meta("summoner_spawned",0))+1)
+	return reinforcement
 
 func begin_final_clearance() -> void:
 	if final_clearance_active or phase!="night":return
@@ -543,6 +610,7 @@ func beacon_repair_cost() -> int:
 func finish_night() -> void:
 	if phase=="ended":return
 	clear_lobbers()
+	clear_summoners()
 	clear_exploration_marker()
 	cores.clear()
 	specializations.reset_effects()
@@ -641,14 +709,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["light_eater","lobber","sapper","breaker","runner"]:
+	for role in ["summoner","light_eater","lobber","sapper","breaker","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"summoner":"召潮者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -668,7 +736,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper","lobber":recommended_index=2
+		"sapper","lobber","summoner":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -820,6 +888,7 @@ func settle_contract_reward() -> void:
 
 func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var is_lobber: bool=night and role=="lobber"
+	var is_summoner: bool=night and role=="summoner"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
@@ -849,7 +918,20 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	creature.attack_range=1.6
 	creature.attack_interval=1.1
 	if night:
-		if is_lobber:
+		if is_summoner:
+			creature.set_meta("threat","summoner")
+			creature.title="召潮者"
+			creature.max_hp*=.84
+			creature.hp=creature.max_hp
+			creature.damage=16.0
+			creature.speed=3.0
+			creature.visual.scale=Vector3.ONE*1.08
+			var summoner: Node3D=SummonerScript.new()
+			summoner.name="SummonerController"
+			add_child(summoner)
+			summoner.setup(self,creature)
+			summoners.append(summoner)
+		elif is_lobber:
 			creature.set_meta("threat","lobber")
 			creature.title="投蚀体"
 			creature.max_hp*=.92
@@ -1123,7 +1205,7 @@ func target_warning_snapshot() -> Array[Dictionary]:
 	var warnings: Array[Dictionary]=[]
 	if phase not in ["day","night","paused"]:return warnings
 	for creature: BattleUnit in enemies:
-		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber":continue
+		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber" or creature.get_meta("summoner_active",false):continue
 		if not creature.attack_queued or creature.attack_windup<=0.0:continue
 		var target:=attack_target_node(creature)
 		var target_kind:=String(creature.get_meta("attack_target_kind",""))
@@ -1890,6 +1972,7 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	if combat_phase=="night":
 		scrap_gain=8 if run_mode=="teaching" else wave_rewards.defeat(creature)
 		if phase=="night":districts.register_wreck(creature.get_instance_id(),creature.position)
+	if creature.get_meta("summoned_reinforcement",false):scrap_gain=0
 	scrap+=scrap_gain
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
@@ -1950,6 +2033,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
 	clear_lobbers()
+	clear_summoners()
 	cores.clear()
 	specializations.reset_effects()
 	if logistics:logistics.clear()
@@ -2023,7 +2107,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"light_eater":0,"lobber":1,"sapper":2,"breaker":3}.get(threat,99)
+	return {"summoner":0,"light_eater":1,"lobber":2,"sapper":3,"breaker":4}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
@@ -2926,6 +3010,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 
 func _exit_tree() -> void:
 	clear_lobbers()
+	clear_summoners()
 	if is_instance_valid(effects):
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
@@ -2953,6 +3038,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
 	clear_lobbers()
+	clear_summoners()
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()

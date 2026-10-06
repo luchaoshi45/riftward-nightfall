@@ -2,10 +2,11 @@ extends RefCounted
 ## 保存实际敌群计划；预告读取同一份计划，不另行随机生成文案。
 
 const WAVE_TIMES: Array[float] = [0.0, 20.0, 40.0, 65.0, 85.0]
-const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber"]
+const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber", "summoner"]
 const MAX_NEST_REDUCTION: int = 6
 const MIN_WAVE_COUNT: int = 4
 const LOBBER_ADVICE := "移出2米落点，弩手/重弩集火；射程11.2米，蓄力1.15秒＋飞行0.75秒。"
+const SUMMONER_ADVICE := "2.4秒引导可打断；冷却10秒，最多2援军从南门外进入；集火召潮者。"
 
 func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -> Array[Dictionary]:
 	var night: int = clampi(night_index, 1, 4)
@@ -32,6 +33,16 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 		var count: int = maxi(maxi(MIN_WAVE_COUNT, roles.size()), base_count - reduction)
 		while roles.size() < count:
 			roles.append("basic")
+		# Replace one already-budgeted ordinary follower after padding. This
+		# preserves specialists, initial population and the original shuffle RNG.
+		if night >= 3 and index == 2:
+			var ordinary_index := roles.rfind("basic")
+			if ordinary_index >= 0:
+				roles[ordinary_index] = "summoner"
+				composition.title = "召潮增援"
+				composition.threat = "summoner"
+				composition.advice = SUMMONER_ADVICE
+		var summoner_count := roles.count("summoner")
 		# 排列也属于保存的计划，出怪时不能再次抽取角色。
 		var order_random: RandomNumberGenerator = RandomNumberGenerator.new()
 		order_random.seed = run_seed + night * 104729 + (index + 1) * 9719
@@ -53,6 +64,7 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 			"roles": roles,
 			"count": count,
 			"role_count": roles.size(),
+			"reinforcement_cap": 2 * summoner_count,
 			"night": night,
 			"mode": selected_mode,
 			"theme": theme,

@@ -52,7 +52,9 @@ func verify_plan_rules() -> void:
 					var population := 8 + night * 3 if wave == 0 else 8 + night * 2 + wave * 2
 					check(int(entry.role_count) == population and entry.roles.size() == population, "Replacing specialists must keep every original wave population")
 					check(int(actual_counts.get("lobber", 0)) == int(LOBBERS_PER_WAVE[night][wave]), "Every mode must use the declared progressive lobber wave counts")
-					check(int(actual_counts.get("basic", 0)) == population - original.roles.size(), "Lobbers must replace specialists without consuming or adding basic slots")
+					var summoner_count := 1 if night >= 3 and wave == 2 else 0
+					check(int(actual_counts.get("summoner", 0)) == summoner_count and int(entry.get("reinforcement_cap",0)) == summoner_count * 2, "Only later third waves may advertise one source and two finite potential reinforcements")
+					check(int(actual_counts.get("basic", 0)) == population - original.roles.size() - summoner_count, "Summoner must replace exactly one basic while preserving every declared lobber")
 					for role in original_counts:
 						check(int(actual_counts.get(role, 0)) >= 1 and int(actual_counts[role]) <= int(original_counts[role]), "Every original specialist identity must retain at least one member")
 					for role in entry.roles: check(Encounters.KNOWN_ROLES.has(String(role)), "Every saved role must have a known production identity")
@@ -61,8 +63,10 @@ func verify_plan_rules() -> void:
 						original_pack["basic"] = population - original.roles.size()
 						check(actual_counts == original_pack, "First-night role counts must exactly match the untouched legacy composition")
 						check(entry.title == original.title and entry.threat == original.threat and entry.advice == original.advice and not entry.roles.has("lobber"), "First-night threat labels and guidance must stay unchanged")
-					elif wave == 2:
+					elif wave == 2 and night == 2:
 						check(entry.threat == "lobber" and String(entry.advice).contains("2米") and String(entry.advice).contains("集火") and String(entry.advice).contains("11.2") and String(entry.advice).contains("1.15") and String(entry.advice).contains("0.75"), "Lobber preview must expose actionable real timing, range and dodge guidance")
+					if summoner_count > 0:
+						check(entry.threat == "summoner" and String(entry.advice).contains("2.4") and String(entry.advice).contains("10") and String(entry.advice).contains("2") and String(entry.advice).contains("南门") and String(entry.advice).contains("集火"), "Finite-summoner preview must describe genuine limits, timing, entry and counterplay")
 					var boss_expected := night == (3 if mode == "teaching" else 4) and wave == 4
 					check(bool(entry.boss_entry) == boss_expected and int(entry.boss_count) == (1 if boss_expected else 0) and int(entry.count) == population + (1 if boss_expected else 0), "Replacement must preserve original boss and total counts")
 					for nest_count in [1, 2, 3]:

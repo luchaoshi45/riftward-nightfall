@@ -598,7 +598,12 @@ func _pick_enemy(soldier: BattleUnit) -> BattleUnit:
 		if not _in_range(soldier, enemy): continue
 		var candidate_score := -_ground_distance(soldier.position, enemy.position)
 		if str(soldier.get_meta("squad_kind")) in ["ranged", "ballista"]:
-			candidate_score += float({"breaker": 4, "sapper": 3, "lobber": 3, "light_eater": 2}.get(str(enemy.get_meta("threat", "")), 0)) * 10.0
+			var threat := str(enemy.get_meta("threat", ""))
+			var priority := int({"breaker": 4, "sapper": 3, "lobber": 3, "light_eater": 2}.get(threat, 0))
+			# A finite source can still add real units; ranged fire can prevent
+			# those births. Once spent it follows ordinary melee/interception.
+			if threat == "summoner" and bool(enemy.get_meta("summoner_active", false)): priority = 5
+			candidate_score += float(priority) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected
 

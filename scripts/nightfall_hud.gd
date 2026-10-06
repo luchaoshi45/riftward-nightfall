@@ -212,6 +212,7 @@ func _draw() -> void:
 	draw_hero_damage_feedback()
 	draw_target_warnings()
 	draw_lobber_warnings()
+	draw_summoner_warnings()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
@@ -427,6 +428,32 @@ func draw_lobber_warnings() -> void:
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("eed897"))
 
+func draw_summoner_warnings() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	for warning: Dictionary in game.summoner_warning_snapshot():
+		var screen: Variant=_world_screen((warning.position as Vector3)+Vector3.UP*2.1)
+		if screen==null:continue
+		var center: Vector2=screen as Vector2
+		if center.x<0 or center.x>1440 or center.y<0 or center.y>900:continue
+		var text_value: String="召援 %.1f秒 · 可打断" % maxf(0.0,float(warning.remaining))
+		var width: float=font.get_string_size(text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+		var position:=Vector2(clampf(center.x-width*.5,10,1430-width),clampf(center.y-10,110,790))
+		var free_position:=false
+		for _attempt in 10:
+			var footprint:=Rect2(position-Vector2(3,14),Vector2(width+6,19))
+			var overlaps:=false
+			for rect: Rect2 in occupied:
+				if rect.intersects(footprint):overlaps=true;break
+			if not overlaps:
+				occupied.append(footprint)
+				free_position=true
+				break
+			position.y-=22
+		if not free_position or position.y<96:continue
+		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
+		label(text_value,position,13,Color("c4a9e5"))
+
 func draw_hero_damage_feedback() -> void:
 	if game.phase not in ["day","night","paused"]:return
 	if float(game.get("hero_damage_flash_time"))<=0.0:return
@@ -476,7 +503,11 @@ func draw_day_forecast() -> void:
 		return
 	var first: Dictionary=game.night_plan[0]
 	label("下一夜 · 第%d夜" % game.day_number,Vector2(46,184),18,Color("a3d7bd"))
-	label("主威胁 %s · %d波 · 特殊约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()],Vector2(46,212),15,ink)
+	var reinforcement_cap:=0
+	for entry: Dictionary in game.night_plan:reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+	var composition: String="主威胁 %s · %d波 · 特殊约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()]
+	if reinforcement_cap>0:composition+=" · 潜在增援%d" % reinforcement_cap
+	label(composition,Vector2(46,212),15,ink)
 	CleanHud._paragraph(self,"首波 "+String(first.title)+" · "+String(first.advice),Vector2(46,240),496,14,muted,20,2)
 	for index in game.countermeasure_count():
 		var rect:=countermeasure_rect(index)
@@ -604,7 +635,9 @@ func draw_minimap() -> void:
 		if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
 		var threat: String=creature.get_meta("threat","")
 		var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
-		if threat=="lobber":
+		if threat=="summoner":
+			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-4),enemy_marker+Vector2(4,0),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(0,-4)]),Color("c4a9e5"),1.8)
+		elif threat=="lobber":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-3.5),enemy_marker+Vector2(3.5,3),enemy_marker+Vector2(-3.5,3),enemy_marker+Vector2(0,-3.5)]),Color("ced78b"),1.8)
 		else:
 			draw_circle(enemy_marker,3.5 if threat=="breaker" else 2.3,Color("ed945b") if threat=="breaker" else (Color("83d8d9") if threat=="runner" else (Color("a794eb") if threat=="light_eater" else red)))
