@@ -805,7 +805,7 @@ func draw_minimap() -> void:
 	for plot: Dictionary in game.districts.plots:
 		if int(plot.level)<=0:continue
 		var p: Vector3=plot.position
-		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0"),"depot":Color("c9be89")}.get(String(plot.kind),muted)
+		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0"),"depot":Color("c9be89"),"command_relay":Color("b789d5")}.get(String(plot.kind),muted)
 		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),color)
 	if is_instance_valid(game.logistics):
 		for field: Dictionary in game.logistics.snapshot().fields:
@@ -959,7 +959,8 @@ func draw_squads() -> void:
 		var row: Dictionary=rows[index+training_page*3]
 		var order: Dictionary=row.order
 		var name:=String(Catalog.troop(String(order.kind)).get("title","部队"))
-		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % float(order.remaining) if int(row.queue_index)==0 else "等待"],Vector2(46,321+index*44),13,ink)
+		var eta: float=float(order.get("eta",order.remaining))
+		label("营%d %s · %s" % [int(row.barracks)+1,name,"%.1f秒" % eta if int(row.queue_index)==0 else "等待"],Vector2(46,321+index*44),13,ink)
 		var rect:=Rect2(422,300+index*44,110,28)
 		box(rect,panel,muted)
 		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
@@ -973,7 +974,9 @@ func draw_squads() -> void:
 	label("设置集结",RALLY_SET_RECT.position+Vector2(34,19),13,amber if has_barracks and game.phase!="paused" else muted)
 	label("恢复默认",RALLY_RESET_RECT.position+Vector2(36,19),13,amber if has_barracks and game.phase!="paused" else muted)
 	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
-	label("兵营%d · 训练%d组 · 页%d/%d%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint],Vector2(46,465),12,muted)
+	var duration_multiplier: float=float(snapshot.get("training_duration_multiplier",1.0))
+	var relay_hint: String=" · 中继时长×%.1f" % duration_multiplier if duration_multiplier < .999 else ""
+	label("兵营%d · 训练%d组 · 页%d/%d%s%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint,relay_hint],Vector2(46,465),12,muted)
 	label(control_group_hint(),Vector2(46,494),13,amber)
 	label("Shift+右键攻击推进 · Alt+右键工队护航",Vector2(46,522),14,muted)
 	if troop_page==1:

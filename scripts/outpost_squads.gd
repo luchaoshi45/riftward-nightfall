@@ -215,6 +215,10 @@ func refresh_barracks() -> void:
 
 func _advance_training(delta: float) -> void:
 	var generation := _epoch
+	var duration_multiplier := 1.0
+	var districts: Node = game.get("districts") as Node if is_instance_valid(game) else null
+	if is_instance_valid(districts) and districts.has_method("training_duration_multiplier"):
+		duration_multiplier = clampf(float(districts.call("training_duration_multiplier")), 0.8, 1.0)
 	for id: int in training_queues.keys():
 		if generation != _epoch or not _active() or not training_queues.has(id): return
 		var queue: Array = training_queues[id]
@@ -225,7 +229,11 @@ func _advance_training(delta: float) -> void:
 			game.set("scrap", int(game.get("scrap")) + refund)
 			training_queues.erase(id)
 			continue
-		var budget := delta
+		# Queue remaining is stored in base training seconds. Reading the live
+		# duration multiplier on every advance makes a build, upgrade, demolition
+		# or same-site rebuild take effect on the next simulation frame without
+		# changing the already-paid order or refund ledger.
+		var budget := delta / duration_multiplier
 		while not queue.is_empty() and budget > 0.0 and generation == _epoch and _active():
 			var item: Dictionary = queue[0]
 			var consumed := minf(budget, float(item.remaining))
@@ -1442,13 +1450,21 @@ func snapshot() -> Dictionary:
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
 			"position": _squad_position(squad), "selected": int(squad.id) in selected_ids})
 	var queues: Array[Dictionary] = []
+	var duration_multiplier := 1.0
+	var districts: Node = game.get("districts") as Node if is_instance_valid(game) else null
+	if is_instance_valid(districts) and districts.has_method("training_duration_multiplier"):
+		duration_multiplier = clampf(float(districts.call("training_duration_multiplier")), 0.8, 1.0)
 	for barracks in _barracks():
 		var queue: Array[Dictionary] = []
-		for item: Dictionary in training_queues.get(int(barracks.index), []): queue.append(item.duplicate())
+		for item: Dictionary in training_queues.get(int(barracks.index), []):
+			var copy := item.duplicate()
+			copy["eta"] = maxf(0.0, float(item.remaining) * duration_multiplier)
+			queue.append(copy)
 		queues.append({"index": barracks.index, "position": barracks.position, "level": barracks.level, "queue": queue})
 	return {"count": squads.size(), "max_squads": -1, "alive": total_alive,
 		"capacity": squads.size() * MEMBERS_PER_SQUAD, "refill_cost": refill_cost(),
-		"ranged_enabled": ranged_enabled, "squads": rows, "selected": selected_ids.size(),
+		"ranged_enabled": ranged_enabled, "training_duration_multiplier": duration_multiplier,
+		"squads": rows, "selected": selected_ids.size(),
 		"selected_ids": selected_ids.duplicate(), "queues": queues, "trainings": queues}
 
 func clear() -> void:

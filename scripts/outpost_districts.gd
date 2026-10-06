@@ -13,9 +13,10 @@ const LABORATORY := "laboratory"
 const DEPOT := "depot"
 const INFIRMARY := "infirmary"
 const ARMORY := "armory"
+const COMMAND_RELAY := "command_relay"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0, COMMAND_RELAY: 520.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -298,6 +299,13 @@ func active_depots() -> Array[Dictionary]:
 			"token": int(plot.model.get_instance_id()), "node": weakref(plot.node), "model": weakref(plot.model)})
 	return active
 
+func active_command_relays() -> Array[Dictionary]:
+	var active: Array[Dictionary] = []
+	for plot: Dictionary in plots:
+		if not _living(plot) or String(plot.kind) != COMMAND_RELAY: continue
+		active.append({"index": int(plot.index), "id": int(plot.id), "position": plot.position, "level": int(plot.level)})
+	return active
+
 func guard_regen(point: Vector3) -> float:
 	if not is_instance_valid(game) or not point.is_finite() or not Layout.contains_castle(point): return 0.0
 	if not game.outpost_walkable(point) or absf(point.y - float(game.outpost_height(point))) > 0.75: return 0.0
@@ -312,6 +320,12 @@ func tower_cost(base: int) -> int:
 
 func repair_cost(base: int) -> int:
 	return tower_cost(base)
+
+func training_duration_multiplier() -> float:
+	# A live relay shortens all barracks queues. Two levels may come from one
+	# upgraded relay or two level-one relays; the 0.8 floor prevents unlimited
+	# construction from creating an unbounded production advantage.
+	return 1.0 - float(mini(2, _levels(COMMAND_RELAY))) * 0.1
 
 func snapshots() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -331,6 +345,7 @@ func snapshots() -> Array[Dictionary]:
 			DEPOT: benefit = "工队真实返站才入账 · 有限废料 · 二级卸货更快"
 			INFIRMARY: benefit = "存活时解锁医护队 · 治疗须在部队页开启并付费"
 			ARMORY: benefit = "存活时解锁迫击炮队 · 前置研究所与工坊"
+			COMMAND_RELAY: benefit = "存活时缩短兵营训练时长 · 一级×0.9 · 二级×0.8 · 双站封顶"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -353,7 +368,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -362,7 +377,7 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY]: return null
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY]: return null
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
@@ -370,7 +385,7 @@ func create_model(kind: String) -> Node3D:
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "InfirmaryPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "CommandRelayPrototype" if kind == COMMAND_RELAY else "InfirmaryPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -442,6 +457,17 @@ func create_model(kind: String) -> Node3D:
 		var store := BattleVisuals.box(model, Vector3(-1.60, 0.40, 0.30), Vector3(0.58, 0.70, 0.94), copper)
 		store.name = "ArmorySupplyCase"
 		BattleVisuals.box(model, Vector3(-1.60, 0.78, 0.30), Vector3(0.60, 0.06, 0.96), steel)
+	elif kind == COMMAND_RELAY:
+		# Reuse the generator body and add a compact native relay mast. All
+		# geometry stays inside the three-by-two construction footprint.
+		var relay_mast := BattleVisuals.box(model, Vector3(0.92, 0.96, -0.72), Vector3(0.08, 1.72, 0.08), steel)
+		relay_mast.name = "CommandRelayMast"
+		var crossbar := BattleVisuals.box(model, Vector3(0.92, 1.72, -0.72), Vector3(0.78, 0.08, 0.08), copper)
+		crossbar.name = "CommandRelayCrossbar"
+		var signal_panel := BattleVisuals.box(model, Vector3(-0.82, 0.72, 0.78), Vector3(0.78, 0.62, 0.12), glass)
+		signal_panel.name = "CommandRelayPanel"
+		var panel_frame := BattleVisuals.box(model, Vector3(-0.82, 0.72, 0.70), Vector3(0.92, 0.74, 0.08), copper)
+		panel_frame.name = "CommandRelayPanelFrame"
 	else:
 		# This station only unlocks paid medical squads. Supply cases and a cyan
 		# marker identify the shared camp prototype without adding passive healing.
