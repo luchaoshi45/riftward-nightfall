@@ -10,6 +10,7 @@ const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
 const LogisticsScript = preload("res://scripts/outpost_logistics.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
+const BountyScript = preload("res://scripts/nightfall_bounty.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
@@ -98,6 +99,7 @@ var countermeasure_consumed := false
 var countermeasure_light_time := 0.0
 var countermeasure_tower_time := 0.0
 var wave_rewards=WaveRewardsScript.new()
+var bounty=BountyScript.new()
 var contracts=preload("res://scripts/day_contracts.gd").new()
 var contract_marker: Node3D
 var motivation_marker: Node3D
@@ -310,6 +312,7 @@ func simulate(delta: float) -> void:
 	specializations.advance(delta)
 	phase_time-=delta
 	if phase=="night":
+		if phase_time<=0.0:bounty.expire()
 		countermeasure_light_time=maxf(0.0,countermeasure_light_time-delta)
 		countermeasure_tower_time=maxf(0.0,countermeasure_tower_time-delta)
 	update_combat_chains(delta)
@@ -470,7 +473,10 @@ func start_night() -> void:
 	if logistics:logistics.on_night()
 	districts.begin_night(day_number)
 	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
-		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+		prepare_next_night_plan(false)
+	if String(bounty.snapshot().state)=="selected":
+		if not bounty.lock(night_plan,(day_number-1)*WAVES_PER_NIGHT+2):
+			night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	activate_countermeasure()
 	wave_rewards.reset()
 	active_wave_reward_id=-1
@@ -666,6 +672,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()
@@ -734,17 +741,55 @@ func begin_day() -> void:
 		"许弦：最后一夜。救回哨兵，他们会协助修复灯塔。"]
 	notify("白昼只有 90 秒 · " + day_lines[mini(day_number-1,2)],6)
 
-func prepare_next_night_plan(reset_countermeasure: bool = false) -> void:
+func prepare_next_night_plan(reset_countermeasure: bool = false) -> bool:
 	# The day forecast and the next night share this exact saved plan. Rebuilding
 	# it after a nest is sealed only changes the public count reduction; the seed,
 	# theme and specialist roles remain deterministic and visible to the player.
 	night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	if reset_countermeasure:
+		bounty.offer(run_mode,day_number)
 		countermeasure_selected=-1
 		countermeasure_active=""
 		countermeasure_consumed=false
 		countermeasure_light_time=0.0
 		countermeasure_tower_time=0.0
+	if String(bounty.snapshot().state)=="selected":
+		var selected_plan: Array[Dictionary]=encounters.with_bounty(night_plan)
+		if selected_plan.is_empty():
+			bounty.deselect()
+			return true
+		night_plan=selected_plan
+	return false
+
+func bounty_snapshot() -> Dictionary:
+	var state: Dictionary=bounty.snapshot()
+	var selectable: bool=String(state.state) in ["offered","selected"] and run_mode in ["standard","siege","echo"] and day_number==2
+	var eligible: bool=phase=="day" and phase_time>0.0 and not quitting and not restart_pending and is_instance_valid(hero) and hero.alive and hero.hp>0.0 and beacon_hp>0.0
+	# The saved plan already refreshes on nest changes. Reading the drawer must
+	# not regenerate and deep-copy five waves every rendered frame.
+	var capacity:=false
+	if selectable and night_plan.size()>2:
+		var entry: Dictionary=night_plan[2]
+		capacity=String(entry.get("bounty_id",""))=="shellguard_pack" or (entry.roles as Array).count("basic")>=2
+	state["available"]=selectable and eligible and capacity
+	state["reason"]="第三波需有两名普通随从可替换" if selectable and not capacity else "仅第二夜白昼可选"
+	if phase=="paused" and selectable:state.reason="暂停中，恢复后可选择"
+	elif bool(state.available):state.reason="放弃免费反制 · 第三波增加两名甲壳卫"
+	state["paid"]=BountyScript.REWARD if String(state.state)=="won" else 0
+	var ledger: Dictionary=wave_rewards.snapshot((2-1)*WAVES_PER_NIGHT+2)
+	state["kills"]=int(ledger.get("kills",0)) if String(state.state) in ["active","won","expired"] else 0
+	state["count"]=int(ledger.get("count",0)) if String(state.state) in ["active","won","expired"] else 0
+	return state
+
+func select_bounty() -> bool:
+	if not bool(bounty_snapshot().available):return false
+	var baseline: Array[Dictionary]=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
+	var selected_plan: Array[Dictionary]=encounters.with_bounty(baseline)
+	if selected_plan.is_empty() or not bounty.select(baseline):return false
+	night_plan=selected_plan
+	countermeasure_selected=-1
+	notify("已选甲壳悬赏 · 放弃免费反制，第三波清完额外+48零件",3)
+	return true
 
 func countermeasure_count() -> int:
 	return COUNTERMEASURE_OPTIONS.size()
@@ -799,7 +844,10 @@ func countermeasure_recommended(index: int) -> bool:
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
-	if phase!="day" or index<0 or index>=COUNTERMEASURE_OPTIONS.size() or night_plan.is_empty():return false
+	if phase!="day" or phase_time<=0.0 or quitting or restart_pending or index<0 or index>=COUNTERMEASURE_OPTIONS.size() or night_plan.is_empty():return false
+	if String(bounty.snapshot().state)=="selected":
+		bounty.deselect()
+		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
 	countermeasure_selected=index
 	notify("已选战前反制：%s · 天黑前可更换" % countermeasure_title(index),3)
 	return true
@@ -2065,12 +2113,24 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	specializations.forget_enemy(creature)
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase
+	var reward_id: int=int(creature.get_meta("wave_reward_id",-1))
+	var previous_kills: int=int(wave_rewards.snapshot(reward_id).get("kills",0))
 	var scrap_gain: int=5
 	if combat_phase=="night":
 		scrap_gain=8 if run_mode=="teaching" else wave_rewards.defeat(creature)
 		if phase=="night":districts.register_wreck(creature.get_instance_id(),creature.position)
 	if creature.get_meta("summoned_reinforcement",false):scrap_gain=0
 	scrap+=scrap_gain
+	var ledger: Dictionary=wave_rewards.snapshot(reward_id)
+	var bonus:=0
+	# Only a newly accepted real ledger death can settle the challenge. A stale
+	# callback after pause, actor removal or shutdown cannot replay a cleared row.
+	if int(ledger.get("kills",0))==previous_kills+1:
+		bonus=bounty.completion(reward_id,ledger,phase_time,
+			phase=="night" and not quitting and not restart_pending and is_instance_valid(hero) and hero.alive and hero.hp>0.0 and beacon_hp>0.0)
+	if bonus>0:
+		scrap+=bonus
+		notify("甲壳悬赏完成 · 额外 +%d 零件" % bonus,4)
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
 		kill_chain_time=6.0
@@ -2129,6 +2189,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()
@@ -2577,10 +2638,13 @@ func interact_nest(index: int=-1) -> bool:
 	create_tween().tween_property(nest.light,"light_energy",0.0,.4)
 	create_tween().tween_property(nest.sealed_light,"light_energy",.8,.6)
 	scrap+=90
+	var bounty_removed:=false
 	if phase=="day":
-		prepare_next_night_plan(false)
+		bounty_removed=prepare_next_night_plan(false)
 	BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
-	notify("夜巢已封闭 · +90 零件，下一夜预告已按公开规则减少普通随从" if phase=="day" else "夜巢已封闭 · +90 零件，今夜来袭减弱",4)
+	var result_text:="夜巢已封闭 · +90 零件，下一夜预告已按公开规则减少普通随从" if phase=="day" else "夜巢已封闭 · +90 零件，今夜来袭减弱"
+	if bounty_removed:result_text+="；悬赏取消：普通随从不足两名，请重新选择反制"
+	notify(result_text,4)
 	return true
 
 func interact() -> bool:
@@ -3148,6 +3212,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 	return stream
 
 func _exit_tree() -> void:
+	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()
@@ -3177,6 +3242,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()

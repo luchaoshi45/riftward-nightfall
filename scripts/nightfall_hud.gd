@@ -152,6 +152,9 @@ func minimap_rect() -> Rect2:
 func countermeasure_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,280,160,62)
 
+func bounty_rect() -> Rect2:
+	return Rect2(46,352,496,30)
+
 func visible_hud_rects() -> Array[Rect2]:
 	return live_panel_rects()
 
@@ -627,7 +630,17 @@ func draw_day_forecast() -> void:
 		label("%d %s %s" % [index+7,game.countermeasure_title(index),marker],rect.position+Vector2(8,21),12,amber if selected or recommended else ink)
 		var summary: String=game.countermeasure_summary(index).replace("防御塔伤害提高","塔伤提升")
 		CleanHud._paragraph(self,summary,rect.position+Vector2(8,41),144,12,muted,16,2)
-	label("点击 / 7/8/9 选择 · 天黑前可更换",Vector2(46,364),14,Color("a3c7b7"))
+	var bounty_state: Dictionary=game.bounty_snapshot()
+	if game.day_number==2 and String(bounty_state.state) in ["offered","selected"]:
+		var selected: bool=String(bounty_state.state)=="selected"
+		var rect:=bounty_rect()
+		box(rect,Color(.12,.09,.055,.95) if selected else panel,amber if selected else Color("665b45"))
+		label("甲壳悬赏 · 清波额外+48零件"+(" · 已选" if selected else ""),rect.position+Vector2(10,21),15,amber if bool(bounty_state.available) or selected else muted)
+		label("放弃免费反制 · 第三波两名普通随从换成甲壳卫",Vector2(46,405),14,ink)
+		label("该波须在夜间倒计时结束前全部击败；未清无额外奖。",Vector2(46,426),14,muted)
+		label("7/8/9 切回免费反制 · 天黑前可更换" if game.phase=="day" else "暂停中 · 恢复后可更换",Vector2(46,448),13,Color("a3c7b7"))
+	else:
+		label("点击 / 7/8/9 选择 · 天黑前可更换",Vector2(46,364),14,Color("a3c7b7"))
 
 func draw_combat_rewards() -> void:
 	if game.phase not in ["day","night","paused"] or not is_instance_valid(game.combat):return
@@ -1129,6 +1142,10 @@ func _gui_input(event: InputEvent) -> void:
 					for button: Dictionary in training_cancel_buttons:
 						if (button.rect as Rect2).has_point(point):game.cancel_troop_training(int(button.barracks),int(button.queue_index));training_cancel_buttons.clear();queue_redraw();accept_event();return
 				elif detail_tab=="defense" and game.phase=="day":
+					var bounty_state: Dictionary=game.bounty_snapshot()
+					if String(bounty_state.state) in ["offered","selected"] and game.day_number==2 and bounty_rect().has_point(point):
+						if not game.select_bounty():game.notify(String(bounty_state.reason),2)
+						accept_event();return
 					for index in game.countermeasure_count():
 						if countermeasure_rect(index).has_point(point):game.select_countermeasure(index);accept_event();return
 		for rect in live_panel_rects():

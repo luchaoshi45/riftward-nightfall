@@ -9,6 +9,10 @@ const LOBBER_ADVICE := "移出2米落点，弩手/重弩集火；射程11.2米�
 const SUMMONER_ADVICE := "2.4秒引导可打断；冷却10秒，最多2援军从南门外进入；集火召潮者。"
 const WARDER_ADVICE := "织壳者1秒引导，可击杀或牵制打断；32护盾持续4秒，成功后间隔6秒，每源最多3次。"
 const SHELLGUARD_ADVICE := "甲壳卫60护甲；二级塔J破甲重敌×1.65、忽略一半护甲；C集火，盾卫挡线。"
+const BOUNTY_ID := "shellguard_pack"
+const BOUNTY_REWARD := 48
+const BOUNTY_WAVE_INDEX := 2
+const BOUNTY_ADVICE := "悬赏：多2甲壳，本夜清波另奖48零件。"
 
 func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -> Array[Dictionary]:
 	var night: int = clampi(night_index, 1, 4)
@@ -102,6 +106,38 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 			# Append after the boss rewrite so both genuine threats stay disclosed.
 			plan[plan.size() - 1].advice = String(plan[plan.size() - 1].advice) + " " + SHELLGUARD_ADVICE
 	return plan
+
+## Apply the optional choice to the actual saved order, without another shuffle.
+## Reapplying a marked plan is rejected; callers rebuild from make_plan instead.
+func with_bounty(plan: Array[Dictionary]) -> Array[Dictionary]:
+	if plan.size() != WAVE_TIMES.size(): return []
+	var mode := String(plan[BOUNTY_WAVE_INDEX].get("mode", ""))
+	if mode not in ["standard", "siege", "echo"]: return []
+	for index in plan.size():
+		var entry: Dictionary = plan[index]
+		if int(entry.get("night", -1)) != 2 or String(entry.get("mode", "")) != mode: return []
+		if int(entry.get("index", -1)) != index or int(entry.get("wave_number", -1)) != index + 1: return []
+		if entry.has("bounty_id") or entry.has("bounty_reward"): return []
+	var original: Dictionary = plan[BOUNTY_WAVE_INDEX]
+	var original_roles: Variant = original.get("roles")
+	if not original_roles is Array or bool(original.get("boss_entry", false)): return []
+	var roles: Array = original_roles
+	if int(original.get("count", 0)) != roles.size() or int(original.get("role_count", 0)) != roles.size(): return []
+	if int(original.get("shellguard_count", -1)) != roles.count("shellguard"): return []
+	for role: Variant in roles:
+		if not role is String or role not in KNOWN_ROLES: return []
+	if roles.count("basic") < 2: return []
+	var result: Array[Dictionary] = plan.duplicate(true)
+	var target: Dictionary = result[BOUNTY_WAVE_INDEX]
+	var changed_roles: Array = target.roles
+	for replacement in 2:
+		changed_roles[changed_roles.rfind("basic")] = "shellguard"
+	target["shellguard_count"] = changed_roles.count("shellguard")
+	target["bounty_id"] = BOUNTY_ID
+	target["bounty_reward"] = BOUNTY_REWARD
+	target["title"] = String(target.get("title", "")) + " · 悬赏甲壳"
+	target["advice"] = String(target.get("advice", "")) + " " + BOUNTY_ADVICE
+	return result
 
 ## index 是已经生成的波数（0表示尚未生成）；返回值可供HUD自由修改。
 func next_preview(plan: Array[Dictionary], index: int, elapsed: float) -> Dictionary:

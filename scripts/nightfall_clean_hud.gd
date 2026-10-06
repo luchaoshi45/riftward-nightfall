@@ -69,6 +69,10 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 			detail=String(preview.advice)
 			if int(preview.get("warder_count",0))>0:detail="织壳1秒 · 32盾/4秒 · 最多3次 · 击杀或牵制打断 · F3 防线"
 			if int(preview.get("shellguard_count",0))>0:detail="甲壳卫60甲 · 二级塔J破甲忽略半甲 · C集火 · F3 防线"
+			if String(preview.get("bounty_id",""))=="shellguard_pack":
+				# Keep real population and arrival time in the one-line budget.
+				title="下一波 · 甲壳悬赏 · %d只 · %.0f秒" % [int(preview.count),float(preview.remaining)]
+				detail="全清+48 · 甲壳60甲/J破甲 · 投蚀落点2米 · F3 防线"
 		elif bool(game.final_clearance_active):
 			title="末夜清场 · 清除剩余威胁"
 			detail="首领与残敌全部清除后结算"
@@ -317,6 +321,9 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 	if toasts.is_empty():_paragraph(ui,"采集或互动后，实际奖励与全部加成来源显示在这里。",Vector2(TEXT_X,y+8),TEXT_WIDTH,15,ui.muted,22)
 
 static func _draw_defense(ui: Control, game: Node3D) -> void:
+	var bounty: Dictionary=game.bounty_snapshot()
+	var bounty_state:=String(bounty.state)
+	var heading_y:=388.0
 	if _phase(game)=="day":ui.draw_day_forecast()
 	else:
 		ui.label("守夜防线",Vector2(TEXT_X,184),18,GREEN)
@@ -343,9 +350,19 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 		_paragraph(ui,advice,Vector2(TEXT_X,286),TEXT_WIDTH,15,ui.muted,22,2)
 		var gate:="路障%d耐久" % ceili(float(game.gate_barricade_hp)) if float(game.gate_barricade_hp)>0.0 else "路障未部署"
 		_paragraph(ui,"%s · 机关%d/%d · C集火%s" % [gate,game.gate_trap_charges,game.GATE_TRAP_MAX,"冷却%.0f秒" % ceilf(float(game.focus_cooldown)) if float(game.focus_cooldown)>0.0 else "就绪"],Vector2(TEXT_X,336),TEXT_WIDTH,15,ui.ink,22)
-	ui.label("整备建议",Vector2(TEXT_X,388),17,GREEN)
+	if game.day_number==2:
+		if _phase(game)=="day" and bounty_state in ["offered","selected"]:heading_y=478.0
+		elif _phase(game)=="night" and bounty_state in ["active","won","expired"]:
+			var bounty_title:="甲壳悬赏 · 第三波尚未抵达"
+			if int(bounty.count)>0:bounty_title="甲壳悬赏 · 第三波已清%d/%d" % [int(bounty.kills),int(bounty.count)]
+			if bounty_state=="won":bounty_title="甲壳悬赏完成 · 额外+48零件已入账"
+			elif bounty_state=="expired":bounty_title="甲壳悬赏结束 · 未获额外奖励"
+			_paragraph(ui,bounty_title,Vector2(TEXT_X,370),TEXT_WIDTH,16,GREEN if bounty_state=="won" else ui.amber,22,1)
+			_paragraph(ui,"本夜不获得免费反制；第三波须在夜间倒计时结束前全清。",Vector2(TEXT_X,398),TEXT_WIDTH,14,ui.muted,20,2)
+			heading_y=450.0
+	ui.label("整备建议",Vector2(TEXT_X,heading_y),17,GREEN)
 	var growth: Dictionary=game.growth_snapshot()
-	var y:=412.0
+	var y:=heading_y+24.0
 	for line: String in ui.growth_lines(growth):y=_paragraph(ui,line,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,22)
 	y=_paragraph(ui,ui.growth_memory_text(growth),Vector2(TEXT_X,y+8),TEXT_WIDTH,15,ui.amber,22)
 	y=_paragraph(ui,"防御塔%d座 · 通信塔%d/8 · 清除%d只" % [game.tower_count(),game.relay_count(),game.kills],Vector2(TEXT_X,y+14),TEXT_WIDTH,14,ui.muted,20)
