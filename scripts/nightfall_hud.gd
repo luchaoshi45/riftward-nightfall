@@ -89,12 +89,16 @@ func label(value: String,point: Vector2,size_px: int,color: Color=Color("e7e1d3"
 func box(rect: Rect2,fill: Color=Color(.022,.035,.045,.88),outline: Color=Color("435455")) -> void:
 	var style:=StyleBoxFlat.new()
 	style.bg_color=fill
-	style.border_color=outline
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(6)
-	style.shadow_color=Color(0,0,0,.20)
-	style.shadow_size=3
-	style.shadow_offset=Vector2(0,2)
+	# Low-alpha cards are part of the quiet live rail. Keep the same logical
+	# hitbox while removing the heavy shadow/border treatment that made the
+	# battlefield look like a stack of opaque windows.
+	var quiet:=fill.a<0.55
+	style.border_color=Color(outline,outline.a*(0.56 if quiet else 1.0))
+	style.set_border_width_all(1 if not quiet else 0)
+	style.set_corner_radius_all(8 if quiet else 6)
+	style.shadow_color=Color(0,0,0,.045 if quiet else .20)
+	style.shadow_size=1 if quiet else 3
+	style.shadow_offset=Vector2(0,1 if quiet else 2)
 	draw_style_box(style,rect)
 
 func alarm_outline_alpha() -> float:
@@ -757,13 +761,36 @@ func draw_music_credits() -> void:
 
 func draw_minimap() -> void:
 	var map_rect:=minimap_rect()
-	box(map_rect,Color(.018,.034,.041,.88),Color("66624d"))
-	label("地图 · 点击收起" if map_expanded else "地图 · 点击展开",map_rect.position+Vector2(12,21),12,muted)
+	var compact:=not map_expanded
+	box(map_rect,Color(.018,.034,.041,.24 if compact else .72),Color("66624d",.45 if compact else .82))
+	label("地图" if compact else "地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
 	var center:=map_rect.get_center()+Vector2(0,2)
 	var scale:=.86 if map_expanded else .52
-	draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.84))
+	draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.72 if map_expanded else .24))
 	for wall: Rect2 in Layout.wall_blocks():
-		draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398"))
+		draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398",.82 if map_expanded else .28))
+	if compact:
+		# The collapsed radar is intentionally sparse: beacon, hero, active nests
+		# and nearby threats are enough for orientation. F3/map expands the full
+		# logistics and construction map when the player needs exact locations.
+		for nest in game.world.nests:
+			var nest_point: Vector3=nest.position
+			var nest_marker:=center+Vector2(nest_point.x,nest_point.z)*scale
+			if nest.cleansed:
+				draw_circle(nest_marker,3.0,Color("82c8be",.65))
+			else:
+				draw_circle(nest_marker,4.2,Color("d75b77",.78))
+		for creature in game.enemies:
+			if not is_instance_valid(creature) or not creature.alive:continue
+			if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
+			var threat: String=creature.get_meta("threat","")
+			var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
+			draw_circle(enemy_marker,3.0,Color("ed945b",.82) if threat=="breaker" else Color("d7a4d9",.78))
+		draw_circle(center,5.0,Color(amber,.9))
+		if game.beacon_alarm_time>0:
+			draw_arc(center,10.0,0,TAU,24,Color("f16d58",.9),2.2)
+		draw_circle(center+Vector2(game.hero.position.x,game.hero.position.z)*scale,3.6,Color("8ee0e8",.95))
+		return
 	for item in game.world.salvage:
 		if item.collected:continue
 		var p: Vector3=item.position
