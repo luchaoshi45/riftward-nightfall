@@ -6,6 +6,8 @@
 
 root负责两HUD、控制器必要接入、文档/Git/GPU；逻辑代理独占`outpost_squads.gd`与新`outpost_artillery.gd`，验收代理独占新`tests/nightfall_artillery.gd`和必要旧医护目录适配，独立审查只读规则/测试与生产实现。既有目录/城区草稿由root集成，不重复覆盖。炮击快照只读：顶层`launched/impacts/hits/pending/casting/flight`，shot含`phase/point/remaining/total/source_token/target_token`，remaining/total为实际当前阶段（前摇1秒、飞行0.8秒），units含真实`attack_timer`冷却与真实前摇状态。暂停/选卡不推进，单位tick只减一次CD/前摇。另一台勿并发这些文件；GPU最终串行隐藏/无焦点/屏幕外/Dummy，用户两cfg原hash保留且排除提交。
 
+生产实现检查点：八建筑/七兵种目录、军械厂4×3真实几何、三员炮手、独立前摇/飞弹和按需第三兵种页已接入；指定敌进入5.5米内圈时原地停火，不切换远敌，地形相对偏移及双方偏移差均以0.9米为限。发弹前源/目标失效或改令取消，已发弹弱引用与固定落点独立保留；同步伤害清理采用代际检查。前摇/飞行快照各报真实阶段remaining/total，HUD在途只计flight而不重复计准备。语法及四份旧小队/弩手/指挥回归实际退出0、日志干净，炮兵catalog无头82项实际退出0；其他十段、双后端画面和最终界面回归仍在验收，不以该检查点宣称完成。已改生产文件完成sec-code安全扫描并上报风险情况，无确认风险，用户cfg保持。此检查点及时共享main，剩余失败在同分支修复。
+
 ## 2026-10-06界面重新设计收尾（主机A，源码及Mac验收完成）
 
 所有者最新截图要求“界面太多东西，看着不清爽，重新设计”。主机A在已同步main基线`bd938e2`上优先完成此请求，保留已验收的默认关闭F3五页详情、Y按需建设及关键战斗预警，继续减少常驻重复文字和短通知遮挡。主机A独占两份HUD、共享文档/Git/GPU；内部审查代理独占`tests/nightfall_clean_hud.gd`的真实GUI与动态通知输入回归，从机勿并发这些文件。GPU按串行隐藏、无焦点、屏幕外、Dummy音频运行；两份用户cfg保留并排除提交，版本0.8.37、47/100与Windows成品0.8.25保持。

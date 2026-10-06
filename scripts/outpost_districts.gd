@@ -12,9 +12,10 @@ const RECYCLER := "recycler"
 const LABORATORY := "laboratory"
 const DEPOT := "depot"
 const INFIRMARY := "infirmary"
+const ARMORY := "armory"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -261,6 +262,7 @@ func snapshots() -> Array[Dictionary]:
 			LABORATORY: benefit = "存活时解锁重弩组 · 前置兵营与工坊"
 			DEPOT: benefit = "工队真实返站才入账 · 有限废料 · 二级卸货更快"
 			INFIRMARY: benefit = "存活时解锁医护队 · 治疗须在部队页开启并付费"
+			ARMORY: benefit = "存活时解锁迫击炮队 · 前置研究所与工坊"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -283,7 +285,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -292,7 +294,7 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY]: return null
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY]: return null
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
@@ -300,7 +302,7 @@ func create_model(kind: String) -> Node3D:
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "InfirmaryPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "InfirmaryPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -337,6 +339,41 @@ func create_model(kind: String) -> Node3D:
 		var cargo_sign := BattleVisuals.box(model, Vector3(1.05, 1.61, -1.13), Vector3(0.44, 0.34, 0.07), copper)
 		cargo_sign.name = "CargoSign"
 		BattleVisuals.box(model, Vector3(1.05, 1.61, -1.175), Vector3(0.24, 0.05, 0.03), steel)
+	elif kind == ARMORY:
+		# Shared workshop plus real tube-rack geometry, all within the 4x3 cells.
+		# This building only unlocks artillery; there is no passive income or ammo wallet.
+		var rack := BattleVisuals.box(model, Vector3(1.60, 0.33, 0.30), Vector3(0.60, 0.60, 1.15), steel)
+		rack.name = "ArmoryTubeRack"
+		for front in [-1.0, 1.0]:
+			var mount := Node3D.new()
+			mount.name = "ArmoryMortarTube"
+			model.add_child(mount)
+			mount.position = Vector3(1.60, 0.60, 0.30 + front * 0.31)
+			mount.rotation.x = 0.33
+			var barrel := MeshInstance3D.new()
+			var tube := CylinderMesh.new()
+			tube.top_radius = 0.13
+			tube.bottom_radius = 0.16
+			tube.height = 0.98
+			tube.radial_segments = 16
+			tube.rings = 2
+			barrel.mesh = tube
+			barrel.material_override = steel
+			mount.add_child(barrel)
+			barrel.position.y = 0.55
+			var muzzle := MeshInstance3D.new()
+			var rim := TorusMesh.new()
+			rim.inner_radius = 0.105
+			rim.outer_radius = 0.16
+			rim.rings = 16
+			rim.ring_segments = 6
+			muzzle.mesh = rim
+			muzzle.material_override = copper
+			mount.add_child(muzzle)
+			muzzle.position.y = 1.06
+		var store := BattleVisuals.box(model, Vector3(-1.60, 0.40, 0.30), Vector3(0.58, 0.70, 0.94), copper)
+		store.name = "ArmorySupplyCase"
+		BattleVisuals.box(model, Vector3(-1.60, 0.78, 0.30), Vector3(0.60, 0.06, 0.96), steel)
 	else:
 		# This station only unlocks paid medical squads. Supply cases and a cyan
 		# marker identify the shared camp prototype without adding passive healing.

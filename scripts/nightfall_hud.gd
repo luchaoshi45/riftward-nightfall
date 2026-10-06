@@ -671,7 +671,7 @@ func selected_hauler_ids() -> Array[int]:
 	return ids
 
 func haul_button_visible() -> bool:
-	return detail_tab=="army" and troop_page>0 and not game.construction.active and not selected_hauler_ids().is_empty() and is_instance_valid(game.logistics)
+	return detail_tab=="army" and troop_page==1 and not game.construction.active and not selected_hauler_ids().is_empty() and is_instance_valid(game.logistics)
 
 func selected_medic_ids() -> Array[int]:
 	var ids: Array[int]=[]
@@ -684,7 +684,7 @@ func selected_medic_ids() -> Array[int]:
 	return ids
 
 func medic_button_visible() -> bool:
-	return detail_tab=="army" and troop_page>0 and not game.construction.active and not selected_medic_ids().is_empty()
+	return detail_tab=="army" and troop_page==1 and not game.construction.active and not selected_medic_ids().is_empty()
 
 func selected_medics_enabled() -> bool:
 	var ids:=selected_medic_ids()
@@ -756,7 +756,7 @@ func draw_squads() -> void:
 	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(46,465),12,muted)
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
-	if troop_page>0:
+	if troop_page==1:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
 		var medics:=selected_medic_ids()
@@ -783,6 +783,14 @@ func draw_squads() -> void:
 			box(MEDIC_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
 			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2零件"
 			label("暂停 · 医护保持" if game.phase=="paused" else caption,MEDIC_BUTTON_RECT.position+Vector2(9,18),12,muted if game.phase=="paused" else amber)
+	elif troop_page==2:
+		label("迫击炮 · 射程5.5–16米 · 半径2.2米 / 32伤",Vector2(46,553),14,ink)
+		label("前摇1秒 + 飞行0.8秒 · 发射后间隔4.8秒",Vector2(46,580),14,amber)
+		CleanHud._paragraph(self,"近敌停火 · 右键后撤，配盾卫掩护",Vector2(46,609),496,14,muted,21,1)
+		CleanHud._paragraph(self,"固定落点 · 仅伤敌人 · 开火不另收费",Vector2(46,648),496,13,ink,20,1)
+		if game.squads.has_method("artillery_snapshot"):
+			var barrage: Dictionary=game.squads.artillery_snapshot()
+			CleanHud._paragraph(self,"准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))],Vector2(46,681),496,12,muted,18,1)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory

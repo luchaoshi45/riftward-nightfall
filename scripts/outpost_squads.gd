@@ -5,11 +5,12 @@ extends Node3D
 const UnitScript = preload("res://scripts/unit.gd")
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
+const ArtilleryScript := preload("res://scripts/outpost_artillery.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队", "artillery": "迫击炮队"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26, "artillery": 36}
 const MEDIC_RANGE := 4.8
 const MEDIC_HEIGHT_LIMIT := 1.0
 const MEDIC_MIN_MISSING := 12.0
@@ -36,10 +37,16 @@ var _has_logistics := false
 var _has_hero := false
 var _has_construction_blocks := false
 var _medic_states: Dictionary = {}
+var artillery: Node3D
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 	clear()
 	game = controller
+	if not is_instance_valid(artillery):
+		artillery = ArtilleryScript.new()
+		artillery.name = "OutpostArtillery"
+		add_child(artillery)
+	artillery.setup(game)
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) == "logistics": _has_logistics = true
 		if String(property.name) == "hero": _has_hero = true
@@ -200,11 +207,11 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0}[squad.kind])
-	soldier.attack_interval = 3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)
-	soldier.speed = 3.06 if squad.kind == "ballista" else 3.6
-	soldier.windup_duration = .55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0, "artillery": 32.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0, "artillery": 16.0}[squad.kind])
+	soldier.attack_interval = 4.8 if squad.kind == "artillery" else (3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65))
+	soldier.speed = 2.4 if squad.kind == "artillery" else (3.06 if squad.kind == "ballista" else 3.6)
+	soldier.windup_duration = 1.0 if squad.kind == "artillery" else (.55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26))
 	soldier.visual.scale *= .85
 	soldier.selection.visible = int(squad.id) in selected_ids
 	soldier.position = _resolve_destination(squad.origin + Vector3((slot - 1) * 1.2, 0, 0))
@@ -213,6 +220,7 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 		_medic_states[soldier.get_instance_id()] = {"unit": weakref(soldier), "casting": false,
 			"remaining": 0.0, "cooldown": 0.0, "target": null, "cancel_reason": "",
 			"treatments": 0, "healed_hp": 0.0, "spent": 0}
+	if squad.kind == "artillery": artillery.register(soldier)
 	_style_member(soldier, str(squad.kind))
 	soldier.defeated.connect(_on_member_defeated)
 	return soldier
@@ -254,7 +262,7 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7", "artillery": "73bcb8"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -265,6 +273,9 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	if not is_instance_valid(right_arm): right_arm = soldier.visual
 	if kind == "ballista":
 		_style_heavy_crossbow(right_arm)
+		return
+	if kind == "artillery":
+		_style_artillery(right_arm)
 		return
 	if kind == "hauler":
 		var harness := BattleVisuals.box(soldier.visual, Vector3(0, 1.03, .28), Vector3(.50, .57, .20), BattleVisuals.material(Color("7d7762")))
@@ -290,6 +301,28 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	head.mesh = head_mesh; head.material_override = tool.material_override
 	tool.add_child(head)
 	head.position.y = .2 if kind == "engineer" else 0.0
+
+func _style_artillery(arm: Node3D) -> void:
+	# Original guard rig and a native mortar tube, a gameplay prototype.
+	var tool := Node3D.new()
+	tool.name = "ArtilleryNativeMortar"
+	arm.add_child(tool)
+	tool.position = Vector3(0,-.44,-.18)
+	var iron := BattleVisuals.material(Color("77908e"),0.0)
+	var base := BattleVisuals.box(tool,Vector3(0,-.11,.08),Vector3(.38,.11,.43),iron)
+	base.name = "ArtilleryBasePlate"
+	var tube := MeshInstance3D.new()
+	tube.name = "ArtilleryMortarTube"
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = .105
+	mesh.bottom_radius = .13
+	mesh.height = .86
+	mesh.radial_segments = 10
+	tube.mesh = mesh
+	tube.material_override = iron
+	tool.add_child(tube)
+	tube.position = Vector3(0,.26,-.12)
+	tube.rotation.x = -.60
 
 func _style_medic(arm: Node3D, visual: Node3D) -> void:
 	# The original guard rig carries a native satchel, without a weapon.
@@ -436,6 +469,7 @@ func _set_squad_order(squad: Dictionary, order: String) -> void:
 	for soldier: BattleUnit in squad.members:
 		if not _living(soldier): continue
 		if String(squad.kind) == "medic": _cancel_medic(soldier, "order_changed")
+		if String(squad.kind) == "artillery" and is_instance_valid(artillery): artillery.cancel(soldier)
 		soldier.target = null
 		soldier.attack_queued = false
 		soldier.attack_windup = 0.0
@@ -671,6 +705,7 @@ func medic_snapshot() -> Dictionary:
 func on_day() -> void:
 	_cancel_intercepts()
 	_cancel_medic_casts("phase_changed")
+	if is_instance_valid(artillery): artillery.clear_pending()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
@@ -678,6 +713,7 @@ func on_day() -> void:
 func on_night() -> void:
 	_cancel_intercepts()
 	_cancel_medic_casts("phase_changed")
+	if is_instance_valid(artillery): artillery.clear_pending()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, HOLD)
@@ -719,6 +755,7 @@ func advance(delta: float, active: bool = true) -> void:
 	if elapsed <= 0.0: return
 	_advance_training(elapsed)
 	_advance_shots(elapsed)
+	if is_instance_valid(artillery): artillery.advance(elapsed)
 	_refresh_selection()
 	for squad in squads:
 		var designated: BattleUnit
@@ -734,6 +771,10 @@ func advance(delta: float, active: bool = true) -> void:
 			var soldier: BattleUnit = squad.members[slot]
 			if not _living(soldier): continue
 			soldier.tick(elapsed)
+			if String(squad.kind) == "artillery":
+				_advance_artillery_member(squad,soldier,elapsed,designated,slot)
+				_animate_member(soldier)
+				continue
 			if String(squad.kind) == "medic":
 				# Attack commands retain their issued destination for medics.
 				# They neither chase an enemy nor leave station to follow a wound.
@@ -753,6 +794,67 @@ func advance(delta: float, active: bool = true) -> void:
 					if str(squad.kind) == "engineer": _repair_nearby(soldier, elapsed)
 					_attack(soldier, elapsed)
 			_animate_member(soldier)
+
+func _stop_artillery(soldier: BattleUnit) -> void:
+	soldier.moving = false
+	soldier.path.clear()
+	soldier.target = null
+	soldier.attack_queued = false
+	soldier.attack_windup = 0.0
+
+func _advance_artillery_member(squad: Dictionary, soldier: BattleUnit, delta: float, designated: BattleUnit, slot: int) -> void:
+	if artillery.casting(soldier):
+		artillery.advance_unit(soldier,delta)
+		return
+	var preferred: BattleUnit = designated if artillery.real_enemy(designated) else null
+	if preferred == null and squad.order not in [MOVE,RECALL]:
+		var focus: Variant = game.get("focus_target")
+		if artillery.real_enemy(focus) and float(game.get("focus_time")) > 0.0: preferred = focus as BattleUnit
+	if preferred != null:
+		var separation: float = artillery.distance(soldier.position,preferred.position)
+		# An explicit too-close enemy retains the firing position. Never chase
+		# into melee or let a station correction mask this player decision.
+		if separation < ArtilleryScript.MIN_RANGE or not artillery.ground_compatible(soldier.position,preferred.position):
+			_stop_artillery(soldier)
+			return
+		if artillery.legal_target(soldier,preferred):
+			_stop_artillery(soldier)
+			artillery.begin(soldier,preferred)
+			return
+		var approach := _artillery_approach(soldier,preferred)
+		_move_member(soldier,approach,delta)
+		if artillery.legal_target(soldier,preferred): _stop_artillery(soldier)
+		return
+	var station := _station(squad,slot,String(squad.order))
+	_move_member(soldier,station,delta)
+	if soldier.moving or squad.order == RECALL: return
+	var target: BattleUnit = artillery.pick_target(soldier)
+	if is_instance_valid(target): artillery.begin(soldier,target)
+
+func _artillery_approach(soldier: BattleUnit, target: BattleUnit) -> Vector3:
+	var direction := Vector2(soldier.position.x-target.position.x,soldier.position.z-target.position.z).normalized()
+	if direction.length_squared() < .001: direction = Vector2.UP
+	var best := INF
+	var chosen := soldier.position
+	# Choose a walkable firing cell, not the enemy's footprint. The existing
+	# cached gate-aware route moves the actual soldier toward this position.
+	for radius in [15.2,12.0,8.0]:
+		for step in 12:
+			var radial := direction.rotated(TAU*float(step)/12.0)
+			var candidate := _resolve_destination(target.position+Vector3(radial.x,0,radial.y)*float(radius))
+			var separation: float = artillery.distance(candidate,target.position)
+			if separation < ArtilleryScript.MIN_RANGE or separation > ArtilleryScript.MAX_RANGE: continue
+			if not _attack_line(candidate,target.position): continue
+			if game.has_method("outpost_walkable") and not bool(game.call("outpost_walkable",candidate)): continue
+			var score := _ground_distance(soldier.position,candidate)
+			if score < best:
+				best = score
+				chosen = candidate
+	return chosen
+
+func artillery_snapshot() -> Dictionary:
+	return artillery.snapshot() if is_instance_valid(artillery) else {"launched":0,"impacts":0,"hits":0,
+		"pending":0,"casting":0,"flight":0,"shots":[],"units":[]}
 
 func _squad_position(squad: Dictionary) -> Vector3:
 	var total := Vector3.ZERO
@@ -818,7 +920,7 @@ func _repair_nearby(soldier: BattleUnit, delta: float) -> void:
 	_beam(soldier.position + Vector3.UP, candidate.position + Vector3.UP, Color("88d18b"))
 
 func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -> void:
-	if String(soldier.get_meta("squad_kind", "")) in ["hauler", "medic"]:
+	if String(soldier.get_meta("squad_kind", "")) in ["hauler", "medic", "artillery"]:
 		soldier.attack_queued = false; soldier.target = null; soldier.attack_windup = 0.0
 		return
 	if soldier.attack_queued:
@@ -972,6 +1074,7 @@ func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
 
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
+	if String(unit.get_meta("squad_kind","")) == "artillery" and is_instance_valid(artillery): artillery.unregister(unit)
 	var logistics := _logistics()
 	if is_instance_valid(logistics): logistics.call("on_member_defeated", unit.get_instance_id())
 	# A real casualty invalidates all pending treatments of that exact member
@@ -1054,6 +1157,7 @@ func snapshot() -> Dictionary:
 func clear() -> void:
 	_cancel_intercepts()
 	_cancel_medic_casts("clear")
+	if is_instance_valid(artillery): artillery.clear()
 	for squad in squads:
 		for soldier: BattleUnit in squad.members: _retire_member(soldier)
 	squads.clear()
@@ -1071,4 +1175,5 @@ func clear() -> void:
 func _exit_tree() -> void:
 	_cancel_intercepts()
 	_cancel_medic_casts("clear")
+	if is_instance_valid(artillery): artillery.clear()
 	_medic_states.clear()

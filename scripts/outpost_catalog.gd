@@ -1,8 +1,8 @@
 class_name OutpostCatalog
 extends RefCounted
 ## The shared playable building and troop definitions used by costs and technology.
-const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary"]
-const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic"]
+const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary", "armory"]
+const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery"]
 const BUILDINGS := {
 	"tower": {"title": "防御塔", "cost": 60, "size": Vector2i(3, 3), "hp": 280.0, "requires": []},
 	"barracks": {"title": "兵营", "cost": 60, "size": Vector2i(4, 3), "hp": 600.0, "requires": []},
@@ -11,6 +11,7 @@ const BUILDINGS := {
 	"laboratory": {"title": "研究所", "cost": 120, "size": Vector2i(4, 3), "hp": 550.0, "requires": ["barracks", "workshop"]},
 	"depot": {"title": "中转站", "cost": 100, "size": Vector2i(3, 3), "hp": 500.0, "requires": ["workshop"]},
 	"infirmary": {"title": "救护站", "cost": 100, "size": Vector2i(3, 3), "hp": 480.0, "requires": ["barracks"]},
+	"armory": {"title": "军械厂", "cost": 140, "size": Vector2i(4, 3), "hp": 600.0, "requires": ["laboratory", "workshop"]},
 }
 const TROOPS := {
 	"shield": {"title": "盾卫", "cost": 70, "time": 6.0, "hp": 200.0, "requires": []},
@@ -19,6 +20,7 @@ const TROOPS := {
 	"ballista": {"title": "重弩组", "cost": 110, "time": 10.0, "hp": 150.0, "requires": ["laboratory"]},
 	"hauler": {"title": "采运工队", "cost": 70, "time": 8.0, "hp": 120.0, "requires": ["depot"]},
 	"medic": {"title": "医护队", "cost": 90, "time": 9.0, "hp": 100.0, "requires": ["infirmary"]},
+	"artillery": {"title": "迫击炮队", "cost": 150, "time": 12.0, "hp": 130.0, "requires": ["armory"]},
 }
 
 static func building(kind: String) -> Dictionary:
