@@ -807,8 +807,19 @@ func draw_music_credits() -> void:
 func draw_minimap() -> void:
 	var map_rect:=minimap_rect()
 	var compact:=not map_expanded
-	box(map_rect,Color(.018,.034,.041,.24 if compact else .72),Color("66624d",.45 if compact else .82))
-	label("地图" if compact else "地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
+	if compact:
+		# Compact radar is a navigation glyph, not another opaque card. Keep a
+		# faint field and corner marks so it remains discoverable without pulling
+		# attention away from the battlefield.
+		draw_rect(map_rect,Color(.018,.034,.041,.12))
+		draw_line(map_rect.position+Vector2(0,1),map_rect.position+Vector2(26,1),Color("66624d",.52),1.0)
+		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
+		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
+		draw_line(map_rect.position+Vector2(map_rect.size.x-26,map_rect.size.y-1),map_rect.position+Vector2(map_rect.size.x,map_rect.size.y-1),Color("66624d",.34),1.0)
+		label("地图",map_rect.position+Vector2(9,18),11,Color(muted,.76))
+	else:
+		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
+		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
 	var center:=map_rect.get_center()+Vector2(0,2)
 	var scale:=.86 if map_expanded else .52
 	draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.72 if map_expanded else .24))
