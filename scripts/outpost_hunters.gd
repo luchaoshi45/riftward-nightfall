@@ -156,9 +156,10 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 	if not _active() or not real_source(source): return
 	var state: Dictionary = _units[source.get_instance_id()]
 	var order := String(squad.order)
+	var march := order in ["attack_move", "escort"]
 	var station: Vector3 = roster.call("_station", squad, slot, order)
 	var anchor: Vector3 = squad.get("hunter_attack_anchor", squad.destination) if order == "attack" else station
-	if order == "attack_move":
+	if march:
 		if not bool(state.encounter):
 			var encountered: BattleUnit = pick_target(source, source.position)
 			if not real_enemy(encountered):
@@ -182,7 +183,7 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 		_return(source, state, station, delta)
 		return
 	var target: Variant = (state.target as WeakRef).get_ref() if state.target is WeakRef else null
-	if order == "attack_move":
+	if march:
 		if not legal_target(source, target, anchor):
 			if real_enemy(target) and distance(anchor, target.position) > LEASH + .000001:
 				(state.blocked as Dictionary)[target.get_instance_id()] = {"leash_anchor": anchor}
@@ -206,14 +207,14 @@ func advance_member(squad: Dictionary, source: BattleUnit, slot: int, delta: flo
 		return
 	elif target == null:
 		target = pick_target(source, anchor)
-	elif not source.attack_queued and order != "attack_move":
+	elif not source.attack_queued and not march:
 		target = pick_target(source, anchor)
 	if not real_enemy(target):
 		_return(source, state, station, delta)
 		return
 	state.target = weakref(target)
 	if source.attack_queued and (source.target != target or not _contact(source, target)):
-		if order == "attack_move":
+		if march:
 			# Losing contact cancels only this preparation, keeping the finite
 			# encounter anchor while walking back into actual melee reach.
 			_cancellations += 1

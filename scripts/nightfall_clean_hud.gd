@@ -164,14 +164,21 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	if int(snapshot.get("selected",0))<=0:return
 	ui.box(Rect2(24,762,300,54),Color(.027,.047,.042,.93),Color("52695c"))
 	var advancing:=0
+	var escorting:=0
 	for row: Dictionary in snapshot.squads:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="attack_move":advancing+=1
+		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
+	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
 	ui.label(title,Vector2(38,783),14,GREEN)
 	ui.label(selected_command_hint(ui,game),Vector2(38,808),13,ui.muted)
 
 static func selected_command_hint(ui: Control, game: Node3D) -> String:
 	if ui.rally_setting():return "选点中 · 原部队命令保留"
+	if is_instance_valid(game.squads):
+		for squad: Dictionary in game.squads.squads:
+			if String(squad.order)=="escort" and game.squads.selected_ids.has(int(squad.id)):
+				return "护航中 · 右键改令 · Alt+右键工队"
 	var hauling: bool=is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
 	return "工队右键采运 · Shift+右键推进" if hauling else "右键指挥 · Shift+右键推进"
 
@@ -424,9 +431,9 @@ static func _draw_help(ui: Control) -> void:
 		"科技：工坊→回收/中转；兵营+工坊→研究所。\n研究所→重弩；研究所+工坊→军械厂→迫击炮。\n中转→采运；兵营→救护站→医护。",
 		"互动：F 搜集、修灯、升级与重建；H 修塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
-		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
+		"探索：P路线；4/5/6委托；追加4返家/5加码；7/8/9反制。",
 		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。\nF3选生产营和集结点；集结工队需恢复自动采运。",
-		"编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。\n指挥：点选/框选/Shift追加；Tab全选，O驻守。\n右键指挥/工队采运；Shift+右键攻击推进。",
+		"编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。\n指挥：点选/框选/Shift追加；Tab全选，O驻守。\n右键指挥/工队采运；Shift+右键攻击推进。\nAlt+右键活工队：护航往返；右键改令。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",

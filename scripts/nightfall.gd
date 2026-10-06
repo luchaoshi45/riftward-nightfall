@@ -2964,6 +2964,20 @@ func flush_pending_aim() -> void:
 	aim=ground_point(pending_aim_screen)
 	aim_sample_pending=false
 
+func hauler_under_cursor(screen: Vector2) -> BattleUnit:
+	if not is_instance_valid(camera) or not is_instance_valid(squads):return null
+	var chosen: BattleUnit
+	var distance:=14.0*get_viewport().get_visible_rect().size.x/1440.0
+	for squad: Dictionary in squads.squads:
+		if String(squad.kind)!="hauler":continue
+		for member: BattleUnit in squad.members:
+			if not is_instance_valid(member) or member.is_queued_for_deletion() or not member.alive or member.hp<=0.0 or camera.is_position_behind(member.position):continue
+			var feet:=camera.unproject_position(member.position)
+			var head:=camera.unproject_position(member.position+Vector3(0,1.7,0))
+			var candidate:=Geometry2D.get_closest_point_to_segment(screen,feet,head).distance_to(screen)
+			if candidate<distance:chosen=member;distance=candidate
+	return chosen
+
 func handle_strategy_mouse(event: InputEvent) -> bool:
 	if quitting or restart_pending or phase not in ["day","night"] or music_credits_open:return false
 	if event is InputEventMouseMotion:
@@ -3009,6 +3023,11 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 				squads.select_rect(camera,Rect2(selection_start,selection_end-selection_start).abs(),selection_additive)
 		return true
 	if not event.pressed:return true
+	if event.alt_pressed:
+		var escort_result: Dictionary=squads.command_escort(hauler_under_cursor(event.position))
+		if bool(escort_result.ok):selection_dragging=false
+		notify(String(escort_result.reason),2)
+		return true
 	selection_dragging=false
 	var click_point:=ground_point(event.position)
 	aim=click_point;aim_sample_pending=false

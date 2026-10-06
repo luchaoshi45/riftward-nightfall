@@ -637,7 +637,7 @@ func measure_hud(tag: String, help: bool = false) -> void:
 			if row.point==Vector2(38,783):check(int(row.size)==14 and float(row.width)<=272,"Actual selected title fits the original272px budget at14px")
 			if row.point==Vector2(46,494):check(int(row.size)==13 and float(row.width)<=496 and row.text==game.hud.control_group_hint(),"Complete actual shortcut-group row fits its original496px column")
 			if row.point==Vector2(46,522):
-				army_seen=true; check(int(row.size)==14 and float(row.width)<=496 and row.text=="Shift+右键攻击推进 · 接敌停战后续走","Complete actual attack-move instruction fits496px at14px")
+				army_seen=true; check(int(row.size)==14 and float(row.width)<=496 and row.text=="Shift+右键攻击推进 · Alt+右键工队护航","Complete actual attack-move and escort instructions fit496px at14px")
 			if help and row.point.x==46 and row.point.y>=230:help_bottom=maxf(help_bottom,float(row.point.y)+float(row.descent))
 		check(game.squads.selected_count()==0 or hint_seen,"Actual selected strip retains the complete command hint")
 		check(game.hud.detail_tab!="army" or army_seen,"Actual existing army drawer displays the complete new instruction")

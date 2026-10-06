@@ -7,6 +7,7 @@ const Layout := preload("res://scripts/outpost_layout.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
 const ArtilleryScript := preload("res://scripts/outpost_artillery.gd")
 const HunterScript := preload("res://scripts/outpost_hunters.gd")
+const EscortScript := preload("res://scripts/outpost_escort.gd")
 const MEMBERS_PER_SQUAD := 3
 const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110}
 const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0}
@@ -23,6 +24,7 @@ const HOLD := "hold"
 const RECALL := "recall"
 const MOVE := "move"
 const AMOVE := "attack_move"
+const ESCORT := "escort"
 const ATTACK := "attack"
 const GUARD := "guard"
 const HAUL := "haul"
@@ -42,6 +44,7 @@ var _has_rally := false
 var _medic_states: Dictionary = {}
 var artillery: Node3D
 var hunters: Node3D
+var escort: RefCounted
 var _epoch := 0
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
@@ -57,6 +60,8 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 		hunters.name = "OutpostHunters"
 		add_child(hunters)
 	hunters.setup(game, self)
+	if not is_instance_valid(escort): escort = EscortScript.new()
+	escort.setup(game, self)
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) == "logistics": _has_logistics = true
 		if String(property.name) == "hero": _has_hero = true
@@ -325,6 +330,7 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	return soldier
 
 func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
+	if order == ESCORT and is_instance_valid(escort): return escort.station(squad, slot)
 	var march_stations: Array = squad.get("attack_move_stations", [])
 	if order == AMOVE and march_stations.size() == MEMBERS_PER_SQUAD:
 		return march_stations[slot]
@@ -591,6 +597,24 @@ func command_attack_move(point: Vector3) -> Dictionary: return _command(AMOVE, p
 
 func command_move_non_haulers(point: Vector3) -> Dictionary: return _command(MOVE, point, null, true)
 
+func command_escort(target_member: Variant) -> Dictionary:
+	if not _active(): return _result(false, "暂停或选卡时不能护航")
+	if not _living(target_member) or not target_member is BattleUnit or target_member.hp <= 0.0 \
+		or target_member.kind != "minion" or target_member.team != 0:
+		return _result(false, "请选择真实存活工队")
+	# Scene membership and the original roster slot authorize the convoy.
+	# Metadata, an enemy, or a same-numbered member from an old run cannot.
+	for squad: Dictionary in squads:
+		if String(squad.kind) != "hauler" or target_member not in squad.members: continue
+		if not is_instance_valid(escort): return _result(false, "护航系统尚未初始化")
+		var result: Dictionary = escort.command_selected(squad)
+		result.merge(_result(bool(result.ok), String(result.reason)))
+		return result
+	return _result(false, "请选择真实存活工队")
+
+func escort_snapshot() -> Dictionary:
+	return escort.snapshot() if is_instance_valid(escort) else {"count": 0, "squads": []}
+
 func command_guard(point: Vector3) -> Dictionary: return _command(GUARD, point)
 
 func command_attack(enemy: Variant) -> Dictionary:
@@ -610,6 +634,7 @@ func set_order(order: String, squad_id: int = -1) -> Dictionary:
 	return _result(true, "小队驻守南门" if order == HOLD else "小队撤回灯塔", 0, squad_id)
 
 func _set_squad_order(squad: Dictionary, order: String) -> void:
+	if is_instance_valid(escort): escort.on_order(squad)
 	# A manual command owns the squad immediately; arriving later must never
 	# replace that command with the old barracks destination.
 	squad.rally_pending = false
@@ -863,6 +888,7 @@ func on_day() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	if is_instance_valid(escort): escort.on_phase_changed()
 	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
@@ -874,6 +900,7 @@ func on_night() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	if is_instance_valid(escort): escort.on_phase_changed()
 	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
@@ -881,7 +908,7 @@ func on_night() -> void:
 
 func _clear_attack_move_encounters() -> void:
 	for squad: Dictionary in squads:
-		if squad.order != AMOVE: continue
+		if squad.order not in [AMOVE, ESCORT]: continue
 		for soldier: BattleUnit in squad.members:
 			if not _living(soldier): continue
 			soldier.set_meta("amove_engaged", false)
@@ -932,6 +959,8 @@ func advance(delta: float, active: bool = true) -> void:
 	_refresh_selection()
 	for squad in squads:
 		if generation != _epoch or not _active(): return
+		if squad.order == ESCORT and is_instance_valid(escort): escort.prepare_squad(squad, elapsed)
+		if not _owns_squad(squad, generation): return
 		var recovering_hunter := false
 		if String(squad.kind) == "hunter": recovering_hunter = bool(hunters.prepare_squad(squad))
 		var designated: BattleUnit
@@ -965,7 +994,7 @@ func advance(delta: float, active: bool = true) -> void:
 				_advance_medic(squad, soldier, elapsed, medic_station)
 				_animate_member(soldier)
 				continue
-			if squad.order == AMOVE:
+			if squad.order in [AMOVE, ESCORT]:
 				_advance_attack_move_member(squad, soldier, slot, elapsed)
 				if not _owns_squad(squad, generation): return
 				if _living(soldier): _animate_member(soldier)
@@ -1003,7 +1032,7 @@ func _advance_attack_move_member(squad: Dictionary, soldier: BattleUnit, slot: i
 		_attack(soldier, delta, target)
 		return
 	soldier.set_meta("amove_engaged", false)
-	_move_member(soldier, _station(squad, slot, AMOVE), delta)
+	_move_member(soldier, _station(squad, slot, String(squad.order)), delta)
 	if not soldier.moving and String(squad.kind) == "engineer": _repair_nearby(soldier, delta)
 
 func _finish_attack_move(squad: Dictionary) -> void:
@@ -1051,7 +1080,7 @@ func _advance_artillery_member(squad: Dictionary, soldier: BattleUnit, delta: fl
 	if artillery.casting(soldier):
 		artillery.advance_unit(soldier,delta)
 		return
-	if squad.order == AMOVE:
+	if squad.order in [AMOVE, ESCORT]:
 		var march_focus: Variant = game.get("focus_target")
 		var march_preferred: BattleUnit = march_focus as BattleUnit if artillery.real_enemy(march_focus) and float(game.get("focus_time")) > 0.0 else null
 		var march_target: BattleUnit = artillery.pick_target(soldier, march_preferred)
@@ -1059,7 +1088,7 @@ func _advance_artillery_member(squad: Dictionary, soldier: BattleUnit, delta: fl
 			_stop_artillery(soldier)
 			artillery.begin(soldier, march_target)
 		else:
-			_move_member(soldier, _station(squad, slot, AMOVE), delta)
+			_move_member(soldier, _station(squad, slot, String(squad.order)), delta)
 		return
 	var preferred: BattleUnit = designated if artillery.real_enemy(designated) else null
 	if preferred == null and squad.order not in [MOVE,RECALL]:
@@ -1238,10 +1267,10 @@ func blocker_for(enemy: Variant) -> BattleUnit:
 	var closest: BattleUnit
 	var distance := 3.2
 	for squad in squads:
-		if squad.kind != "shield" or squad.order not in [HOLD, GUARD, AMOVE]: continue
+		if squad.kind != "shield" or squad.order not in [HOLD, GUARD, AMOVE, ESCORT]: continue
 		for soldier: BattleUnit in squad.members:
 			if not _living(soldier) or soldier.moving: continue
-			if squad.order == AMOVE and not bool(soldier.get_meta("amove_engaged", false)): continue
+			if squad.order in [AMOVE, ESCORT] and not bool(soldier.get_meta("amove_engaged", false)): continue
 			var separation := _ground_distance(soldier.position, enemy.position)
 			if separation < distance and _traversable(enemy.position, soldier.position):
 				closest = soldier; distance = separation
@@ -1303,7 +1332,7 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 func _is_holding(soldier: BattleUnit) -> bool:
 	for squad in squads:
 		if squad.kind == "shield" and squad.order in [HOLD, GUARD] and soldier in squad.members: return true
-		if squad.kind == "shield" and squad.order == AMOVE and soldier in squad.members:
+		if squad.kind == "shield" and squad.order in [AMOVE, ESCORT] and soldier in squad.members:
 			return not soldier.moving and bool(soldier.get_meta("amove_engaged", false))
 	return false
 
@@ -1339,6 +1368,7 @@ func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
 
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
+	if is_instance_valid(escort): escort.on_member_defeated(unit)
 	if String(unit.get_meta("squad_kind","")) == "artillery" and is_instance_valid(artillery): artillery.unregister(unit)
 	if String(unit.get_meta("squad_kind","")) == "hunter" and is_instance_valid(hunters): hunters.unregister(unit)
 	var logistics := _logistics()
@@ -1408,6 +1438,7 @@ func snapshot() -> Dictionary:
 			if _living(soldier): count += 1; hp += soldier.hp
 		total_alive += count
 		rows.append({"id": squad.id, "kind": squad.kind, "title": String(Catalog.troop(String(squad.kind)).title), "order": squad.order,
+			"order_label": "护航工队" if squad.order == ESCORT else String({HOLD: "驻守南门", RECALL: "撤回灯塔", MOVE: "移动", AMOVE: "攻击推进", ATTACK: "攻击", GUARD: "原地驻守", HAUL: "采运"}.get(squad.order, "待命")),
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
 			"position": _squad_position(squad), "selected": int(squad.id) in selected_ids})
 	var queues: Array[Dictionary] = []
@@ -1426,6 +1457,7 @@ func clear() -> void:
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()
 	if is_instance_valid(hunters): hunters.clear()
+	if is_instance_valid(escort): escort.clear()
 	for squad in squads:
 		for soldier: BattleUnit in squad.members: _retire_member(soldier)
 	squads.clear()
@@ -1447,4 +1479,5 @@ func _exit_tree() -> void:
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()
 	if is_instance_valid(hunters): hunters.clear()
+	if is_instance_valid(escort): escort.clear()
 	_medic_states.clear()

@@ -903,7 +903,7 @@ func draw_squads() -> void:
 	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
 	label("兵营%d · 训练%d组 · 页%d/%d%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint],Vector2(46,465),12,muted)
 	label(control_group_hint(),Vector2(46,494),13,amber)
-	label("Shift+右键攻击推进 · 接敌停战后续走",Vector2(46,522),14,muted)
+	label("Shift+右键攻击推进 · Alt+右键工队护航",Vector2(46,522),14,muted)
 	if troop_page==1:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
