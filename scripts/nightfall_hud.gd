@@ -359,7 +359,7 @@ func draw_construction() -> void:
 	var grid_size: Vector2i=placement.size
 	if repairing:
 		if bool(placement.valid):
-			label("%s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"点击停止" if bool(placement.repairing) else "点击维修"],Vector2(457,714),18,ink)
+			label("%s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止维修" if bool(placement.repairing) else "点击维修"],Vector2(457,714),18,ink)
 		else:label("维修模式 · 指向受损建筑",Vector2(457,714),18,ink)
 	elif selling:
 		label("%s%s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖模式 · 指向建筑查看退款",Vector2(457,714),18,red if bool(placement.valid) else ink)
