@@ -1,5 +1,11 @@
 # 《余烬守望》项目规则、双机派工与交接
 
+## 2026-10-07守卫远端补给箱（主机A，进行中）
+
+领取已fetch核对的main `072ee9255d0811138f573c1a8b4b4d5d7664d571`。上一轮清爽界面复验及成品外部专项harness已完成并普通推送；本轮推进真实探索风险，每白昼从现有可达远端补给箱选一处部署两名可见守卫，固定箱位8米追击锚，优先攻击范围内最近活英雄/部队，越界取消前摇并真实返守。真击杀两名才允许原3秒开箱；移除演员、日落或同址新serial不得冒充清守。保留原箱46零件、追加返家31及原守卫每杀5，唯一零件钱包不变；F3原路线提示战斗另计，不加常驻面板。
+
+主机A独占`nightfall.gd`、`day_contracts.gd`、`nightfall_clean_hud.gd`及AGENTS/Git/Godot，模块作者仅改新`supply_cache_guards.gd`与`wild_discoveries.gd`，独立专项作者仅新增`tests/nightfall_supply_cache_guards.gd`，审查代理只读。从机勿并发这些文件。精度与自然90/105/90经济分开验收，实际路径/前摇/清守/撤退/身份失效/日落/暂停/重试及三视口中文须检验；GPU串行后台隐藏/NO_FOCUS/屏幕外/Dummy音频。保留用户编辑器与两cfg，正式0.8.37、47/100及Windows0.8.25保持，原生Windows交付未验不计数，百项目标active。
+
 ## 2026-10-07成品外部专项验证接入（主机A，源码及Mac包内验收完成）
 
 领取已fetch核对的main `3aa45c021576a9c4a8b728b84ee4e6ab0fe5af7b`。上一轮交付登记预检及清爽HUD复验已普通推送，是有效进展；本轮修复成品排除tests后bonus-route继承和bounty夹具缺失，以及现代专项仅RESULT而无自身成功token的交付缺口。测试依赖只进入build下单独的验证PCK，不进入游戏EXE；外部入口先挂载验证包，再运行专项，生产scripts/assets仍读实际成品。主机A负责共享文档/Git及串行Godot验收；实现代理仅负责`tools/export_verified_build.ps1`及新`tools/prepare_packaged_tests.gd`、`tools/run_packaged_test.gd`，专项代理只负责路线与悬赏两测试的成功协议，审查代理只读。保留用户编辑器及两cfg；Mac读取Windows包只能证明包内加载/行为，不能替代Windows原生验收。本轮维护不计玩法优化，正式0.8.37、47/100和百项目标active保持。
