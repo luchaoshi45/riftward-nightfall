@@ -23,6 +23,7 @@ const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
 const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
+const RunArchiveScript = preload("res://scripts/run_archive.gd")
 const DAY_LENGTH := 90.0
 const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
@@ -124,6 +125,8 @@ var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
 var enemies: Array[BattleUnit] = []
 var run := RunBuild.new()
+var archive = RunArchiveScript.new()
+var archive_result: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 var spawn_rng := RandomNumberGenerator.new()
 var spawn_timer := 4.0
@@ -201,6 +204,10 @@ const SALVAGE_REFRESH := 55.0
 
 func _ready() -> void:
 	get_tree().auto_accept_quit=false
+	# Headless production tests must never mutate the developer's profile. The
+	# exported game and normal Godot play sessions keep persistence enabled; the
+	# archive test injects its own temporary path explicitly.
+	archive.enabled = DisplayServer.get_name() != "headless"
 	var next_run: Dictionary=RunSessionScript.consume_request(get_tree())
 	if not next_run.is_empty():
 		run=RunBuild.new(int(next_run.seed))
@@ -810,6 +817,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	var was_final_clearance: bool=final_clearance_active
 	_settle_wave_wager_loss("night_end")
 	bounty.expire()
 	clear_lobbers()
@@ -842,6 +850,17 @@ func finish_night() -> void:
 		enemies.clear()
 		victory=true;phase="ended";world.set_night(false)
 		ending_key="signal" if remaining_nests()==0 else "hold"
+		if was_final_clearance:
+			archive_result=archive.record_victory({
+				"victory": true,
+				"seed": run.seed_value,
+				"mode": run_mode,
+				"ending_key": ending_key,
+				"day_number": day_number,
+				"kills": kills,
+				"cleansed_nests": cleansed_nests(),
+				"survivors_rescued": survivors_rescued,
+			})
 		if ending_key=="signal":
 			world.beacon_light.light_color=Color("96d9d6")
 			BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),11.0,Color("8bd9d5"),.9)

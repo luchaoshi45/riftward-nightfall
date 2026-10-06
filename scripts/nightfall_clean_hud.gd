@@ -198,7 +198,6 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
-	ui.box(Rect2(24,762,300,54),Color(.027,.047,.042,.28),Color("52695c",.46))
 	var advancing:=0
 	var escorting:=0
 	for row: Dictionary in snapshot.squads:
@@ -206,8 +205,9 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
 	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
-	ui.label(title,Vector2(38,783),14,GREEN)
-	ui.label(selected_command_hint(ui,game),Vector2(38,808),13,ui.muted)
+	ui.draw_line(Vector2(32,779),Vector2(286,779),Color("6f927f",.34),1.0)
+	ui.label(title,Vector2(34,797),13,GREEN)
+	ui.label(selected_command_hint(ui,game),Vector2(34,817),12,ui.muted)
 
 static func selected_command_hint(ui: Control, game: Node3D) -> String:
 	if ui.rally_setting():return "选点中 · 原部队命令保留"
@@ -236,7 +236,10 @@ static func _draw_notice(ui: Control, game: Node3D) -> void:
 	var rect:=notice_rect(ui,game)
 	if not rect.has_area():return
 	var lines:=_wrap(ui,String(game.notice),716,15)
-	ui.box(rect,Color(.025,.044,.044,.91),Color("827256"))
+	# Keep the existing logical footprint for click interception and recorder
+	# coverage while leaving the visual layer cardless.
+	ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
+	ui.draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,96.0),0),Color("b18c59",.64),1.0)
 	for index in mini(2,lines.size()):
 		ui.label(lines[index],rect.position+Vector2(18,22+index*20),15,ui.ink)
 
@@ -261,8 +264,11 @@ static func active_tags_rect(ui: Control, game: Node3D) -> Rect2:
 static func _draw_active_tags(ui: Control, game: Node3D) -> void:
 	var rect:=active_tags_rect(ui,game)
 	if not rect.has_area():return
-	ui.box(rect,Color(.028,.050,.045,.24),Color("4e6b5c",.42))
-	ui.label(_active_tags_text(game),rect.position+Vector2(13,20),13,GREEN)
+	# Retain the transparent logical footprint for the recorder and input
+	# exclusion checks; the tag itself remains a single lightweight line.
+	ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
+	ui.draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,72.0),0),Color("6f927f",.44),1.0)
+	ui.label(_active_tags_text(game),rect.position+Vector2(0,20),13,GREEN)
 
 static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 	ui.box(DRAWER_RECT,DRAWER_FILL,Color("62776a"))

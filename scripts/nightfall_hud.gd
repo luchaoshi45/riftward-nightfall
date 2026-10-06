@@ -288,19 +288,19 @@ func draw_context_prompt() -> void:
 	var prompt: String=game.interaction_prompt()
 	if prompt.is_empty():return
 	var rect:=context_prompt_rect()
-	box(rect,Color(.032,.048,.050,.91),Color("89784f"))
-	CleanHud._paragraph(self,prompt,rect.position+Vector2(18,26),534,15,amber,20,2)
+	draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,110.0),0),Color("c19a5f",.72),1.0)
+	CleanHud._paragraph(self,prompt,rect.position+Vector2(0,24),534,15,amber,20,2)
 	if rect.size.y<80:return
 	var district_index: int=game.districts.nearest()
 	if district_index>=0:
 		for district: Dictionary in game.districts.snapshots():
 			if int(district.index)!=district_index:continue
-			CleanHud._paragraph(self,String(district.title)+" · "+String(district.benefit),rect.position+Vector2(18,67),534,13,muted,18,1)
+			CleanHud._paragraph(self,String(district.title)+" · "+String(district.benefit),rect.position+Vector2(0,64),534,13,muted,18,1)
 			break
 	else:
 		var pad: Dictionary=game.world.tower_pads[game.nearest_tower_pad()]
 		var hint: String="J 破甲 / K 牵制 · 45零件 · 每座只能改装一次" if game.specializations.branch(pad)=="standard" else "H 修复 · G 目标模式 · C 指定集火"
-		label(hint,rect.position+Vector2(18,67),13,muted)
+		label(hint,rect.position+Vector2(0,64),13,muted)
 
 func _draw() -> void:
 	world_warning_rects.clear()
@@ -778,14 +778,14 @@ func draw_combat_rewards() -> void:
 		draw_circle(point,3.5,amber if index<step else Color("354b4e"))
 		if index==2:draw_arc(point,5,0,TAU,20,amber if charged else muted,1.0,true)
 	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:
-		box(Rect2(24,724,300,30),panel,Color("847554"))
-		label("连斩%d · 余时%.1f秒" % [game.kill_chain,game.kill_chain_time],Vector2(38,744),14,amber)
-		progress(Rect2(38,749,272,2),game.kill_chain_time/6.0,amber)
+		draw_line(Vector2(24,724),Vector2(104,724),Color("c19a5f",.68),1.0)
+		label("连斩%d · %.1f秒" % [game.kill_chain,game.kill_chain_time],Vector2(24,744),14,amber)
+		progress(Rect2(24,749,220,2),game.kill_chain_time/6.0,Color(amber,.65))
 	if game.combat_milestone_time>0.0:
 		var fade: float=minf(1.0,game.combat_milestone_time/.35)
-		box(Rect2(566,142,530,36),Color(.073,.064,.031,.9*fade),Color("c7a56e",fade))
 		var message: String=game.combat_milestone_title+" · "+game.combat_milestone_detail
-		CleanHud._paragraph(self,message,Vector2(581,165),500,14,Color("f2ce86",fade),18,1)
+		draw_line(Vector2(566,142),Vector2(662,142),Color("c7a56e",fade),1.0)
+		CleanHud._paragraph(self,message,Vector2(566,165),500,14,Color("f2ce86",fade),18,1)
 
 func draw_music_credits() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.91))
@@ -809,9 +809,11 @@ func draw_minimap() -> void:
 	var compact:=not map_expanded
 	if compact:
 		# Compact radar is a navigation glyph, not another opaque card. Keep a
-		# faint field and corner marks so it remains discoverable without pulling
+		# faint ring and corner marks so it remains discoverable without pulling
 		# attention away from the battlefield.
-		draw_rect(map_rect,Color(.018,.034,.041,.12))
+		var compact_center:=map_rect.get_center()+Vector2(0,2)
+		draw_circle(compact_center,58.0,Color(.018,.034,.041,.08))
+		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.38),1.0)
 		draw_line(map_rect.position+Vector2(0,1),map_rect.position+Vector2(26,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
@@ -822,9 +824,10 @@ func draw_minimap() -> void:
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
 	var center:=map_rect.get_center()+Vector2(0,2)
 	var scale:=.86 if map_expanded else .52
-	draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.72 if map_expanded else .24))
-	for wall: Rect2 in Layout.wall_blocks():
-		draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398",.82 if map_expanded else .28))
+	if map_expanded:
+		draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.72))
+		for wall: Rect2 in Layout.wall_blocks():
+			draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398",.82))
 	if compact:
 		# The collapsed radar is intentionally sparse: beacon, hero, active nests
 		# and nearby threats are enough for orientation. F3/map expands the full
@@ -836,12 +839,15 @@ func draw_minimap() -> void:
 				draw_circle(nest_marker,3.0,Color("82c8be",.65))
 			else:
 				draw_circle(nest_marker,4.2,Color("d75b77",.78))
+		var shown_threats:=0
 		for creature in game.enemies:
+			if shown_threats>=4:break
 			if not is_instance_valid(creature) or not creature.alive:continue
 			if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
 			var threat: String=creature.get_meta("threat","")
 			var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
 			draw_circle(enemy_marker,3.0,Color("ed945b",.82) if threat=="breaker" else Color("d7a4d9",.78))
+			shown_threats+=1
 		draw_circle(center,5.0,Color(amber,.9))
 		if game.beacon_alarm_time>0:
 			draw_arc(center,10.0,0,TAU,24,Color("f16d58",.9),2.2)
@@ -1232,7 +1238,21 @@ func draw_result() -> void:
 		label(game.exploration.run_summary(),Vector2(425,585),14,Color("a6d9c6"))
 		label(game.exploration.route_summary(),Vector2(425,610),13,Color("d6bf87"))
 	label("守望编号 %d" % game.run.seed_value,Vector2(425,634),12,muted)
-	label("换核心、换防线，再试同一场守望",Vector2(715,634),12,muted)
+	var archive_text := "档案 · 已解锁0项"
+	if is_instance_valid(game.archive):
+		var archive_profile: Dictionary = game.archive.snapshot()
+		var unlocked_blueprints: Variant = archive_profile.get("unlocked_blueprints", [])
+		var unlocked_count: int = unlocked_blueprints.size() if unlocked_blueprints is Array else 0
+		archive_text = "档案 · 已解锁%d项" % unlocked_count
+		var new_unlocks: Array = game.archive_result.get("unlocked", [])
+		if not new_unlocks.is_empty():
+			var catalog: Dictionary = game.archive.blueprint_catalog()
+			var titles: Array[String] = []
+			for blueprint_id: Variant in new_unlocks:
+				var item: Dictionary = catalog.get(String(blueprint_id), {})
+				if not item.is_empty():titles.append(String(item.get("title", blueprint_id)))
+			if not titles.is_empty():archive_text = "新解锁 · " + "、".join(titles)
+	label(archive_text,Vector2(715,634),12,Color("a3c7b7") if "新解锁" in archive_text else muted)
 	box(RESULT_RETRY_RECT,Color(.080,.112,.103,.97),Color("82bbae"))
 	box(RESULT_NEW_RECT,Color(.046,.066,.075,.97),Color("66766c"))
 	label("Enter · 同一守望再挑战",RESULT_RETRY_RECT.position+Vector2(37,32),16,Color("bce2d3"))
