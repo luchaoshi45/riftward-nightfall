@@ -11,9 +11,10 @@ const WORKSHOP := "workshop"
 const RECYCLER := "recycler"
 const LABORATORY := "laboratory"
 const DEPOT := "depot"
+const INFIRMARY := "infirmary"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -259,6 +260,7 @@ func snapshots() -> Array[Dictionary]:
 			RECYCLER: benefit = "12米内夜袭残骸 · %.0f秒加工2零件 · 全城每夜24上限" % _recovery_interval(plot)
 			LABORATORY: benefit = "存活时解锁重弩组 · 前置兵营与工坊"
 			DEPOT: benefit = "工队真实返站才入账 · 有限废料 · 二级卸货更快"
+			INFIRMARY: benefit = "存活时解锁医护队 · 治疗须在部队页开启并付费"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -281,7 +283,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -290,15 +292,15 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT]: return null
-	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY] else WORKSHOP_SCENE
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY]: return null
+	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
 	if kind in [BARRACKS, WORKSHOP]: return base
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "InfirmaryPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -321,7 +323,7 @@ func create_model(kind: String) -> Node3D:
 		var mast := BattleVisuals.box(model, Vector3(-1.5, 1.03, 0.7), Vector3(0.09, 2.02, 0.09), copper)
 		mast.name = "ResearchAntenna"
 		BattleVisuals.box(model, Vector3(-1.5, 1.95, 0.7), Vector3(0.6, 0.07, 0.07), copper)
-	else:
+	elif kind == DEPOT:
 		# The original workshop and this real cargo dock stay within the 3x3
 		# building cells. Construction previews use this same measured geometry.
 		var dock := BattleVisuals.box(model, Vector3(0, 0.16, 1.13), Vector3(2.58, 0.26, 0.5), steel)
@@ -335,6 +337,26 @@ func create_model(kind: String) -> Node3D:
 		var cargo_sign := BattleVisuals.box(model, Vector3(1.05, 1.61, -1.13), Vector3(0.44, 0.34, 0.07), copper)
 		cargo_sign.name = "CargoSign"
 		BattleVisuals.box(model, Vector3(1.05, 1.61, -1.175), Vector3(0.24, 0.05, 0.03), steel)
+	else:
+		# This station only unlocks paid medical squads. Supply cases and a cyan
+		# marker identify the shared camp prototype without adding passive healing.
+		var medicine := BattleVisuals.material(Color("d4dfd9"))
+		var medical_mark := BattleVisuals.material(Color("77d4ce"), 0.12)
+		for side in [-1.0, 1.0]:
+			var case := BattleVisuals.box(model, Vector3(side * 0.80, 0.42, 1.07), Vector3(0.48, 0.42, 0.48), medicine)
+			case.name = "MedicalSupplyCase"
+			BattleVisuals.box(model, Vector3(side * 0.80, 0.66, 1.07), Vector3(0.50, 0.06, 0.50), steel)
+			BattleVisuals.box(model, Vector3(side * 0.80, 0.697, 1.07), Vector3(0.23, 0.014, 0.055), medical_mark)
+			for end in [-1.0, 1.0]:
+				BattleVisuals.box(model, Vector3(side * 0.80, 0.697, 1.07 + end * 0.07125), Vector3(0.055, 0.014, 0.0875), medical_mark)
+		var mast := BattleVisuals.box(model, Vector3(1.14, 0.92, -1.12), Vector3(0.06, 1.58, 0.06), steel)
+		mast.name = "MedicalMarkerMast"
+		var sign := BattleVisuals.box(model, Vector3(0.98, 1.68, -1.12), Vector3(0.48, 0.50, 0.08), steel)
+		sign.name = "CyanMedicalMarker"
+		for face in [-1.0, 1.0]:
+			BattleVisuals.box(model, Vector3(0.98, 1.68, -1.12 + face * 0.053), Vector3(0.30, 0.075, 0.024), medical_mark)
+			for end in [-1.0, 1.0]:
+				BattleVisuals.box(model, Vector3(0.98, 1.68 + end * 0.09375, -1.12 + face * 0.053), Vector3(0.075, 0.1125, 0.024), medical_mark)
 	return model
 
 func prepare_model(model: Node3D) -> void:

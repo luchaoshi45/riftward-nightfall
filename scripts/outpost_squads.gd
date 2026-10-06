@@ -1,15 +1,22 @@
 extends Node3D
-## RTS编组、独立兵营训练队列、地形寻路与工程支援。
+## RTS编组、独立兵营训练队列、地形寻路与付费工程/医护支援。
 ## 主控制器每帧advance，并在enemy.tick后调用intercept_enemy。
 
 const UnitScript = preload("res://scripts/unit.gd")
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26}
+const MEDIC_RANGE := 4.8
+const MEDIC_HEIGHT_LIMIT := 1.0
+const MEDIC_MIN_MISSING := 12.0
+const MEDIC_WINDUP := .65
+const MEDIC_COOLDOWN := 4.0
+const MEDIC_HEAL := 36.0
+const MEDIC_COST := 2
 const HOLD := "hold"
 const RECALL := "recall"
 const MOVE := "move"
@@ -26,12 +33,15 @@ var _intercepts: Dictionary = {}
 var training_queues: Dictionary = {}
 var selected_ids: Array[int] = []
 var _has_logistics := false
+var _has_hero := false
+var _medic_states: Dictionary = {}
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 	clear()
 	game = controller
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) == "logistics": _has_logistics = true
+		if String(property.name) == "hero": _has_hero = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
 
@@ -99,6 +109,8 @@ func _create_squad(kind: String, origin: Vector3) -> int:
 	var initial_order := HAUL if kind == "hauler" else (RECALL if str(game.get("phase")) == "day" else HOLD)
 	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members,
 		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0}
+	if kind == "medic":
+		squad.merge({"therapy_enabled": false, "treatments": 0, "healed_hp": 0.0, "spent": 0})
 	squads.append(squad)
 	for slot in MEMBERS_PER_SQUAD: members.append(_spawn_member(squad, slot))
 	return id
@@ -186,8 +198,8 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5}[squad.kind])
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0}[squad.kind])
 	soldier.attack_interval = 3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)
 	soldier.speed = 3.06 if squad.kind == "ballista" else 3.6
 	soldier.windup_duration = .55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)
@@ -195,6 +207,10 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.selection.visible = int(squad.id) in selected_ids
 	soldier.position = _resolve_destination(squad.origin + Vector3((slot - 1) * 1.2, 0, 0))
 	soldier.set_meta("support_timer", 1.0)
+	if squad.kind == "medic":
+		_medic_states[soldier.get_instance_id()] = {"unit": weakref(soldier), "casting": false,
+			"remaining": 0.0, "cooldown": 0.0, "target": null, "cancel_reason": "",
+			"treatments": 0, "healed_hp": 0.0, "spent": 0}
 	_style_member(soldier, str(squad.kind))
 	soldier.defeated.connect(_on_member_defeated)
 	return soldier
@@ -236,7 +252,7 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -256,6 +272,9 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 		cargo.visible = false
 		soldier.set_meta("haul_cargo", 0)
 		return
+	if kind == "medic":
+		_style_medic(right_arm, soldier.visual)
+		return
 	var tool := MeshInstance3D.new()
 	var tool_mesh := BoxMesh.new()
 	tool_mesh.size = Vector3(.7, .1, .16) if kind == "ranged" else Vector3(.18, .58, .12)
@@ -269,6 +288,19 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	head.mesh = head_mesh; head.material_override = tool.material_override
 	tool.add_child(head)
 	head.position.y = .2 if kind == "engineer" else 0.0
+
+func _style_medic(arm: Node3D, visual: Node3D) -> void:
+	# The original guard rig carries a native satchel, without a weapon.
+	var ivory := BattleVisuals.material(Color("d8e4de"), 0.0)
+	var teal := BattleVisuals.material(Color("6ca99e"), 0.0)
+	var case_node := BattleVisuals.box(arm, Vector3(0, -.43, -.14), Vector3(.38, .31, .19), ivory)
+	case_node.name = "MedicSatchel"
+	var stripe := BattleVisuals.box(case_node, Vector3(0, 0, -.10), Vector3(.065, .25, .015), teal)
+	stripe.name = "MedicSatchelStripe"
+	var handle := BattleVisuals.box(case_node, Vector3(0, .19, 0), Vector3(.19, .065, .08), teal)
+	handle.name = "MedicSatchelHandle"
+	var armband := BattleVisuals.box(visual, Vector3(.32, 1.1, -.055), Vector3(.18, .16, .27), ivory)
+	armband.name = "MedicArmband"
 
 func _style_heavy_crossbow(arm: Node3D) -> void:
 	# Native tool geometry on the original guard; no new imported character asset.
@@ -401,6 +433,7 @@ func _set_squad_order(squad: Dictionary, order: String) -> void:
 	squad.order = order
 	for soldier: BattleUnit in squad.members:
 		if not _living(soldier): continue
+		if String(squad.kind) == "medic": _cancel_medic(soldier, "order_changed")
 		soldier.target = null
 		soldier.attack_queued = false
 		soldier.attack_windup = 0.0
@@ -420,14 +453,191 @@ func set_haul_order(squad_id: int) -> bool:
 	_set_squad_order(squad, HAUL)
 	return true
 
+func set_medic_enabled(squad_id: int, enabled: bool) -> Dictionary:
+	if not _active(): return _result(false, "暂停或选卡时不能切换治疗")
+	if squad_id < 0 or squad_id >= squads.size(): return _result(false, "没有这支医护队")
+	var squad: Dictionary = squads[squad_id]
+	if int(squad.id) != squad_id or String(squad.kind) != "medic" or not _squad_alive(squad):
+		return _result(false, "请选择存活医护队")
+	if squad_id not in selected_ids: return _result(false, "请先选择这支医护队")
+	if bool(squad.get("therapy_enabled", false)) != enabled:
+		squad.therapy_enabled = enabled
+		for soldier: BattleUnit in squad.members:
+			if _living(soldier): _cancel_medic(soldier, "therapy_disabled" if not enabled else "")
+	var result := _result(true, "医护治疗已开启，每次实际治疗付2零件" if enabled else "医护治疗已关闭", 0, squad_id)
+	result.therapy_enabled = enabled
+	return result
+
+func _cancel_medic(soldier: BattleUnit, reason: String) -> void:
+	if not is_instance_valid(soldier): return
+	var state: Dictionary = _medic_states.get(soldier.get_instance_id(), {})
+	if state.is_empty(): return
+	state.casting = false
+	state.remaining = 0.0
+	state.target = null
+	state.cancel_reason = reason
+	soldier.set_meta("medic_casting", false)
+
+func _cancel_medic_casts(reason: String) -> void:
+	for squad: Dictionary in squads:
+		if String(squad.kind) != "medic": continue
+		for soldier: BattleUnit in squad.members:
+			if _living(soldier): _cancel_medic(soldier, reason)
+
+func _is_real_medic_target(target: Variant) -> bool:
+	if not _living(target): return false
+	# Isolated legacy controllers may have no hero property. A similarly
+	# tagged node outside the controller's actual roster is never an ally.
+	if _has_hero and target == game.get("hero"): return true
+	for squad: Dictionary in squads:
+		if target in squad.members: return true
+	return false
+
+func _medic_target_valid(soldier: BattleUnit, target: Variant) -> bool:
+	if not _is_real_medic_target(target): return false
+	var patient := target as BattleUnit
+	if not patient.position.is_finite() or not soldier.position.is_finite(): return false
+	if not is_finite(patient.hp) or not is_finite(patient.max_hp) or patient.hp <= 0.0 or patient.max_hp <= 0.0: return false
+	if patient.max_hp - patient.hp < MEDIC_MIN_MISSING: return false
+	if _ground_distance(soldier.position, patient.position) > MEDIC_RANGE: return false
+	if absf(soldier.position.y - patient.position.y) > MEDIC_HEIGHT_LIMIT: return false
+	var source_height := _ground_height(soldier.position)
+	var target_height := _ground_height(patient.position)
+	if not is_finite(source_height) or not is_finite(target_height) or absf(source_height - target_height) > MEDIC_HEIGHT_LIMIT: return false
+	return _attack_line(soldier.position, patient.position)
+
+func _pick_medic_target(soldier: BattleUnit) -> BattleUnit:
+	var candidates: Array[BattleUnit] = []
+	if _has_hero:
+		var hero_value: Variant = game.get("hero")
+		if _living(hero_value): candidates.append(hero_value as BattleUnit)
+	for squad: Dictionary in squads:
+		for member: BattleUnit in squad.members:
+			if _living(member) and member not in candidates: candidates.append(member)
+	var chosen: BattleUnit
+	var best_ratio := INF
+	var best_distance := INF
+	for candidate: BattleUnit in candidates:
+		if not _medic_target_valid(soldier, candidate): continue
+		var ratio := candidate.hp / candidate.max_hp
+		var distance := _ground_distance(soldier.position, candidate.position)
+		if ratio < best_ratio or (ratio == best_ratio and distance < best_distance):
+			chosen = candidate; best_ratio = ratio; best_distance = distance
+	return chosen
+
+func _advance_medic(squad: Dictionary, soldier: BattleUnit, delta: float, station: Vector3) -> void:
+	var state: Dictionary = _medic_states.get(soldier.get_instance_id(), {})
+	if state.is_empty(): return
+	# Cooldown belongs to the actual member, not its order, enable switch,
+	# repair support_timer or day/night mode. Every active frame advances it.
+	state.cooldown = maxf(0.0, float(state.cooldown) - delta)
+	soldier.attack_queued = false; soldier.attack_windup = 0.0; soldier.target = null
+	if soldier.moving or _ground_distance(soldier.position, station) > .16:
+		_cancel_medic(soldier, "moving")
+		return
+	if not bool(squad.get("therapy_enabled", false)):
+		_cancel_medic(soldier, "therapy_disabled")
+		return
+	if int(game.get("scrap")) < MEDIC_COST:
+		_cancel_medic(soldier, "insufficient_parts")
+		return
+	if float(state.cooldown) > 0.0: return
+	if bool(state.casting):
+		var target_ref: Variant = state.target
+		var target: BattleUnit = target_ref.get_ref() as BattleUnit if target_ref is WeakRef else null
+		if not _medic_target_valid(soldier, target):
+			_cancel_medic(soldier, "target_invalid")
+			return
+		state.remaining = maxf(0.0, float(state.remaining) - delta)
+		soldier.face(target.position, delta)
+		if float(state.remaining) > 0.0: return
+		# Recheck the original patient and current wallet at the committing
+		# frame. Three simultaneous medics cannot spend the same last parts.
+		if not _medic_target_valid(soldier, target) or int(game.get("scrap")) < MEDIC_COST:
+			_cancel_medic(soldier, "target_invalid" if not _medic_target_valid(soldier, target) else "insufficient_parts")
+			return
+		var before := target.hp
+		target.hp = minf(target.max_hp, target.hp + MEDIC_HEAL)
+		var restored := target.hp - before
+		if restored <= 0.0:
+			_cancel_medic(soldier, "target_invalid")
+			return
+		game.set("scrap", int(game.get("scrap")) - MEDIC_COST)
+		state.treatments = int(state.treatments) + 1
+		state.healed_hp = float(state.healed_hp) + restored
+		state.spent = int(state.spent) + MEDIC_COST
+		squad.treatments = int(squad.treatments) + 1
+		squad.healed_hp = float(squad.healed_hp) + restored
+		squad.spent = int(squad.spent) + MEDIC_COST
+		_cancel_medic(soldier, "")
+		state.cooldown = MEDIC_COOLDOWN
+		soldier.attack_pose = .65
+		_beam(soldier.position + Vector3.UP, target.position + Vector3.UP, Color("95cdb9"), .022, .24, .12)
+		return
+	var target := _pick_medic_target(soldier)
+	if not is_instance_valid(target): return
+	state.casting = true
+	state.remaining = MEDIC_WINDUP
+	state.target = weakref(target)
+	state.cancel_reason = ""
+	soldier.set_meta("medic_casting", true)
+	soldier.face(target.position, delta)
+
+func medic_snapshot() -> Dictionary:
+	# Presentation never creates treatment state, selects targets, reserves
+	# money, changes enabled flags or advances a simulation clock.
+	var rows: Array[Dictionary] = []
+	var total_alive := 0
+	var enabled_count := 0
+	var treatments := 0
+	var healed_hp := 0.0
+	var spent := 0
+	for squad: Dictionary in squads:
+		if String(squad.kind) != "medic": continue
+		var members: Array[Dictionary] = []
+		var casting := 0
+		var cooldown := 0.0
+		for slot in MEMBERS_PER_SQUAD:
+			var soldier: BattleUnit = squad.members[slot]
+			if not _living(soldier): continue
+			var state: Dictionary = _medic_states.get(soldier.get_instance_id(), {})
+			var target_ref: Variant = state.get("target")
+			var target: BattleUnit = target_ref.get_ref() as BattleUnit if target_ref is WeakRef else null
+			if not _living(target): target = null
+			var is_casting := bool(state.get("casting", false))
+			var remaining := float(state.get("remaining", 0.0))
+			var member_cooldown := float(state.get("cooldown", 0.0))
+			if is_casting: casting += 1
+			cooldown = maxf(cooldown, member_cooldown)
+			members.append({"slot": slot, "token": soldier.get_instance_id(), "source": soldier,
+				"phase": "windup" if is_casting else ("cooldown" if member_cooldown > 0.0 else "idle"),
+				"casting": is_casting, "remaining": remaining, "total": MEDIC_WINDUP, "cooldown": member_cooldown,
+				"target": target, "target_token": target.get_instance_id() if is_instance_valid(target) else -1,
+				"cancel_reason": String(state.get("cancel_reason", "")), "treatments": int(state.get("treatments", 0)),
+				"healed_hp": float(state.get("healed_hp", 0.0)), "spent": int(state.get("spent", 0))})
+		var alive := members.size()
+		total_alive += alive
+		if bool(squad.get("therapy_enabled", false)) and alive > 0: enabled_count += 1
+		treatments += int(squad.get("treatments", 0))
+		healed_hp += float(squad.get("healed_hp", 0.0))
+		spent += int(squad.get("spent", 0))
+		rows.append({"id": squad.id, "title": "医护队", "selected": int(squad.id) in selected_ids,
+			"alive": alive, "therapy_enabled": bool(squad.get("therapy_enabled", false)),
+			"treatments": int(squad.get("treatments", 0)), "healed_hp": float(squad.get("healed_hp", 0.0)),
+			"spent": int(squad.get("spent", 0)), "casting": casting, "cooldown": cooldown, "members": members})
+	return {"count": rows.size(), "alive": total_alive, "enabled_count": enabled_count,
+		"treatments": treatments, "healed_hp": healed_hp, "spent": spent, "squads": rows}
+
 func on_day() -> void:
 	_cancel_intercepts()
+	_cancel_medic_casts("phase_changed")
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
 
 func on_night() -> void:
 	_cancel_intercepts()
+	_cancel_medic_casts("phase_changed")
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, HOLD)
@@ -472,7 +682,7 @@ func advance(delta: float, active: bool = true) -> void:
 	_refresh_selection()
 	for squad in squads:
 		var designated: BattleUnit
-		if squad.order == ATTACK:
+		if squad.order == ATTACK and String(squad.kind) != "medic":
 			var target_ref: Variant = squad.get("attack_target")
 			if target_ref is WeakRef: designated = target_ref.get_ref() as BattleUnit
 			if _enemy(designated): squad.destination = designated.position
@@ -484,6 +694,14 @@ func advance(delta: float, active: bool = true) -> void:
 			var soldier: BattleUnit = squad.members[slot]
 			if not _living(soldier): continue
 			soldier.tick(elapsed)
+			if String(squad.kind) == "medic":
+				# Attack commands retain their issued destination for medics.
+				# They neither chase an enemy nor leave station to follow a wound.
+				var medic_station := _station(squad, slot, String(squad.order))
+				_move_member(soldier, medic_station, elapsed)
+				_advance_medic(squad, soldier, elapsed, medic_station)
+				_animate_member(soldier)
+				continue
 			if squad.order == ATTACK and _enemy(designated) and _in_range(soldier, designated):
 				soldier.moving = false
 				_attack(soldier, elapsed, designated)
@@ -560,7 +778,7 @@ func _repair_nearby(soldier: BattleUnit, delta: float) -> void:
 	_beam(soldier.position + Vector3.UP, candidate.position + Vector3.UP, Color("88d18b"))
 
 func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -> void:
-	if String(soldier.get_meta("squad_kind", "")) == "hauler":
+	if String(soldier.get_meta("squad_kind", "")) in ["hauler", "medic"]:
 		soldier.attack_queued = false; soldier.target = null; soldier.attack_windup = 0.0
 		return
 	if soldier.attack_queued:
@@ -716,6 +934,14 @@ func _living(unit: Variant) -> bool:
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
 	var logistics := _logistics()
 	if is_instance_valid(logistics): logistics.call("on_member_defeated", unit.get_instance_id())
+	# A real casualty invalidates all pending treatments of that exact member
+	# immediately. It cannot be paid for or resurrected by a later commit.
+	for state: Dictionary in _medic_states.values():
+		var target_ref: Variant = state.get("target")
+		if target_ref is WeakRef and target_ref.get_ref() == unit:
+			var medic: BattleUnit = (state.unit as WeakRef).get_ref() as BattleUnit
+			if is_instance_valid(medic): _cancel_medic(medic, "target_invalid")
+	_medic_states.erase(unit.get_instance_id())
 	# Keep empty slots, without dangling typed references after queue_free.
 	for squad in squads:
 		for slot in MEMBERS_PER_SQUAD:
@@ -732,7 +958,8 @@ func _animate_member(soldier: BattleUnit) -> void:
 		var limb := soldier.visual.find_child(label, true, false) as Node3D
 		if limb: limb.rotation.x = sin(soldier.age * 8.0 + (PI if label == "LegR" else 0.0)) * (.32 if soldier.moving else .0)
 	var arm := soldier.visual.find_child("ArmR", true, false) as Node3D
-	if arm: arm.rotation.x = -soldier.attack_pose * .7 - (.2 if soldier.attack_queued else 0.0)
+	if arm:
+		arm.rotation.x = -soldier.attack_pose * .7 - (.25 if bool(soldier.get_meta("medic_casting", false)) else (.2 if soldier.attack_queued else 0.0))
 
 func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86"), width: float = .035, lifetime: float = .18, emission: float = 1.2) -> void:
 	var node := MeshInstance3D.new()
@@ -784,6 +1011,7 @@ func snapshot() -> Dictionary:
 
 func clear() -> void:
 	_cancel_intercepts()
+	_cancel_medic_casts("clear")
 	for squad in squads:
 		for soldier: BattleUnit in squad.members: _retire_member(soldier)
 	squads.clear()
@@ -794,6 +1022,10 @@ func clear() -> void:
 		if is_instance_valid(node): node.queue_free()
 	shots.clear()
 	_has_logistics = false
+	_has_hero = false
+	_medic_states.clear()
 
 func _exit_tree() -> void:
 	_cancel_intercepts()
+	_cancel_medic_casts("clear")
+	_medic_states.clear()

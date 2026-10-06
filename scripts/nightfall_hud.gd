@@ -33,6 +33,7 @@ const MAP_BUTTON_RECT := CleanHud.MAP_BUTTON_RECT
 const BUILD_BUTTON_RECT := CleanHud.BUILD_BUTTON_RECT
 const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
 const HAUL_BUTTON_RECT := Rect2(356,628,176,32)
+const MEDIC_BUTTON_RECT := Rect2(356,662,176,26)
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 var detail_tab := ""
 var map_expanded := false
@@ -671,6 +672,39 @@ func selected_hauler_ids() -> Array[int]:
 func haul_button_visible() -> bool:
 	return detail_tab=="army" and troop_page>0 and not game.construction.active and not selected_hauler_ids().is_empty() and is_instance_valid(game.logistics)
 
+func selected_medic_ids() -> Array[int]:
+	var ids: Array[int]=[]
+	if not is_instance_valid(game.squads):return ids
+	for squad: Dictionary in game.squads.squads:
+		if String(squad.kind)!="medic" or not game.squads.selected_ids.has(int(squad.id)):continue
+		for member: BattleUnit in squad.members:
+			if is_instance_valid(member) and member.alive and not member.is_queued_for_deletion():
+				ids.append(int(squad.id));break
+	return ids
+
+func medic_button_visible() -> bool:
+	return detail_tab=="army" and troop_page>0 and not game.construction.active and not selected_medic_ids().is_empty()
+
+func selected_medics_enabled() -> bool:
+	var ids:=selected_medic_ids()
+	if ids.is_empty():return false
+	for squad: Dictionary in game.squads.squads:
+		if ids.has(int(squad.id)) and not bool(squad.get("therapy_enabled",false)):return false
+	return true
+
+func toggle_selected_medics() -> void:
+	if game.phase not in ["day","night"] or not medic_button_visible():return
+	var enabled:=not selected_medics_enabled()
+	var changed:=0
+	var reason:="请先选择存活医护队"
+	for id in selected_medic_ids():
+		var result: Dictionary=game.squads.set_medic_enabled(id,enabled)
+		if bool(result.ok):changed+=1
+		reason=String(result.reason)
+	if changed>0:reason="医护%d队 · %s" % [changed,"开启治疗，每次2零件" if enabled else "停止治疗"]
+	game.notify(reason,3)
+	queue_redraw()
+
 func draw_squads() -> void:
 	training_cancel_buttons.clear()
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
@@ -722,9 +756,12 @@ func draw_squads() -> void:
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
 	if troop_page>0:
-		label("重弩 · 射程12.8米 / 重击46 / 间隔3.2秒",Vector2(46,553),14,ink)
+		label("重弩12.8米/46伤 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
-		CleanHud._paragraph(self,"采运 · "+("白昼装料，返中转站收款" if bool(eligibility.available) else String(eligibility.reason)),Vector2(46,580),496,14,amber,21,1)
+		var medics:=selected_medic_ids()
+		var support_hint:="采运 · "+("白昼装料，返中转站收款" if bool(eligibility.available) else String(eligibility.reason))
+		if not medics.is_empty():support_hint="医护默认停疗 · 驻定治疗 · 前摇0.65秒 / 间隔4秒"
+		CleanHud._paragraph(self,support_hint,Vector2(46,580),496,14,amber,21,1)
 		if is_instance_valid(game.logistics):
 			var transport: Dictionary=game.logistics.snapshot()
 			label("废料%d · 在途%d · 送达%d · 丢失%d" % [int(transport.remaining),int(transport.cargo),int(transport.delivered),int(transport.lost)],Vector2(46,609),13,muted)
@@ -734,10 +771,17 @@ func draw_squads() -> void:
 				if selected.has(int(team.id)):
 					status="工队%d · %s · 载货%d" % [int(team.id)+1,String(team.state_title),int(team.cargo)]
 					break
+			if selected.is_empty() and not medics.is_empty():status="已选医护%d队 · %s" % [medics.size(),"治疗全开" if selected_medics_enabled() else "尚未全部开启"]
 			CleanHud._paragraph(self,status,Vector2(46,648),296,13,ink,20,1)
 			if haul_button_visible():
 				box(HAUL_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
 				label("恢复采运" if game.phase!="paused" else "暂停 · 恢复后采运",HAUL_BUTTON_RECT.position+Vector2(12,21),13,amber if game.phase!="paused" else muted)
+		if medic_button_visible():
+			var medical: Dictionary=game.squads.medic_snapshot()
+			CleanHud._paragraph(self,"医护合计%d次 · 恢复%.0f · 花费%d" % [int(medical.treatments),float(medical.healed_hp),int(medical.spent)],Vector2(46,681),296,12,muted,18,1)
+			box(MEDIC_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
+			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2零件"
+			label("暂停 · 医护保持" if game.phase=="paused" else caption,MEDIC_BUTTON_RECT.position+Vector2(9,18),12,muted if game.phase=="paused" else amber)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
@@ -922,6 +966,7 @@ func _gui_input(event: InputEvent) -> void:
 					for index in visible_construction_kinds().size():
 						if construction_kind_rect(index).has_point(point):select_construction_slot(index);accept_event();return
 				elif detail_tab=="army":
+					if medic_button_visible() and MEDIC_BUTTON_RECT.has_point(point):toggle_selected_medics();accept_event();return
 					if haul_button_visible() and HAUL_BUTTON_RECT.has_point(point):
 						var result: Dictionary=game.logistics.start_selected_hauling()
 						game.notify(String(result.reason),3)
