@@ -4,7 +4,7 @@ extends RefCounted
 
 const PHASE_RECT := Rect2(24,20,238,62)
 const OBJECTIVE_RECT := Rect2(426,20,588,76)
-const RESOURCE_RECT := Rect2(1080,20,336,70)
+const RESOURCE_RECT := Rect2(1080,20,336,54)
 const HERO_RECT := Rect2(344,800,752,80)
 const MEMORY_RECT := Rect2(1108,800,104,80)
 const TACTICS_RECT := Rect2(24,824,126,36)
@@ -114,9 +114,6 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.label("零件 %d" % int(game.scrap),Vector2(1097,45),18,ui.ink)
 	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1246,44),14,ui.red if threatened else ui.amber)
 	ui.progress(Rect2(1097,56,302,5),float(game.beacon_hp)/float(game.BEACON_MAX),ui.red if threatened else ui.amber)
-	ui.label("铭刻 %d零件" % game.run.memory_cost(),Vector2(1097,79),14,ui.muted)
-	if threatened:ui.label("受击 -%d" % ceili(float(game.beacon_alarm_damage)),Vector2(1286,79),13,ui.red)
-	elif int(game.run.pending)>0:ui.label("可铭刻 %d 张" % int(game.run.pending),Vector2(1286,79),13,GREEN)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.box(HERO_RECT,Color(.022,.038,.044,.94),Color("53635d"))
@@ -124,14 +121,20 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.progress(Rect2(360,835,178,7),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
 	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,860),13,BLUE)
 	ui.progress(Rect2(360,868,178,4),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
-	var names:=["Q 斩光","W 屏障","E 突进","R 灯焰","X 治疗"]
+	var keys:=["Q","W","E","R","X"]
+	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
 		var x:=558.0+index*105.0
 		var status: String=game.skill_status(index)
-		var tint: Color=ui.red if status=="法力不足" else (ui.amber if float(game.cooldowns[index])<=0.0 else ui.muted)
-		ui.box(Rect2(x,810,99,61),Color(.052,.072,.069,.9),tint if status=="法力不足" else Color("52695e"))
-		ui.label(names[index],Vector2(x+11,834),14,ui.ink)
-		ui.label(status,Vector2(x+11,858),13,tint)
+		var ready:=status=="就绪"
+		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
+		ui.box(Rect2(x+8,815,25,23),Color(.052,.072,.069,.9),tint)
+		ui.label(keys[index],Vector2(x+14,832),14,tint,true)
+		ui.label(names[index],Vector2(x+41,833),14,ui.ink if ready else ui.muted)
+		if ready:
+			ui.draw_rect(Rect2(x+11,853,75,3),Color("668571"))
+		else:
+			ui.label(status,Vector2(x+11,858),13,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
@@ -157,15 +160,27 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.label("已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)],Vector2(38,783),14,GREEN)
 	ui.label("右键移动/攻击 · O 驻守",Vector2(38,808),13,ui.muted)
 
-static func _draw_notice(ui: Control, game: Node3D) -> void:
-	if game.phase=="paused":return
-	if game.construction.active or float(game.hero_damage_flash_time)>0.0:return
-	if float(game.notice_time)<=0.0 or String(game.notice).is_empty():return
+static func notice_rect(ui: Control, game: Node3D) -> Rect2:
+	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()
+	if game.music_credits_open or game.construction.active or float(game.hero_damage_flash_time)>0.0:return Rect2()
+	if float(game.notice_time)<=0.0 or String(game.notice).strip_edges().is_empty():return Rect2()
 	var lines:=_wrap(ui,String(game.notice),716,15)
 	var count:=mini(2,lines.size())
-	ui.box(Rect2(344,740,752,48),Color(.025,.044,.044,.91),Color("827256"))
+	var font: Font=ui.get("font") as Font
+	var width:=152.0
 	for index in count:
-		ui.label(lines[index],Vector2(362,759+index*20),15,ui.ink)
+		width=maxf(width,font.get_string_size(lines[index],HORIZONTAL_ALIGNMENT_LEFT,-1,15).x+36.0)
+	width=minf(752.0,width)
+	var height:=34.0+(count-1)*20.0
+	return Rect2(720.0-width*.5,788.0-height,width,height)
+
+static func _draw_notice(ui: Control, game: Node3D) -> void:
+	var rect:=notice_rect(ui,game)
+	if not rect.has_area():return
+	var lines:=_wrap(ui,String(game.notice),716,15)
+	ui.box(rect,Color(.025,.044,.044,.91),Color("827256"))
+	for index in mini(2,lines.size()):
+		ui.label(lines[index],rect.position+Vector2(18,22+index*20),15,ui.ink)
 
 static func _active_tags_text(game: Node3D) -> String:
 	if not is_instance_valid(game.exploration):return ""
