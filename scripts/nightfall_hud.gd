@@ -430,6 +430,7 @@ func draw_lobber_warnings() -> void:
 			position.y-=22
 		if not free_position or position.y<96:continue
 		occupied.append(footprint)
+		world_warning_rects.append(footprint)
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("eed897"))
 
