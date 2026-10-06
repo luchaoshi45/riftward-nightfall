@@ -165,7 +165,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 
 static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()
-	if game.music_credits_open or game.construction.active or float(game.hero_damage_flash_time)>0.0:return Rect2()
+	if game.music_credits_open or game.construction.active or ui.rally_setting() or float(game.hero_damage_flash_time)>0.0:return Rect2()
 	if float(game.notice_time)<=0.0 or String(game.notice).strip_edges().is_empty():return Rect2()
 	var lines:=_wrap(ui,String(game.notice),716,15)
 	var count:=mini(2,lines.size())
@@ -196,7 +196,7 @@ static func _active_tags_text(game: Node3D) -> String:
 
 static func active_tags_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return Rect2()
-	if game.music_credits_open or game.construction.active or not String(ui.get("detail_tab")).is_empty():return Rect2()
+	if game.music_credits_open or game.construction.active or ui.rally_setting() or not String(ui.get("detail_tab")).is_empty():return Rect2()
 	var text:=_active_tags_text(game)
 	if text.is_empty():return Rect2()
 	var font: Font=ui.get("font") as Font
@@ -359,7 +359,7 @@ static func _draw_help(ui: Control) -> void:
 		"互动：F 搜集、修灯、升级与重建；H 修塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
 		"探索：P 前往当前路线；4/5/6 选委托，追加阶段4 返家 / 5 追加；7/8/9 选战前反制。",
-		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。",
+		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。\nF3选生产营和集结点；集结工队需恢复自动采运。",
 		"指挥：点选/框选、Shift追加、Tab全选；O驻守。\n右键移动/攻击；工队右键废料堆指定采运。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",

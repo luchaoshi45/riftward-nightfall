@@ -3,6 +3,7 @@ extends Node3D
 const Layout = preload("res://scripts/outpost_layout.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
+const RallyScript = preload("res://scripts/outpost_rally.gd")
 const DemolitionScript = preload("res://scripts/outpost_demolition.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
@@ -70,6 +71,7 @@ var camera: Camera3D
 var hud: Control
 var effects: Node3D
 var construction: Node3D
+var rally: RefCounted
 var construction_blocks: Array[Rect2] = []
 var building_approach_cache: Dictionary = {}
 var selection_dragging := false
@@ -237,6 +239,7 @@ func _ready() -> void:
 	prepare_opening_defenses()
 	refresh_construction_navigation()
 	logistics=LogisticsScript.new();logistics.setup(self)
+	rally=RallyScript.new();rally.setup(self)
 	pickup_sound=make_pickup_sound()
 	world.night_mix=1.0;world.set_night(true)
 	run.grant("守夜者的第一段记忆")
@@ -296,6 +299,7 @@ func _process(delta: float) -> void:
 	if music:music.update_game(self,delta)
 	if deaths:deaths.tick(delta,phase)
 	if skill_lights:skill_lights.tick(delta,phase)
+	if rally:rally.tick(delta)
 
 func simulate(delta: float) -> void:
 	if phase!="day" and phase!="night":return
@@ -680,6 +684,7 @@ func finish_night() -> void:
 		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
+		if rally:rally.clear()
 		if logistics:logistics.clear()
 		if squads:squads.clear()
 		for creature in enemies:
@@ -2129,6 +2134,7 @@ func end_defeat(message: String) -> void:
 	clear_warders()
 	cores.clear()
 	specializations.reset_effects()
+	if rally:rally.clear()
 	if logistics:logistics.clear()
 	if squads:squads.clear()
 	if is_instance_valid(siege_boss):
@@ -2145,6 +2151,7 @@ func open_draft() -> void:
 		draft_reroll_ready_at=float(Time.get_ticks_msec())*.001+.6
 	if run.draft():
 		selection_dragging=false
+		if rally:rally.cancel_setting()
 		phase="draft"
 
 func choose_card(index: int) -> bool:
@@ -2255,9 +2262,10 @@ func hire_ranged_squad() -> bool:
 
 func train_troop(kind: String) -> bool:
 	if phase not in ["day","night"]:return false
-	var result: Dictionary=squads.enqueue(kind)
+	var barracks_id: int=rally.selection_id() if rally else -1
+	var result: Dictionary=squads.enqueue(kind,barracks_id)
 	if not result.ok:notify(String(result.reason),2);return false
-	notify("%s加入兵营训练队列 · -%d零件" % [String(Catalog.troop(kind).get("title","部队")),int(result.cost)],3)
+	notify("%s加入营%d训练队列 · -%d零件" % [String(Catalog.troop(kind).get("title","部队")),int(result.barracks_id)+1,int(result.cost)],3)
 	return true
 
 func cancel_troop_training(barracks_id: int, queue_index: int) -> bool:
@@ -2613,6 +2621,7 @@ func interact() -> bool:
 
 func toggle_tower_construction() -> bool:
 	if not construction:return false
+	if rally:rally.cancel_setting()
 	if construction.active:
 		construction.cancel()
 		return true
@@ -2892,6 +2901,16 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 	if event.button_index==MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
 		camera.size=minf(52,camera.size+1.5);return true
 	if event.button_index not in [MOUSE_BUTTON_LEFT,MOUSE_BUTTON_RIGHT]:return false
+	if rally and rally.active:
+		selection_dragging=false
+		if not event.pressed:return true
+		if event.button_index==MOUSE_BUTTON_RIGHT:rally.cancel_setting()
+		else:
+			aim=ground_point(event.position);aim_sample_pending=false
+			var result: Dictionary=rally.commit(aim)
+			hud.rally_feedback="" if bool(result.ok) else String(result.reason)
+			notify(String(result.reason),3)
+		return true
 	if construction.active:
 		if not event.pressed:return true
 		selection_dragging=false
@@ -2962,6 +2981,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode==KEY_ESCAPE and music_credits_open:
 			music_credits_open=false
 			return
+		if event.keycode==KEY_ESCAPE and rally and rally.active and phase in ["day","night","paused"]:
+			rally.cancel_setting();selection_dragging=false
+			return
 		if event.keycode==KEY_F3 and not music_credits_open:
 			hud.toggle_details()
 			return
@@ -2991,6 +3013,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				select_run_mode(event.keycode-KEY_7)
 			elif event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
+			return
+		# A temporary rally click is an exclusive world tool. Do not train,
+		# upgrade a nearby building or issue a squad order while choosing it.
+		if rally and rally.active and phase in ["day","night"]:
+			if event.keycode==KEY_Y:toggle_tower_construction()
 			return
 		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
 			if contracts.status=="bonus_offer" and event.keycode in [KEY_4,KEY_5]:
@@ -3156,6 +3183,7 @@ func prepare_shutdown() -> void:
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()
+	if rally:rally.clear()
 	if logistics:logistics.clear()
 	if squads:squads.clear()
 	if skill_lights:skill_lights.clear()

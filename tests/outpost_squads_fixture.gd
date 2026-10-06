@@ -5,6 +5,7 @@ var failures: Array[String] = []
 var game: FixtureGame
 var squads: Node3D
 var last_source: BattleUnit
+var checks := 0
 
 class FixtureWorld extends Node3D:
 	var tower_pads: Array[Dictionary] = []
@@ -35,9 +36,28 @@ class FixtureGame extends Node3D:
 	func can_traverse(_from: Vector3, to: Vector3) -> bool:
 		return absf(to.x) <= 2.5 and to.z >= 3.0 and to.z <= 20.0
 
+class BirthResetProbe extends RefCounted:
+	var mode := "clear"
+	var controller: Node3D
+	var troops: Node3D
+	var tokens: Array[int] = []
+	var changed := false
+	var new_order: Dictionary = {}
+	func on_node_added(node: Node) -> void:
+		if not node is BattleUnit or node.get_parent()!=troops: return
+		tokens.append(node.get_instance_id())
+		if changed: return
+		changed=true
+		if mode=="clear": troops.clear()
+		else: troops.setup(controller,true)
+		# This is a genuine new paid request issued synchronously by the tree
+		# listener. The caller's remaining old time must not advance it.
+		new_order=troops.enqueue("ranged",0)
+
 func _initialize() -> void: call_deferred("run")
 
 func check(condition: bool, message: String) -> void:
+	checks += 1
 	if condition: return
 	failures.append(message)
 	push_error(message)
@@ -62,6 +82,43 @@ func _flat_distance(a: Vector3, b: Vector3) -> float: return Vector2(a.x, a.z).d
 
 func settle() -> void:
 	for step in 50: squads.advance(.1)
+
+func synchronous_birth_reset() -> void:
+	for mode: String in ["clear","setup"]:
+		var controller:=FixtureGame.new(); root.add_child(controller)
+		controller.world=FixtureWorld.new(); controller.add_child(controller.world)
+		controller.districts=FixtureDistricts.new(); controller.add_child(controller.districts)
+		var troops: Node3D=SquadScript.new(); controller.add_child(troops); troops.setup(controller,true)
+		controller.scrap=1000
+		for _order in 3: check(bool(troops.enqueue("shield",0).ok),mode+": old real camp accepts three paid training orders")
+		check(controller.scrap==790 and troops.snapshot().count==0,mode+": real old queue pays three70-part receipts before any actor exists")
+		var probe:=BirthResetProbe.new(); probe.mode=mode; probe.controller=controller; probe.troops=troops
+		node_added.connect(probe.on_node_added)
+		troops.advance(18.0)
+		var queue: Array=troops.snapshot().queues[0].queue
+		check(probe.changed and probe.tokens.size()==1,mode+": synchronous actual tree callback stops the unfinished old birth and later old orders")
+		check(bool(probe.new_order.get("ok",false)) and controller.scrap==710,mode+": callback charges the one genuine new80-part request without repeating old payments or refunds")
+		check(troops.snapshot().count==0 and queue.size()==1 and String(queue[0].kind)=="ranged" and is_equal_approx(float(queue[0].remaining),8.0),mode+": old18-second advance cannot create actors or consume the new generation's eight-second training")
+		await process_frame; await process_frame
+		var actor_count:=0
+		for child: Node in troops.get_children():
+			if child is BattleUnit: actor_count+=1
+		check(actor_count==0 and not is_instance_id_valid(probe.tokens[0]),mode+": unowned interrupted member really releases instead of surviving outside the squad roster")
+		troops.advance(7.9)
+		check(probe.tokens.size()==1 and troops.snapshot().count==0 and controller.scrap==710,mode+": a fresh caller cannot complete the new eight-second request early or charge it again")
+		troops.advance(.2)
+		var snapshot: Dictionary=troops.snapshot(); var roster: Array[int]=[]
+		for group: Dictionary in troops.squads:
+			for member: BattleUnit in group.members:
+				if is_instance_valid(member): roster.append(member.get_instance_id())
+		actor_count=0
+		for child: Node in troops.get_children():
+			if child is BattleUnit: actor_count+=1
+		check(probe.tokens.size()==4 and actor_count==3 and roster.size()==3 and snapshot.count==1 and snapshot.alive==3 and String(snapshot.squads[0].kind)=="ranged",mode+": fresh training creates exactly one three-member ranged group with no old-kind or orphan actor contamination")
+		check(probe.tokens.slice(1)==roster and controller.scrap==710 and troops.training_queues.get(0,[]).is_empty(),mode+": live tree identities equal the new paid roster and completion adds no duplicate economic event")
+		print("SYNCHRONOUS_BIRTH_RESET ",mode," callbacks=",probe.tokens.size()," actors=",actor_count," groups=",snapshot.count," wallet=",controller.scrap)
+		node_added.disconnect(probe.on_node_added)
+		troops.clear(); controller.queue_free(); await process_frame; await process_frame
 
 func run() -> void:
 	game = FixtureGame.new(); root.add_child(game)
@@ -211,6 +268,7 @@ func run() -> void:
 	check(squads.enqueue("shield", 0).ok, "A final queued training must be accepted before reset")
 	before = game.scrap; squads.clear()
 	check(game.scrap == before and squads.training_queues.is_empty(), "New-run clear must discard queue state without cross-run refunds")
+	await synchronous_birth_reset()
 	game.queue_free(); await process_frame; await process_frame
-	print("OUTPOST_SQUADS_FIXTURE_", "OK" if failures.is_empty() else "FAILED")
+	print("OUTPOST_SQUADS_FIXTURE_", "OK" if failures.is_empty() else "FAILED"," checks=",checks," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

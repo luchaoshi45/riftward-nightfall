@@ -6,6 +6,11 @@ const Catalog = preload("res://scripts/outpost_catalog.gd")
 const CATALOG_PAGE_SIZE := 3
 const CONSTRUCTION_PANEL_RECT := Rect2(435,642,570,140)
 const DEMOLITION_BUTTON_RECT := Rect2(870,748,119,26)
+const RALLY_SELECTOR_RECT := Rect2(46,422,188,27)
+const RALLY_SET_RECT := Rect2(245,422,136,27)
+const RALLY_RESET_RECT := Rect2(392,422,140,27)
+const RALLY_PROMPT_RECT := Rect2(435,674,570,84)
+const RALLY_CANCEL_RECT := Rect2(870,726,119,26)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
@@ -42,6 +47,7 @@ var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
 var budget_refresh_time := 0.0
 var world_warning_rects: Array[Rect2] = []
+var rally_feedback := ""
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -114,6 +120,7 @@ func dismiss_details() -> void:
 
 func toggle_details(tab: String = "") -> void:
 	if game.phase not in ["day","night","paused"] or game.music_credits_open or game.construction.active:return
+	if game.rally:game.rally.cancel_setting()
 	var target: String="contract" if tab.is_empty() else tab
 	if target not in CleanHud.TAB_IDS:return
 	if (tab.is_empty() and not detail_tab.is_empty()) or detail_tab==target:
@@ -129,6 +136,7 @@ func toggle_details(tab: String = "") -> void:
 
 func toggle_map() -> void:
 	if game.phase not in ["day","night","paused"] or game.music_credits_open or game.construction.active:return
+	if game.rally:game.rally.cancel_setting()
 	map_expanded=not map_expanded
 	detail_tab=""
 	training_cancel_buttons.clear()
@@ -147,6 +155,33 @@ func countermeasure_rect(index: int) -> Rect2:
 func visible_hud_rects() -> Array[Rect2]:
 	return live_panel_rects()
 
+func rally_setting() -> bool:
+	return is_instance_valid(game) and game.rally!=null and bool(game.rally.active)
+
+func rally_state() -> Dictionary:
+	if is_instance_valid(game) and game.rally:return game.rally.snapshot()
+	return {"barracks_id":-1,"configured":false,"point":Vector3.INF,"active":false,"title":"自动择营"}
+
+func begin_rally_setting() -> void:
+	if not game.rally or game.phase not in ["day","night"]:return
+	var result: Dictionary=game.rally.begin_setting()
+	if bool(result.ok):
+		game.selection_dragging=false
+		rally_feedback=""
+		dismiss_details()
+	game.notify(String(result.reason),3)
+	queue_redraw()
+
+func draw_rally_setting() -> void:
+	if not rally_setting() or game.phase not in ["day","night"]:return
+	var state:=rally_state()
+	box(RALLY_PROMPT_RECT,Color(.025,.052,.046,.95),Color("85bfb7"))
+	label("%s · 设置集结点" % String(state.title),Vector2(453,700),17,Color("a9d8cf"))
+	label("左键确认 · 右键/Esc取消",Vector2(453,724),14,amber)
+	CleanHud._paragraph(self,"抵达后驻守 · 工队等待采运命令 · 医护停疗" if rally_feedback.is_empty() else rally_feedback,Vector2(453,747),396,12,muted if rally_feedback.is_empty() else red,17,1)
+	box(RALLY_CANCEL_RECT,panel,muted)
+	label("取消选点",RALLY_CANCEL_RECT.position+Vector2(22,19),13,ink)
+
 func live_panel_rects() -> Array[Rect2]:
 	var areas: Array[Rect2]=[]
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return areas
@@ -155,13 +190,14 @@ func live_panel_rects() -> Array[Rect2]:
 	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
 		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT,minimap_rect()])
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
+	elif rally_setting() and game.phase in ["day","night"]:areas.append(RALLY_PROMPT_RECT)
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
 	var active_tags:=CleanHud.active_tags_rect(self,game)
 	if active_tags.has_area():areas.append(active_tags)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
 	var notice_area:=CleanHud.notice_rect(self,game)
 	if notice_area.has_area():areas.append(notice_area)
-	if game.phase in ["day","night"] and not game.construction.active and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
+	if game.phase in ["day","night"] and not game.construction.active and not rally_setting() and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
 	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
 	if game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
 	if game.hero_damage_flash_time>0.0:areas.append(Rect2(558,773,530,24))
@@ -175,7 +211,7 @@ func context_prompt_rect() -> Rect2:
 	return Rect2(435,682,570,40)
 
 func draw_context_prompt() -> void:
-	if game.phase not in ["day","night"] or game.construction.active or not detail_tab.is_empty():return
+	if game.phase not in ["day","night"] or game.construction.active or rally_setting() or not detail_tab.is_empty():return
 	var prompt: String=game.interaction_prompt()
 	if prompt.is_empty():return
 	var rect:=context_prompt_rect()
@@ -214,6 +250,7 @@ func _draw() -> void:
 	draw_minimap()
 	draw_context_prompt()
 	draw_construction()
+	draw_rally_setting()
 	draw_selection_rect()
 	draw_combat_rewards()
 	draw_hero_damage_feedback()
@@ -829,7 +866,15 @@ func draw_squads() -> void:
 		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
 		training_cancel_buttons.append({"rect":rect,"barracks":row.barracks,"queue_index":row.queue_index})
 	if rows.is_empty():label("暂无训练订单 · 点击兵种安排生产" if not snapshot.queues.is_empty() else "先自由建兵营 · 每营独立队列",Vector2(46,325),13,muted)
-	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(46,465),12,muted)
+	var production:=rally_state()
+	var has_barracks: bool=int(production.barracks_id)>=0
+	box(RALLY_SELECTOR_RECT,panel,Color("668a78"))
+	label("生产：%s >" % String(production.title),RALLY_SELECTOR_RECT.position+Vector2(10,19),13,ink)
+	for rect: Rect2 in [RALLY_SET_RECT,RALLY_RESET_RECT]:box(rect,panel,Color("668a78") if has_barracks and game.phase!="paused" else muted)
+	label("设置集结",RALLY_SET_RECT.position+Vector2(34,19),13,amber if has_barracks and game.phase!="paused" else muted)
+	label("恢复默认",RALLY_RESET_RECT.position+Vector2(36,19),13,amber if has_barracks and game.phase!="paused" else muted)
+	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
+	label("兵营%d · 训练%d组 · 页%d/%d%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint],Vector2(46,465),12,muted)
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
 	if troop_page==1:
@@ -1041,6 +1086,8 @@ func _gui_input(event: InputEvent) -> void:
 	if game.phase not in ["day","night","paused"]:return
 	if event is InputEventMouseButton:
 		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+			if rally_setting() and RALLY_CANCEL_RECT.has_point(point):
+				game.rally.cancel_setting();queue_redraw();accept_event();return
 			if TACTICS_BUTTON_RECT.has_point(point):toggle_details();accept_event();return
 			if MAP_BUTTON_RECT.has_point(point) or minimap_rect().has_point(point):toggle_map();accept_event();return
 			if BUILD_BUTTON_RECT.has_point(point):
@@ -1051,11 +1098,15 @@ func _gui_input(event: InputEvent) -> void:
 				for index in CleanHud.TAB_IDS.size():
 					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
 				if detail_tab=="army":
+					if RALLY_SELECTOR_RECT.has_point(point) and game.rally:
+						game.rally.cycle_selection(1);queue_redraw();accept_event();return
 					for direction in [-1,1]:
 						if troop_page_rect(direction).has_point(point):change_troop_page(direction);accept_event();return
 						if training_page_rect(direction).has_point(point):training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
 			if game.phase in ["day","night"]:
-				if MEMORY_BUTTON_RECT.has_point(point):game.request_upgrade();accept_event();return
+				if MEMORY_BUTTON_RECT.has_point(point):
+					if not rally_setting():game.request_upgrade()
+					accept_event();return
 				if game.construction.active:
 					if DEMOLITION_BUTTON_RECT.has_point(point):game.construction.toggle_sell();accept_event();return
 					for direction in [-1,1]:
@@ -1063,6 +1114,10 @@ func _gui_input(event: InputEvent) -> void:
 					for index in visible_construction_kinds().size():
 						if construction_kind_rect(index).has_point(point):select_construction_slot(index);accept_event();return
 				elif detail_tab=="army":
+					if RALLY_SET_RECT.has_point(point):begin_rally_setting();accept_event();return
+					if RALLY_RESET_RECT.has_point(point) and game.rally:
+						var result: Dictionary=game.rally.reset_selected()
+						game.notify(String(result.reason),3);queue_redraw();accept_event();return
 					if medic_button_visible() and MEDIC_BUTTON_RECT.has_point(point):toggle_selected_medics();accept_event();return
 					if haul_button_visible() and HAUL_BUTTON_RECT.has_point(point):
 						var result: Dictionary=game.logistics.start_selected_hauling()

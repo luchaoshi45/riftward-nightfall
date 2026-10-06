@@ -37,6 +37,7 @@ var selected_ids: Array[int] = []
 var _has_logistics := false
 var _has_hero := false
 var _has_construction_blocks := false
+var _has_rally := false
 var _medic_states: Dictionary = {}
 var artillery: Node3D
 var hunters: Node3D
@@ -59,6 +60,7 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 		if String(property.name) == "logistics": _has_logistics = true
 		if String(property.name) == "hero": _has_hero = true
 		if String(property.name) == "construction_blocks": _has_construction_blocks = true
+		if String(property.name) == "rally": _has_rally = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
 
@@ -118,18 +120,33 @@ func hire(kind: String) -> Dictionary:
 	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	var id := _create_squad(kind, Vector3(0, 5, 3.9))
+	if id < 0: return _result(false, "编组生成期间场景已重置", cost)
 	return _result(true, "%s编组抵达" % String(troop.title), cost, id)
 
+func _owns_squad(squad: Dictionary, generation: int) -> bool:
+	if generation != _epoch or not _active(): return false
+	var id := int(squad.get("id", -1))
+	return id >= 0 and id < squads.size() and is_same(squads[id], squad)
+
 func _create_squad(kind: String, origin: Vector3) -> int:
+	var generation := _epoch
+	if not _active(): return -1
 	var id := squads.size()
 	var members: Array[BattleUnit] = []
 	var initial_order := HAUL if kind == "hauler" else (RECALL if str(game.get("phase")) == "day" else HOLD)
 	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members,
-		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0}
+		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0,
+		"rally_pending": false, "rally_stations": []}
 	if kind == "medic":
 		squad.merge({"therapy_enabled": false, "treatments": 0, "healed_hp": 0.0, "spent": 0})
 	squads.append(squad)
-	for slot in MEMBERS_PER_SQUAD: members.append(_spawn_member(squad, slot))
+	for slot in MEMBERS_PER_SQUAD:
+		if not _owns_squad(squad, generation): return -1
+		var soldier := _spawn_member(squad, slot)
+		if not _owns_squad(squad, generation):
+			_retire_member(soldier)
+			return -1
+		members.append(soldier)
 	return id
 
 func _barracks() -> Array[Dictionary]:
@@ -185,7 +202,9 @@ func refresh_barracks() -> void:
 	if _active(): _advance_training(0.0)
 
 func _advance_training(delta: float) -> void:
+	var generation := _epoch
 	for id: int in training_queues.keys():
+		if generation != _epoch or not _active() or not training_queues.has(id): return
 		var queue: Array = training_queues[id]
 		var row := _barracks_row(id)
 		if row.is_empty():
@@ -195,19 +214,79 @@ func _advance_training(delta: float) -> void:
 			training_queues.erase(id)
 			continue
 		var budget := delta
-		while not queue.is_empty() and budget > 0.0 and _active():
+		while not queue.is_empty() and budget > 0.0 and generation == _epoch and _active():
 			var item: Dictionary = queue[0]
 			var consumed := minf(budget, float(item.remaining))
 			item.remaining = maxf(0.0, float(item.remaining) - consumed)
 			budget -= consumed
 			if float(item.remaining) > .00001: break
 			queue.remove_at(0)
-			_create_squad(str(item.kind), _resolve_destination(row.position + Vector3(0, 0, 3.0)))
+			var squad_id := _create_squad(str(item.kind), _resolve_destination(row.position + Vector3(0, 0, 3.0)))
+			if generation != _epoch or not _active() or squad_id < 0: return
+			_apply_training_rally(squad_id, id)
+			if generation != _epoch or not _active(): return
+
+func rally_spawn_points(barracks_position: Vector3) -> Array[Vector3]:
+	# Match both production's exit resolution and _spawn_member's actual offsets.
+	var points: Array[Vector3] = []
+	var origin := _resolve_destination(barracks_position + Vector3(0, 0, 3.0))
+	for slot in MEMBERS_PER_SQUAD:
+		points.append(_resolve_destination(origin + Vector3((slot - 1) * 1.2, 0, 0)))
+	return points
+
+func rally_station_points(point: Vector3) -> Array[Vector3]:
+	# These exact stations are validated at commit, never moved to an adjacent
+	# walkable cell when a later building blocks the original destination.
+	var points: Array[Vector3] = []
+	if not point.is_finite(): return points
+	for slot in MEMBERS_PER_SQUAD:
+		var station := point + Vector3((slot - 1) * 1.25, 0, 0)
+		station.y = _ground_height(station)
+		points.append(station)
+	return points
+
+func _rally() -> RefCounted:
+	if not _has_rally or not is_instance_valid(game): return null
+	var value: Variant = game.get("rally")
+	return value as RefCounted if is_instance_valid(value) and value is RefCounted else null
+
+func _apply_training_rally(squad_id: int, barracks_id: int) -> void:
+	var generation := _epoch
+	if squad_id < 0 or squad_id >= squads.size(): return
+	var squad: Dictionary = squads[squad_id]
+	if not _owns_squad(squad, generation): return
+	var rally := _rally()
+	if not is_instance_valid(rally) or not rally.has_method("destination_for"): return
+	var destination: Dictionary = rally.call("destination_for", barracks_id)
+	if not _owns_squad(squad, generation): return
+	if not bool(destination.get("enabled", false)): return
+	var point: Variant = destination.get("point")
+	if not point is Vector3 or not (point as Vector3).is_finite(): return
+	var stations := rally_station_points(point)
+	if stations.size() != MEMBERS_PER_SQUAD or not _owns_squad(squad, generation): return
+	# Only this newly completed squad changes order. Haulers deliberately stop
+	# automatic logistics here, and the medic's default disabled switch is kept.
+	_set_squad_order(squad, MOVE)
+	if not _owns_squad(squad, generation): return
+	squad.destination = point
+	squad.formation_index = 0
+	squad.rally_stations = stations
+	squad.rally_pending = true
 
 func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
+	var generation := _epoch
+	if not _owns_squad(squad, generation): return null
 	var soldier := UnitScript.new() as BattleUnit
 	add_child(soldier)
+	# SceneTree node_added/child_entered_tree are synchronous. The fresh unit
+	# is not yet in squad.members, so clear cannot retire it on our behalf.
+	if not _owns_squad(squad, generation):
+		_retire_member(soldier)
+		return null
 	soldier.setup("minion", 0)
+	if not _owns_squad(squad, generation):
+		_retire_member(soldier)
+		return null
 	soldier.name = "Outpost_%s_%d_%d" % [squad.kind, squad.id, slot]
 	soldier.set_meta("outpost_squad", true)
 	soldier.set_meta("squad_kind", squad.kind)
@@ -231,10 +310,16 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	if squad.kind == "artillery": artillery.register(soldier)
 	if squad.kind == "hunter": hunters.register(soldier, int(squad.id), slot)
 	_style_member(soldier, str(squad.kind))
+	if not _owns_squad(squad, generation):
+		_retire_member(soldier)
+		return null
 	soldier.defeated.connect(_on_member_defeated)
 	return soldier
 
 func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
+	var rally_stations: Array = squad.get("rally_stations", [])
+	if order in [MOVE, GUARD] and rally_stations.size() == MEMBERS_PER_SQUAD:
+		return rally_stations[slot]
 	if order == HAUL and String(squad.kind) == "hauler":
 		var logistics := _logistics()
 		var member: BattleUnit = squad.members[slot]
@@ -494,6 +579,10 @@ func set_order(order: String, squad_id: int = -1) -> Dictionary:
 	return _result(true, "小队驻守南门" if order == HOLD else "小队撤回灯塔", 0, squad_id)
 
 func _set_squad_order(squad: Dictionary, order: String) -> void:
+	# A manual command owns the squad immediately; arriving later must never
+	# replace that command with the old barracks destination.
+	squad.rally_pending = false
+	squad.rally_stations = []
 	if String(squad.kind) == "hauler" and order != HAUL:
 		var logistics := _logistics()
 		if is_instance_valid(logistics): logistics.call("on_manual_order", int(squad.id))
@@ -792,6 +881,7 @@ func advance(delta: float, active: bool = true) -> void:
 		if not _enemy(enemy): _intercepts.erase(key)
 	if elapsed <= 0.0: return
 	_advance_training(elapsed)
+	if generation != _epoch or not _active(): return
 	_advance_shots(elapsed)
 	if is_instance_valid(artillery): artillery.advance(elapsed)
 	if generation != _epoch or not _active(): return
@@ -841,6 +931,27 @@ func advance(delta: float, active: bool = true) -> void:
 					if str(squad.kind) == "engineer": _repair_nearby(soldier, elapsed)
 					_attack(soldier, elapsed)
 			_animate_member(soldier)
+		if generation != _epoch or not _active(): return
+		_finish_training_rally(squad)
+
+func _finish_training_rally(squad: Dictionary) -> void:
+	var generation := _epoch
+	if not _owns_squad(squad, generation): return
+	if not bool(squad.get("rally_pending", false)) or String(squad.order) != MOVE: return
+	var stations: Array = squad.get("rally_stations", [])
+	if stations.size() != MEMBERS_PER_SQUAD: return
+	var alive := 0
+	for slot in MEMBERS_PER_SQUAD:
+		var soldier: BattleUnit = squad.members[slot]
+		if not _living(soldier): continue
+		alive += 1
+		if _ground_distance(soldier.position, stations[slot]) > .16 + .000001: return
+	if alive == 0: return
+	_set_squad_order(squad, GUARD)
+	if not _owns_squad(squad, generation): return
+	# Retain the validated fixed stations while guarding. Future manual orders
+	# clear them, but later construction cannot silently shift a rally anchor.
+	squad.rally_stations = stations
 
 func _stop_artillery(soldier: BattleUnit) -> void:
 	soldier.moving = false
@@ -1225,6 +1336,7 @@ func clear() -> void:
 	_has_logistics = false
 	_has_hero = false
 	_has_construction_blocks = false
+	_has_rally = false
 	_medic_states.clear()
 
 func _exit_tree() -> void:
