@@ -161,7 +161,9 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.box(Rect2(24,762,300,54),Color(.027,.047,.042,.93),Color("52695c"))
 	ui.label("已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)],Vector2(38,783),14,GREEN)
 	var hauling: bool=is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
-	ui.label("工队右键废料堆 · O驻守取消" if hauling else "右键移动/攻击 · O 驻守",Vector2(38,808),13,ui.muted)
+	var command_hint: String="工队右键废料堆 · O驻守取消" if hauling else "右键移动/攻击 · O 驻守"
+	if ui.rally_setting():command_hint="选点中 · 原部队命令保留"
+	ui.label(command_hint,Vector2(38,808),13,ui.muted)
 
 static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()
