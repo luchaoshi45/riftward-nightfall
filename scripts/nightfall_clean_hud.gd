@@ -19,6 +19,8 @@ const TEXT_X := 46.0
 const TEXT_WIDTH := 496.0
 const GREEN := Color("a3d7bd")
 const BLUE := Color("8ec8d8")
+const RAIL := Color("73877b")
+const RAIL_FAINT := Color("73877b", .28)
 # Keep the default battlefield quiet: the live layer is an information rail,
 # not a stack of opaque cards. Urgent states still supply stronger tints at the
 # call site, while routine data stays legible without competing with the map.
@@ -52,17 +54,18 @@ static func _phase(game: Node3D) -> String:
 static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
-	# The live layer is deliberately cardless. A small title and one hairline
-	# preserve orientation while leaving the battlefield unobstructed.
-	ui.label("D%d · %s" % [game.day_number,"夜" if night else "日"],Vector2(32,40),15,tint)
+	# The live layer is deliberately cardless. A compact status rail preserves
+	# orientation while leaving the castle and approach lanes unobstructed.
+	ui.draw_circle(Vector2(33,35),4.0,Color(tint,.9))
+	ui.label("D%d · %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
-	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(104,40),14,ui.ink)
+	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(127,40),14,ui.ink)
 	var detail: String=game.run_mode_title()
 	if night:detail="第%d/%d波 · %s" % [game.wave_index,game.WAVES_PER_NIGHT,game.run_mode_title()]
-	ui.label(detail,Vector2(32,60),11,Color(ui.muted,.84))
+	ui.label(detail,Vector2(45,60),11,Color(ui.muted,.84))
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
-	ui.progress(Rect2(32,70,206,2),float(game.phase_time)/length,Color(tint,.62))
-	ui.draw_line(Vector2(32,79),Vector2(246,79),Color("8d8064",.24),1.0)
+	ui.progress(Rect2(45,70,193,2),float(game.phase_time)/length,Color(tint,.62))
+	ui.draw_line(Vector2(45,79),Vector2(238,79),RAIL_FAINT,1.0)
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
@@ -138,46 +141,51 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	# Keep the logical/input footprint stable for GUI routing and accessibility
 	# tests, while making the visual treatment completely cardless.
 	ui.box(RESOURCE_RECT,Color(0,0,0,0),Color(0,0,0,0))
-	ui.label("零件 %d" % int(game.scrap),Vector2(1088,40),16,ui.ink)
-	ui.draw_line(Vector2(1173,29),Vector2(1173,45),Color("8d8064",.28),1.0)
-	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1192,40),13,tint)
-	ui.progress(Rect2(1088,53,300,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.70))
-	ui.draw_line(Vector2(1088,61),Vector2(1388,61),Color("8d8064",.24),1.0)
+	ui.draw_circle(Vector2(1089,35),3.0,Color(ui.amber,.82))
+	ui.label("零件 %d" % int(game.scrap),Vector2(1100,40),15,ui.ink)
+	ui.draw_line(Vector2(1183,29),Vector2(1183,45),RAIL_FAINT,1.0)
+	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1200,40),13,tint)
+	ui.progress(Rect2(1100,53,288,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.70))
+	ui.draw_line(Vector2(1100,61),Vector2(1388,61),RAIL_FAINT,1.0)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
-	# The hero rail is now two hairlines and text. Skill keys remain in the same
-	# input-safe footprint, but the repeated nested boxes are gone.
-	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+8),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+8),Color("53635d",.34),1.0)
-	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Color("53635d",.22),1.0)
-	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,832),13,ui.ink)
-	ui.progress(Rect2(360,840,178,6),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,864),12,BLUE)
-	ui.progress(Rect2(360,870,178,3),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
+	# Skills are the only persistent bottom controls. They share one quiet rail,
+	# use a single key marker, and reveal cooldown text only when it matters.
+	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+8),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+8),RAIL_FAINT,1.0)
+	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Color(RAIL,.18),1.0)
+	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,832),12,ui.ink)
+	ui.progress(Rect2(360,840,168,4),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,864),11,BLUE)
+	ui.progress(Rect2(360,870,168,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
+		# Keep the established 105px input/readability cells. The redesign
+		# changes their visual weight, not their keyboard and recorder geometry.
 		var x:=558.0+index*105.0
 		var status: String=game.skill_status(index)
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
-		ui.draw_circle(Vector2(x+20,827),10.0,Color(.052,.072,.069,.26))
-		ui.draw_arc(Vector2(x+20,827),10.0,0,TAU,16,Color(tint,.78),.85)
-		ui.label(keys[index],Vector2(x+14,832),13,tint,true)
-		ui.label(names[index],Vector2(x+41,832),13,ui.ink if ready else ui.muted)
-		if ready:
-			ui.draw_rect(Rect2(x+11,850,75,2),Color("668571",.72))
-		else:
-			ui.label(status,Vector2(x+11,864),12,tint)
+		ui.draw_circle(Vector2(x+20,827),8.0,Color(tint,.12 if not ready else .2))
+		ui.draw_arc(Vector2(x+20,827),8.0,0,TAU,16,Color(tint,.78),1.0)
+		ui.label(keys[index],Vector2(x+14,831),11,tint,true)
+		ui.label(names[index],Vector2(x+39,831),12,ui.ink if ready else ui.muted)
+		if ready:ui.draw_rect(Rect2(x+11,848,75,2),Color("668571",.62))
+		else:ui.label(status,Vector2(x+11,864),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
 	var ready: bool=pending>0 or affordable
 	ui.draw_line(Vector2(MEMORY_DRAW_RECT.position.x,MEMORY_DRAW_RECT.position.y+8),Vector2(MEMORY_DRAW_RECT.end.x,MEMORY_DRAW_RECT.position.y+8),Color("527568",.38),1.0)
-	ui.label("V",Vector2(1121,837),15,ui.amber if ready else ui.muted,true)
-	ui.label("铭刻",Vector2(1141,837),13,ui.amber if ready else ui.muted)
+	ui.draw_circle(Vector2(1120,833),3.0,Color(ui.amber,.85) if ready else RAIL)
+	ui.label("V",Vector2(1130,837),13,ui.amber if ready else ui.muted,true)
+	ui.label("强化",Vector2(1147,837),12,ui.amber if ready else ui.muted)
 	var memory_text:="可选%d张" % pending if pending>0 else ("%d零件" % game.run.memory_cost() if affordable else "差%d零件" % maxi(0,game.run.memory_cost()-int(game.scrap)))
 	if pending<=0 and not available:memory_text="强化已满"
-	_paragraph(ui,memory_text,Vector2(1117,857),86,12,GREEN if ready else ui.muted,16,2)
+	if ready:
+		_paragraph(ui,memory_text,Vector2(1117,857),86,11,GREEN,15,2)
+	else:
+		ui.label("F3 查看",Vector2(1147,859),10,Color(ui.muted,.76))
 
 static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var open:=String(ui.get("detail_tab")) in TAB_IDS
@@ -187,14 +195,16 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.box(MAP_BUTTON_RECT,Color(0,0,0,0),Color(0,0,0,0))
 	ui.box(BUILD_BUTTON_RECT,Color(0,0,0,0),Color(0,0,0,0))
 	var nav_tint: Color=GREEN if open else ui.muted
-	ui.label("F3",Vector2(43,848),15,nav_tint,true)
-	ui.label("战术" if not open else "收起",Vector2(70,848),13,nav_tint)
-	ui.draw_line(Vector2(36,858),Vector2(138,858),Color(nav_tint,.46),1.0)
-	ui.label("地图",Vector2(188,848),13,ui.muted)
-	ui.draw_line(Vector2(178,858),Vector2(246,858),Color("617364",.36),1.0)
+	ui.label("F3",Vector2(43,848),13,nav_tint,true)
+	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
+	ui.draw_line(Vector2(36,858),Vector2(137,858),Color(nav_tint,.34),1.0)
+	ui.draw_line(Vector2(153,836),Vector2(153,858),RAIL_FAINT,1.0)
+	ui.label("地图",Vector2(174,848),12,ui.muted)
+	ui.draw_line(Vector2(168,858),Vector2(234,858),Color("617364",.28),1.0)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
-	ui.label("Y 建造",Vector2(279,848),14,build_tint)
-	ui.draw_line(Vector2(272,858),Vector2(336,858),Color(build_tint,.42),1.0)
+	ui.draw_line(Vector2(250,836),Vector2(250,858),RAIL_FAINT,1.0)
+	ui.label("Y 建造",Vector2(268,848),12,build_tint)
+	ui.draw_line(Vector2(263,858),Vector2(329,858),Color(build_tint,.32),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return

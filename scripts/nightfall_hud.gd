@@ -818,7 +818,7 @@ func draw_minimap() -> void:
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,map_rect.size.y-1),map_rect.position+Vector2(map_rect.size.x,map_rect.size.y-1),Color("66624d",.34),1.0)
-		label("地图",map_rect.position+Vector2(9,18),11,Color(muted,.76))
+		label("M 地图",map_rect.position+Vector2(9,18),11,Color(muted,.76))
 	else:
 		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
