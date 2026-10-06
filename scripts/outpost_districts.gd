@@ -34,6 +34,7 @@ func setup(owner_game: Node3D) -> void:
 	if get_parent() == null: game.add_child(self)
 
 func clear() -> void:
+	_stop_repairs()
 	for plot: Dictionary in plots:
 		if is_instance_valid(plot.node): (plot.node as Node3D).queue_free()
 	plots.clear()
@@ -193,6 +194,7 @@ func upgrade(index: int) -> Dictionary:
 	plot.level = int(plot.level) + 1
 	plot.max_hp = float(Catalog.building(String(plot.kind)).hp) + 180.0
 	plot.hp = plot.max_hp
+	_stop_repairs(index)
 	(plot.lamp as OmniLight3D).light_energy = 0.72
 	_refresh_label(index)
 	_changed()
@@ -212,6 +214,7 @@ func damage(index: int, amount: float) -> Dictionary:
 		plot.level = 0
 		plot.pending = 0
 		plot.recovery_elapsed = 0.0
+		_stop_repairs(index)
 		if is_instance_valid(plot.model): (plot.model as Node3D).queue_free()
 		plot.model = null
 		(plot.lamp as OmniLight3D).light_energy = 0.0
@@ -252,6 +255,7 @@ func demolish(index: int) -> Dictionary:
 	plot.recovery_elapsed = 0.0
 	plot.recovered = 0
 	for reference: String in ["model", "node", "ring", "label", "lamp"]: plot[reference] = null
+	_stop_repairs(index)
 	if is_instance_valid(anchor): (anchor as Node).queue_free()
 	game.scrap += refund
 	# The existing barracks refresh refunds each unfinished training receipt,
@@ -535,6 +539,18 @@ func _levels(kind: String) -> int:
 
 func _living(plot: Dictionary) -> bool:
 	return not bool(plot.get("removed", false)) and int(plot.get("level", 0)) > 0 and float(plot.get("hp", 0.0)) > 0.0
+
+func _stop_repairs(index: int = -1) -> void:
+	# setup/clear can precede the maintenance service's own setup, and older
+	# isolated district fixtures do not provide that optional controller field.
+	if not is_instance_valid(game): return
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) != "repairs": continue
+		var repairs: Variant = game.get("repairs")
+		if not is_instance_valid(repairs): return
+		if index < 0 and repairs.has_method("stop_type"): repairs.call("stop_type", "district")
+		elif index >= 0 and repairs.has_method("stop"): repairs.call("stop", "district", index)
+		return
 
 func _active() -> bool:
 	return is_instance_valid(game) and String(game.phase) in ["day", "night"]

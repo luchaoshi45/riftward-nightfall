@@ -81,6 +81,7 @@ static func sell_at(game: Node3D, point: Vector3) -> bool:
 		pad.max_hp = 0.0
 		pad.cooldown = 0.0
 		pad.mode = "nearest"
+		_stop_repair(game, target_type, index)
 		game.specializations.on_destroyed(pad)
 		for reference: String in ["turret", "node", "damage_ring", "light"]:
 			var node: Variant = pad.get(reference)
@@ -100,3 +101,11 @@ static func sell_at(game: Node3D, point: Vector3) -> bool:
 	if int(quote.pending_loss) > 0: message += " · 未加工%d作废" % int(quote.pending_loss)
 	game.notify(message, 3)
 	return true
+
+static func _stop_repair(game: Node3D, target_type: String, index: int) -> void:
+	# Retire maintenance synchronously before refund or any change callback.
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) != "repairs": continue
+		var repairs: Variant = game.get("repairs")
+		if is_instance_valid(repairs) and repairs.has_method("stop"): repairs.call("stop", target_type, index)
+		return

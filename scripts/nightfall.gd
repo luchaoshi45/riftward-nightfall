@@ -5,6 +5,7 @@ const Catalog = preload("res://scripts/outpost_catalog.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const RallyScript = preload("res://scripts/outpost_rally.gd")
 const ControlGroupsScript = preload("res://scripts/outpost_control_groups.gd")
+const RepairsScript = preload("res://scripts/outpost_repairs.gd")
 const DemolitionScript = preload("res://scripts/outpost_demolition.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
@@ -76,6 +77,7 @@ var effects: Node3D
 var construction: Node3D
 var rally: RefCounted
 var control_groups = ControlGroupsScript.new()
+var repairs = RepairsScript.new()
 var construction_blocks: Array[Rect2] = []
 var building_approach_cache: Dictionary = {}
 var selection_dragging := false
@@ -248,6 +250,7 @@ func _ready() -> void:
 	logistics=LogisticsScript.new();logistics.setup(self)
 	rally=RallyScript.new();rally.setup(self)
 	control_groups.setup(self)
+	repairs.setup(self)
 	pickup_sound=make_pickup_sound()
 	world.night_mix=1.0;world.set_night(true)
 	run.grant("守夜者的第一段记忆")
@@ -350,6 +353,7 @@ func simulate(delta: float) -> void:
 		squads.set_health_multiplier(districts.squad_health_multiplier())
 		squads.advance(delta)
 	districts.tick(delta)
+	repairs.tick(delta)
 	var boss_action_handled:=false
 	if phase=="night" and is_instance_valid(siege_boss):
 		boss_action_handled=siege_boss.advance(delta)
@@ -700,6 +704,7 @@ func finish_night() -> void:
 	if day_number>=max_nights():
 		salvage_draw.clear()
 		control_groups.clear()
+		repairs.clear()
 		if rally:rally.clear()
 		if logistics:logistics.clear()
 		if squads:squads.clear()
@@ -1452,6 +1457,7 @@ func damage_tower(index: int, amount: float) -> void:
 	BattleVisuals.sparks(effects,pad.position+Vector3(0,1.4,0),Color("cbdd82"),5)
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=pad.hp<pad.max_hp*.6
 	if pad.hp>0:return
+	repairs.stop("tower",index)
 	(pad.turret as Node3D).queue_free()
 	pad.turret=null
 	pad.level=0
@@ -2201,6 +2207,7 @@ func end_defeat(message: String) -> void:
 	if phase=="ended":return
 	salvage_draw.clear()
 	control_groups.clear()
+	repairs.clear()
 	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
@@ -2308,6 +2315,7 @@ func repair_tower() -> bool:
 		return false
 	scrap-=cost
 	pad.hp=minf(pad.max_hp,float(pad.hp)+100.0)
+	if pad.hp>=pad.max_hp:repairs.stop("tower",index)
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=pad.hp<pad.max_hp*.6
 	BattleVisuals.burst(effects,pad.position+Vector3(0,1.0,0),1.8,Color("82d4b9"),.35)
 	notify("防御塔已修复 · 耐久 %d/%d" % [ceili(pad.hp),ceili(pad.max_hp)],2)
@@ -2768,6 +2776,7 @@ func build_or_upgrade_tower(index: int) -> bool:
 	pad.level=level+1
 	pad.max_hp=280.0+float(level)*110.0
 	pad.hp=pad.max_hp
+	repairs.stop("tower",index)
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
 	(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
 	pad["free_built"]=true
@@ -3175,7 +3184,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_Y:toggle_tower_construction()
 			KEY_F:interact()
 			KEY_G:toggle_tower_mode()
-			KEY_H:repair_tower()
+			KEY_H:
+				if construction.active:construction.toggle_repair()
+				else:repair_tower()
 			KEY_T:arm_gate_trap()
 			KEY_B:build_gate_barricade()
 			KEY_C:issue_focus_order()
@@ -3298,6 +3309,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 func _exit_tree() -> void:
 	salvage_draw.clear()
 	control_groups.clear()
+	repairs.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
@@ -3313,6 +3325,7 @@ func request_run_restart(same_seed: bool) -> void:
 	restart_pending=true
 	salvage_draw.clear()
 	control_groups.clear()
+	repairs.clear()
 	hud.queue_redraw()
 	# Keep music/playback cleanup in the tree before replacing the entire run.
 	await prepare_shutdown()
@@ -3332,6 +3345,7 @@ func prepare_shutdown() -> void:
 	set_process(false)
 	salvage_draw.clear()
 	control_groups.clear()
+	repairs.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()

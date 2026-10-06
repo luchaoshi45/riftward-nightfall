@@ -18,6 +18,7 @@ const TECH_COLOR := Color(0.57, 0.56, 0.94, 0.32)
 var game: Node3D
 var active := false
 var sell_mode := false
+var repair_mode := false
 var kind := "tower"
 var ghost: Node3D
 var grid_preview: Node3D
@@ -46,6 +47,7 @@ func begin(structure_kind: String = "tower") -> bool:
 	if not is_instance_valid(game) or game.phase not in ["day", "night"] or not Catalog.BUILDING_IDS.has(structure_kind): return false
 	kind = structure_kind
 	sell_mode = false
+	repair_mode = false
 	active = true
 	_ensure_preview()
 	tick(0.0)
@@ -57,12 +59,21 @@ func select_kind(structure_kind: String) -> bool:
 func cancel() -> void:
 	active = false
 	sell_mode = false
+	repair_mode = false
 	if is_instance_valid(ghost): ghost.visible = false
 	if is_instance_valid(grid_preview): grid_preview.hide()
 
 func toggle_sell() -> bool:
 	if not active or not is_instance_valid(game) or game.phase not in ["day", "night"]: return false
 	sell_mode = not sell_mode
+	repair_mode = false
+	tick(0.0)
+	return true
+
+func toggle_repair() -> bool:
+	if not active or not is_instance_valid(game) or game.phase not in ["day", "night"]: return false
+	repair_mode = not repair_mode
+	sell_mode = false
 	tick(0.0)
 	return true
 
@@ -89,6 +100,12 @@ func tick(_delta: float) -> void:
 		if is_instance_valid(grid_preview): grid_preview.hide()
 		return
 	_ensure_preview()
+	if repair_mode:
+		ghost.hide()
+		var quote: Dictionary = game.repairs.quote_at(game.aim)
+		if bool(quote.valid): grid_preview.show_placement(quote)
+		else: grid_preview.hide()
+		return
 	if sell_mode:
 		ghost.hide()
 		var quote: Dictionary = game.demolition_at(game.aim)
@@ -125,9 +142,13 @@ func tick(_delta: float) -> void:
 
 func snapshot() -> Dictionary:
 	var point: Vector3 = game.aim if is_instance_valid(game) else Vector3.ZERO
-	var placement: Dictionary = game.demolition_at(point) if sell_mode and is_instance_valid(game) else validity(point, -1, kind)
+	var placement: Dictionary
+	if repair_mode and is_instance_valid(game): placement = game.repairs.quote_at(point)
+	elif sell_mode and is_instance_valid(game): placement = game.demolition_at(point)
+	else: placement = validity(point, -1, kind)
 	placement.active = active
 	placement.sell_mode = sell_mode
+	placement.repair_mode = repair_mode
 	return placement
 
 func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String = "tower", ignore_plot_index: int = -1) -> Dictionary:
@@ -258,6 +279,15 @@ func navigation_blocks() -> Array[Rect2]:
 
 func confirm() -> bool:
 	if not active or not is_instance_valid(game): return false
+	if repair_mode:
+		var quote: Dictionary = game.repairs.quote_at(game.aim)
+		if not game.repairs.toggle_at(game.aim):
+			game.notify(String(quote.reason), 2)
+			return false
+		var enabled: bool = not bool(quote.repairing)
+		game.notify("%s · %s" % [String(quote.title), "持续维修已开启" if enabled else "已停止维修"], 2)
+		tick(0.0)
+		return true
 	if sell_mode:
 		if not game.sell_structure_at(game.aim): return false
 		tick(0.0)

@@ -6,6 +6,7 @@ const Catalog = preload("res://scripts/outpost_catalog.gd")
 const CATALOG_PAGE_SIZE := 3
 const CONSTRUCTION_PANEL_RECT := Rect2(435,642,570,140)
 const DEMOLITION_BUTTON_RECT := Rect2(870,748,119,26)
+const REPAIR_BUTTON_RECT := Rect2(746,748,112,26)
 const RALLY_SELECTOR_RECT := Rect2(46,422,188,27)
 const RALLY_SET_RECT := Rect2(245,422,136,27)
 const RALLY_RESET_RECT := Rect2(392,422,140,27)
@@ -268,6 +269,7 @@ func _draw() -> void:
 	draw_summoner_warnings()
 	draw_warder_warnings()
 	draw_shellguard_armor()
+	draw_building_repairs()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
@@ -341,19 +343,25 @@ func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
 	var selling: bool=game.construction.sell_mode
+	var repairing: bool=game.construction.repair_mode
 	var tint:=Color("85d5a5") if bool(placement.valid) else red
 	if not bool(placement.valid) and bool(placement.space_valid):tint=amber if bool(placement.tech_valid) else Color("aca0e8")
 	if selling:tint=red if bool(placement.valid) else muted
+	if repairing:tint=Color("85d5a5") if bool(placement.valid) else muted
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
 	var kinds:=visible_construction_kinds()
 	for index in kinds.size():
 		var kind: String=kinds[index]
 		var rect:=construction_kind_rect(index)
-		var selected: bool=not selling and kind==String(game.construction.kind)
+		var selected: bool=not selling and not repairing and kind==String(game.construction.kind)
 		box(rect,Color(.06,.15,.12,.95) if selected else panel,tint if selected else muted)
 		label("%d %s" % [index+1,String(Catalog.building(kind).title)],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
-	if selling:
+	if repairing:
+		if bool(placement.valid):
+			label("%s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"点击停止" if bool(placement.repairing) else "点击维修"],Vector2(457,714),18,ink)
+		else:label("维修模式 · 指向受损建筑",Vector2(457,714),18,ink)
+	elif selling:
 		label("%s%s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖模式 · 指向建筑查看退款",Vector2(457,714),18,red if bool(placement.valid) else ink)
 	else:
 		label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
@@ -366,9 +374,34 @@ func draw_construction() -> void:
 		box(rect,panel,muted)
 		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber if available else muted)
 	label(String(placement.reason),Vector2(457,740),15,tint)
-	label("PgUp/Dn翻页 · 左键/F确认 · 右键/Esc/Y退出",Vector2(457,766),13,amber)
+	label("左键/F确认 · 右键/Esc/Y退出",Vector2(457,766),13,amber)
+	box(REPAIR_BUTTON_RECT,Color(.045,.13,.09,.95) if repairing else panel,Color("85d5a5") if repairing else muted)
+	label("H 建造" if repairing else "H 维修",REPAIR_BUTTON_RECT.position+Vector2(17,18),13,Color("85d5a5") if repairing else ink)
 	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.95) if selling else panel,red if selling else muted)
 	label("Del 建造" if selling else "Del 拆卖",DEMOLITION_BUTTON_RECT.position+Vector2(17,18),13,red if selling else ink)
+
+func draw_building_repairs() -> void:
+	if game.phase not in ["day","night"] or not is_instance_valid(game.camera):return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	var scale_factor:=Vector2(1440,900)/get_viewport_rect().size
+	for target: Dictionary in game.repairs.snapshot().targets:
+		var point: Vector3=target.point+Vector3.UP*2.8
+		if game.camera.is_position_behind(point):continue
+		var anchor: Vector2=game.camera.unproject_position(point)*scale_factor
+		var rect:=Rect2(anchor-Vector2(38,24),Vector2(76,24))
+		if not Rect2(0,0,1440,900).encloses(rect):continue
+		var covered:=false
+		for area: Rect2 in occupied:
+			if area.intersects(rect):covered=true;break
+		if covered:continue
+		var waiting: bool=String(target.status)=="waiting"
+		var tint:=amber if waiting else Color("85d5a5")
+		box(rect,panel,tint)
+		label("待零件" if waiting else "维修",rect.position+Vector2(15 if waiting else 25,16),12,tint)
+		if not waiting:
+			draw_line(rect.position+Vector2(5,22),rect.position+Vector2(5+66*clampf(float(target.elapsed),0,1),22),tint,2)
+		occupied.append(rect)
 
 func draw_selection_rect() -> void:
 	if not game.selection_dragging or game.phase not in ["day","night"]:return
@@ -446,6 +479,11 @@ func draw_target_warnings() -> void:
 		var progress_value:=clampf(float(warning.get("progress",0.0)),0.0,1.0)
 		var danger:=Color("f08b67") if String(warning.get("threat","stalker"))!="runner" else Color("e5bb70")
 		var radius:=16.0+1.5*progress_value
+		# Reserve the rings and short progress bar as well as their text. A
+		# building's optional maintenance label must leave the danger visible.
+		var extent:=radius+6.5
+		world_warning_rects.append(Rect2(position-Vector2.ONE*extent,Vector2.ONE*extent*2))
+		world_warning_rects.append(Rect2(position+Vector2(-6.5,-radius-10.5),Vector2(13,5)))
 		draw_arc(position,radius,0.0,TAU,48,danger,2.4,true)
 		draw_arc(position,radius+4.0,-PI*.5,-PI*.5+TAU*progress_value,48,Color("ffe0a1"),2.5,true)
 		draw_line(position+Vector2(-4,-radius-8),position+Vector2(4,-radius-8),Color(.04,.02,.015,.88),5.0)
@@ -1140,6 +1178,7 @@ func _gui_input(event: InputEvent) -> void:
 					if not rally_setting():game.request_upgrade()
 					accept_event();return
 				if game.construction.active:
+					if REPAIR_BUTTON_RECT.has_point(point):game.construction.toggle_repair();accept_event();return
 					if DEMOLITION_BUTTON_RECT.has_point(point):game.construction.toggle_sell();accept_event();return
 					for direction in [-1,1]:
 						if construction_page_rect(direction).has_point(point):change_construction_page(direction);accept_event();return
