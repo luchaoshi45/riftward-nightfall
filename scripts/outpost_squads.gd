@@ -6,15 +6,16 @@ const UnitScript = preload("res://scripts/unit.gd")
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22}
 const HOLD := "hold"
 const RECALL := "recall"
 const MOVE := "move"
 const ATTACK := "attack"
 const GUARD := "guard"
+const HAUL := "haul"
 
 var game: Node3D
 var ranged_enabled := false
@@ -24,10 +25,13 @@ var shots: Array[Dictionary] = []
 var _intercepts: Dictionary = {}
 var training_queues: Dictionary = {}
 var selected_ids: Array[int] = []
+var _has_logistics := false
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 	clear()
 	game = controller
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) == "logistics": _has_logistics = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
 
@@ -72,7 +76,9 @@ func training_eligibility(kind: String) -> Dictionary:
 		if not is_instance_valid(districts) or not districts.has_method("has_live") or not bool(districts.call("has_live", String(required))):
 			missing.append(String(required))
 	if not missing.is_empty():
-		return {"available": false, "reason": "先建造存活研究所才能训练重弩组", "missing": missing}
+		var titles: Array[String] = []
+		for required: String in missing: titles.append(String(Catalog.building(required).get("title", required)))
+		return {"available": false, "reason": "需要存活%s" % "、".join(titles), "missing": missing}
 	return {"available": true, "reason": "", "missing": []}
 
 func hire(kind: String) -> Dictionary:
@@ -90,7 +96,7 @@ func hire(kind: String) -> Dictionary:
 func _create_squad(kind: String, origin: Vector3) -> int:
 	var id := squads.size()
 	var members: Array[BattleUnit] = []
-	var initial_order := RECALL if str(game.get("phase")) == "day" else HOLD
+	var initial_order := HAUL if kind == "hauler" else (RECALL if str(game.get("phase")) == "day" else HOLD)
 	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members,
 		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0}
 	squads.append(squad)
@@ -180,8 +186,8 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8}[squad.kind])
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5}[squad.kind])
 	soldier.attack_interval = 3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)
 	soldier.speed = 3.06 if squad.kind == "ballista" else 3.6
 	soldier.windup_duration = .55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)
@@ -194,6 +200,13 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	return soldier
 
 func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
+	if order == HAUL and String(squad.kind) == "hauler":
+		var logistics := _logistics()
+		var member: BattleUnit = squad.members[slot]
+		if is_instance_valid(logistics) and _living(member):
+			var point: Vector3 = logistics.call("destination_for", int(squad.id), member.get_instance_id())
+			return point if point.is_finite() else member.position
+		return member.position if _living(member) else squad.destination
 	if order in [MOVE, ATTACK, GUARD]:
 		var index := int(squad.get("formation_index", 0))
 		var offset := Vector3((slot - 1) * 1.25 + float([0, -1, 1][index % 3]) * 3.7, 0, float(int(index / 3)) * 2.2)
@@ -223,7 +236,7 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -234,6 +247,14 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	if not is_instance_valid(right_arm): right_arm = soldier.visual
 	if kind == "ballista":
 		_style_heavy_crossbow(right_arm)
+		return
+	if kind == "hauler":
+		var harness := BattleVisuals.box(soldier.visual, Vector3(0, 1.03, .28), Vector3(.50, .57, .20), BattleVisuals.material(Color("7d7762")))
+		harness.name = "HaulHarness"
+		var cargo := BattleVisuals.box(soldier.visual, Vector3(0, 1.13, .47), Vector3(.58, .58, .42), BattleVisuals.material(Color("bd955f")))
+		cargo.name = "HaulCargo"
+		cargo.visible = false
+		soldier.set_meta("haul_cargo", 0)
 		return
 	var tool := MeshInstance3D.new()
 	var tool_mesh := BoxMesh.new()
@@ -374,6 +395,9 @@ func set_order(order: String, squad_id: int = -1) -> Dictionary:
 	return _result(true, "小队驻守南门" if order == HOLD else "小队撤回灯塔", 0, squad_id)
 
 func _set_squad_order(squad: Dictionary, order: String) -> void:
+	if String(squad.kind) == "hauler" and order != HAUL:
+		var logistics := _logistics()
+		if is_instance_valid(logistics): logistics.call("on_manual_order", int(squad.id))
 	squad.order = order
 	for soldier: BattleUnit in squad.members:
 		if not _living(soldier): continue
@@ -383,14 +407,29 @@ func _set_squad_order(squad: Dictionary, order: String) -> void:
 		soldier.path.clear(); soldier.path_timer = 0.0
 	squad.attack_target = null
 
+func _logistics() -> Node:
+	# Existing isolated fixtures do not declare the controller's logistics property.
+	if not _has_logistics or not is_instance_valid(game): return null
+	var value: Variant = game.get("logistics")
+	return value as Node if is_instance_valid(value) and value is Node else null
+
+func set_haul_order(squad_id: int) -> bool:
+	if not _active() or squad_id < 0 or squad_id >= squads.size(): return false
+	var squad: Dictionary = squads[squad_id]
+	if String(squad.kind) != "hauler" or not _squad_alive(squad): return false
+	_set_squad_order(squad, HAUL)
+	return true
+
 func on_day() -> void:
 	_cancel_intercepts()
 	for squad in squads:
+		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
 
 func on_night() -> void:
 	_cancel_intercepts()
 	for squad in squads:
+		if String(squad.kind) == "hauler": continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, HOLD)
 
 func refill(squad_id: int = -1) -> Dictionary:
@@ -521,6 +560,9 @@ func _repair_nearby(soldier: BattleUnit, delta: float) -> void:
 	_beam(soldier.position + Vector3.UP, candidate.position + Vector3.UP, Color("88d18b"))
 
 func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -> void:
+	if String(soldier.get_meta("squad_kind", "")) == "hauler":
+		soldier.attack_queued = false; soldier.target = null; soldier.attack_windup = 0.0
+		return
 	if soldier.attack_queued:
 		if not _enemy(soldier.target) or not _in_range(soldier, soldier.target):
 			soldier.attack_queued = false; soldier.target = null
@@ -667,6 +709,8 @@ func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
 
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
+	var logistics := _logistics()
+	if is_instance_valid(logistics): logistics.call("on_member_defeated", unit.get_instance_id())
 	# Keep empty slots, without dangling typed references after queue_free.
 	for squad in squads:
 		for slot in MEMBERS_PER_SQUAD:
@@ -744,6 +788,7 @@ func clear() -> void:
 		var node := shot.node as Node
 		if is_instance_valid(node): node.queue_free()
 	shots.clear()
+	_has_logistics = false
 
 func _exit_tree() -> void:
 	_cancel_intercepts()

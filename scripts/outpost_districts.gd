@@ -10,9 +10,10 @@ const BARRACKS := "barracks"
 const WORKSHOP := "workshop"
 const RECYCLER := "recycler"
 const LABORATORY := "laboratory"
+const DEPOT := "depot"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -217,6 +218,17 @@ func active_barracks() -> Array[Dictionary]:
 			active.append({"index": int(plot.index), "id": int(plot.id), "position": plot.position, "level": int(plot.level)})
 	return active
 
+func active_depots() -> Array[Dictionary]:
+	var active: Array[Dictionary] = []
+	for plot: Dictionary in plots:
+		if not _living(plot) or String(plot.kind) != DEPOT: continue
+		if not is_instance_valid(plot.node) or not is_instance_valid(plot.model): continue
+		# Rebuilding reuses the plot id but creates a new model identity. Cargo
+		# orders can check this token without retaining freed scene objects.
+		active.append({"index": int(plot.index), "id": int(plot.id), "position": plot.position, "level": int(plot.level),
+			"token": int(plot.model.get_instance_id()), "node": weakref(plot.node), "model": weakref(plot.model)})
+	return active
+
 func guard_regen(point: Vector3) -> float:
 	if not is_instance_valid(game) or not point.is_finite() or not Layout.contains_castle(point): return 0.0
 	if not game.outpost_walkable(point) or absf(point.y - float(game.outpost_height(point))) > 0.75: return 0.0
@@ -246,6 +258,7 @@ func snapshots() -> Array[Dictionary]:
 			WORKSHOP: benefit = "塔建设与维修减费 · 全城最高20%%"
 			RECYCLER: benefit = "12米内夜袭残骸 · %.0f秒加工2零件 · 全城每夜24上限" % _recovery_interval(plot)
 			LABORATORY: benefit = "存活时解锁重弩组 · 前置兵营与工坊"
+			DEPOT: benefit = "工队真实返站才入账 · 有限废料 · 二级卸货更快"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -268,7 +281,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -277,7 +290,7 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY]: return null
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT]: return null
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
@@ -285,7 +298,7 @@ func create_model(kind: String) -> Node3D:
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -300,7 +313,7 @@ func create_model(kind: String) -> Node3D:
 				debris.rotation.y = float(item) * 0.65
 		var press := BattleVisuals.box(model, Vector3(0, 1.52, 0.85), Vector3(1.0, 0.32, 0.38), copper)
 		press.name = "RecoveryPress"
-	else:
+	elif kind == LABORATORY:
 		var bench := BattleVisuals.box(model, Vector3(1.42, 0.64, 0.3), Vector3(0.55, 0.65, 0.95), steel)
 		bench.name = "ResearchBench"
 		var apparatus := BattleVisuals.box(model, Vector3(1.42, 1.19, 0.3), Vector3(0.32, 0.5, 0.5), glass)
@@ -308,6 +321,20 @@ func create_model(kind: String) -> Node3D:
 		var mast := BattleVisuals.box(model, Vector3(-1.5, 1.03, 0.7), Vector3(0.09, 2.02, 0.09), copper)
 		mast.name = "ResearchAntenna"
 		BattleVisuals.box(model, Vector3(-1.5, 1.95, 0.7), Vector3(0.6, 0.07, 0.07), copper)
+	else:
+		# The original workshop and this real cargo dock stay within the 3x3
+		# building cells. Construction previews use this same measured geometry.
+		var dock := BattleVisuals.box(model, Vector3(0, 0.16, 1.13), Vector3(2.58, 0.26, 0.5), steel)
+		dock.name = "CargoDock"
+		for side in [-1.0, 1.0]:
+			var crate := BattleVisuals.box(model, Vector3(side * 0.72, 0.50, 1.12), Vector3(0.50, 0.42, 0.44), copper)
+			crate.name = "CargoCrate"
+			BattleVisuals.box(model, Vector3(side * 0.72, 0.72, 1.12), Vector3(0.54, 0.055, 0.48), steel)
+		var mast := BattleVisuals.box(model, Vector3(1.18, 0.95, -1.13), Vector3(0.07, 1.5, 0.07), steel)
+		mast.name = "CargoMarker"
+		var cargo_sign := BattleVisuals.box(model, Vector3(1.05, 1.61, -1.13), Vector3(0.44, 0.34, 0.07), copper)
+		cargo_sign.name = "CargoSign"
+		BattleVisuals.box(model, Vector3(1.05, 1.61, -1.175), Vector3(0.24, 0.05, 0.03), steel)
 	return model
 
 func prepare_model(model: Node3D) -> void:

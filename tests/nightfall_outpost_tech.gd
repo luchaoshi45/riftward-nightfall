@@ -1,5 +1,5 @@
 extends SceneTree
-## Production technology, five-building placement, four-troop pagination and
+## Production technology, six-building placement, five-troop pagination and
 ## limited wreck recovery. Advanced-content fixtures explicitly seed 5000 parts;
 ## these assertions test transactions and combat, not first-night affordability.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -330,8 +330,8 @@ func capture(name: String, night: bool = false) -> void:
 func catalog_and_technology() -> void:
 	await fresh()
 	await clean_build_navigation("Idle night")
-	check(Catalog.BUILDING_IDS.size() == 5 and Catalog.TROOP_IDS.size() == 4,
-		"The playable catalog must contain five buildings and four troops")
+	check(Catalog.BUILDING_IDS.size() == 6 and Catalog.TROOP_IDS.size() == 5,
+		"The playable catalog must contain six buildings and five troops")
 	var copy := Catalog.building("laboratory")
 	copy.cost = -1
 	(copy.requires as Array).clear()
@@ -357,14 +357,20 @@ func catalog_and_technology() -> void:
 	check(read_state() == before, "Eligibility and display reads must preserve wallet, randomness, navigation and queues")
 	await press(KEY_Y)
 	await press(KEY_PAGEDOWN)
-	check(game.hud.visible_construction_kinds() == ["recycler", "laboratory"] and game.construction.kind == "recycler",
+	check(game.hud.visible_construction_kinds() == ["recycler", "laboratory", "depot"] and game.construction.kind == "recycler",
 		"Real PgDn must select the first building on the second three-slot page")
 	await press(KEY_2)
 	check(game.construction.kind == "laboratory", "Second-page key 2 must select research")
 	await press(KEY_3)
+	check(game.construction.kind == "depot" and game.scrap == 5000,
+		"Second-page key 3 must select the real new depot without paying for construction")
+	await redraw()
+	check(game.hud.drawn_rects.has(game.hud.construction_kind_rect(2)) and game.hud.drawn_labels.has("3 中转站"),
+		"The second-page depot choice must be drawn at the same real third-slot input location")
+	await press(KEY_2)
 	await click_ui(game.hud.construction_kind_rect(2))
-	check(game.construction.kind == "laboratory" and game.scrap == 5000,
-		"The empty third construction slot must not select or buy a hidden old building")
+	check(game.construction.kind == "depot" and game.scrap == 5000,
+		"The actual third construction-slot click must select the visible depot without a purchase")
 	await press(KEY_1)
 	await aim_at(RECYCLER)
 	var locked: Dictionary = game.construction.snapshot()
@@ -470,12 +476,17 @@ func troop_pages_and_paid_queue() -> void:
 	check(game.hud.visible_training_kinds() == ["shield", "ranged", "engineer"], "Army page one must retain three original troop slots")
 	var balance: int = game.scrap
 	await press(KEY_PAGEDOWN)
-	check(game.hud.visible_training_kinds() == ["ballista"] and game.hud.training_page == 0 and game.scrap == balance,
+	check(game.hud.visible_training_kinds() == ["ballista", "hauler"] and game.hud.training_page == 0 and game.scrap == balance,
 		"Actual army PgDn must switch only the troop page without spending or moving the refund page")
+	await redraw()
+	check(game.hud.drawn_rects.has(game.hud.training_kind_rect(1)) and game.hud.drawn_labels.has("采运工队70"),
+		"The actual advanced troop page must draw the new hauler at its real second-slot input location")
 	await click_ui(game.hud.training_kind_rect(1))
+	check(game.scrap == balance and game.squads.training_queues.is_empty(),
+		"The visible new hauler choice must not charge or train while its depot prerequisite is missing")
 	await click_ui(game.hud.training_kind_rect(2))
 	check(game.scrap == balance and game.squads.training_queues.is_empty(),
-		"Empty advanced troop slots must consume drawer input without training hidden ranged or engineers")
+		"The remaining empty third advanced troop slot must consume drawer input without training hidden ranged or engineers")
 	await train_heavy_gui()
 	var queue: Array = game.squads.training_queues.get(barracks, [])
 	check(queue.size() == 1 and String(queue[0].kind) == "ballista" and float(queue[0].remaining) == 10.0,

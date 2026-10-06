@@ -6,6 +6,7 @@ const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
+const LogisticsScript = preload("res://scripts/outpost_logistics.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
@@ -17,6 +18,7 @@ const NIGHT_LENGTH := 105.0
 const HERO_MOVE_SPEED := 8.4
 const HERO_MOVE_SUBSTEP := 0.08
 const HERO_MOVE_RETRY_FACTORS := [1.0, 0.5, 0.25]
+const DAY_SQUAD_ALERT_RADIUS := 8.0
 # The hero mesh is wider than its selection ring. Keep its centre slightly
 # inside the raised ramp side walls so the cape and shoulders do not scrape the
 # retaining geometry while the input still slides at full speed.
@@ -95,6 +97,7 @@ var contract_marker: Node3D
 var motivation_marker: Node3D
 var districts=preload("res://scripts/outpost_districts.gd").new()
 var squads: Node3D
+var logistics: Node3D
 var cores=preload("res://scripts/combat_cores.gd").new()
 var specializations=preload("res://scripts/tower_specializations.gd").new()
 var siege_boss: Node
@@ -227,6 +230,7 @@ func _ready() -> void:
 	for item in world.salvage:item.respawn=0.0
 	prepare_opening_defenses()
 	refresh_construction_navigation()
+	logistics=LogisticsScript.new();logistics.setup(self)
 	pickup_sound=make_pickup_sound()
 	world.night_mix=1.0;world.set_night(true)
 	run.grant("守夜者的第一段记忆")
@@ -321,6 +325,7 @@ func simulate(delta: float) -> void:
 	hero.tick(delta)
 	update_hero_attack(delta)
 	if phase!="day" and phase!="night":return
+	if logistics:logistics.advance(delta)
 	if squads:
 		squads.set_health_multiplier(districts.squad_health_multiplier())
 		squads.advance(delta)
@@ -424,6 +429,7 @@ func start_night() -> void:
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
+	if logistics:logistics.on_night()
 	districts.begin_night(day_number)
 	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
 		night_plan=encounters.make_plan(run_mode,day_number,run.seed_value,cleansed_nests())
@@ -552,6 +558,7 @@ func finish_night() -> void:
 		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
+		if logistics:logistics.clear()
 		if squads:squads.clear()
 		for creature in enemies:
 			if is_instance_valid(creature):creature.queue_free()
@@ -587,6 +594,7 @@ func finish_night() -> void:
 func begin_day() -> void:
 	day_start_pending=false
 	phase="day";phase_time=DAY_LENGTH
+	if logistics:logistics.on_day()
 	world.set_night(false)
 	expeditions.on_day()
 	if squads:squads.on_day()
@@ -928,8 +936,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	if creature.attack_queued and (String(creature.get_meta("attack_target_kind",""))!=target_kind or int(creature.get_meta("attack_target_index",-1))!=target_pad or int(creature.get_meta("attack_target_token",-1))!=target_token):
 		creature.attack_queued=false
 		creature.attack_windup=0
-	if phase=="day" and not pursuing_hero:
-		creature.moving=false
+	if phase=="day" and target_kind not in ["hero","squad"]:
+		creature.moving=false;creature.attack_queued=false;creature.attack_windup=0.0
 		return
 	var destination:=selected_position
 	if target_kind=="tower":destination=building_approach_position(creature.position,selected_position,"tower")
@@ -1010,6 +1018,12 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			creature.attack_windup=creature.windup_duration
 
 func choose_enemy_target(creature: BattleUnit) -> Dictionary:
+	# Day scavengers defend against nearby troops outside the walls. They do
+	# not inherit the night assault's beacon/building fallback or unlimited chase.
+	if phase=="day":
+		if creature.get_meta("day_hunter",false) and hero.alive:
+			return {"kind":"hero","index":-1,"position":hero.position}
+		return nearby_day_squad_target(creature)
 	# Night defenders share one target selector: the closest living hero,
 	# squad member, constructed tower, barricade, or beacon. Shield squads
 	# intercept before this function runs, so they remain the first line when
@@ -1055,6 +1069,20 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 			selected={"kind":"tower","index":tower_index,"position":world.tower_pads[tower_index].position}
 	if phase=="night" and not enemy_target_reachable(creature.position,selected):
 		return nearest_reachable_structure(creature.position)
+	return selected
+
+func nearby_day_squad_target(creature: BattleUnit) -> Dictionary:
+	var selected: Dictionary={}
+	var best:=DAY_SQUAD_ALERT_RADIUS
+	if not is_instance_valid(squads):return selected
+	for squad: Dictionary in squads.squads:
+		for member: BattleUnit in squad.members:
+			if not is_instance_valid(member) or not member.alive or Layout.contains_castle(member.position):continue
+			var separation:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(member.position.x,member.position.z))
+			if separation>best:continue
+			var target: Dictionary={"kind":"squad","index":-1,"token":member.get_instance_id(),"unit":member,"position":member.position}
+			if not enemy_target_reachable(creature.position,target):continue
+			best=separation;selected=target
 	return selected
 
 func enemy_target_reachable(origin: Vector3, target: Dictionary) -> bool:
@@ -1924,6 +1952,7 @@ func end_defeat(message: String) -> void:
 	clear_lobbers()
 	cores.clear()
 	specializations.reset_effects()
+	if logistics:logistics.clear()
 	if squads:squads.clear()
 	if is_instance_valid(siege_boss):
 		siege_boss.clear()
@@ -2927,6 +2956,7 @@ func prepare_shutdown() -> void:
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()
+	if logistics:logistics.clear()
 	if squads:squads.clear()
 	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()

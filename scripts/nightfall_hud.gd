@@ -32,6 +32,7 @@ const TACTICS_BUTTON_RECT := CleanHud.TACTICS_RECT
 const MAP_BUTTON_RECT := CleanHud.MAP_BUTTON_RECT
 const BUILD_BUTTON_RECT := CleanHud.BUILD_BUTTON_RECT
 const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
+const HAUL_BUTTON_RECT := Rect2(356,628,176,32)
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 var detail_tab := ""
 var map_expanded := false
@@ -573,8 +574,13 @@ func draw_minimap() -> void:
 	for plot: Dictionary in game.districts.plots:
 		if int(plot.level)<=0:continue
 		var p: Vector3=plot.position
-		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0")}.get(String(plot.kind),muted)
+		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0"),"depot":Color("c9be89")}.get(String(plot.kind),muted)
 		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),color)
+	if is_instance_valid(game.logistics):
+		for field: Dictionary in game.logistics.snapshot().fields:
+			var p: Vector3=field.position
+			var marker:=center+Vector2(p.x,p.z)*scale
+			draw_rect(Rect2(marker-Vector2(2.5,2.5),Vector2(5,5)),Color("c6b586") if int(field.remaining)>0 else Color("62685c"))
 	if is_instance_valid(game.squads):
 		for squad: Dictionary in game.squads.squads:
 			for member: BattleUnit in squad.members:
@@ -610,6 +616,19 @@ func draw_minimap() -> void:
 	label("南门逼近%d · 夜巢%d/3" % [game.gate_pressure(),game.remaining_nests()],map_rect.position+Vector2(12,230),12,red if game.phase=="night" else muted)
 func training_page_rect(direction: int) -> Rect2:
 	return Rect2(456 if direction<0 else 493,188,29,26)
+
+func selected_hauler_ids() -> Array[int]:
+	var ids: Array[int]=[]
+	if not is_instance_valid(game.squads):return ids
+	for squad: Dictionary in game.squads.squads:
+		if String(squad.kind)!="hauler" or not game.squads.selected_ids.has(int(squad.id)):continue
+		for member: BattleUnit in squad.members:
+			if is_instance_valid(member) and member.alive:
+				ids.append(int(squad.id));break
+	return ids
+
+func haul_button_visible() -> bool:
+	return detail_tab=="army" and troop_page>0 and not game.construction.active and not selected_hauler_ids().is_empty() and is_instance_valid(game.logistics)
 
 func draw_squads() -> void:
 	training_cancel_buttons.clear()
@@ -662,10 +681,22 @@ func draw_squads() -> void:
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
 	if troop_page>0:
-		var eligibility: Dictionary=game.squads.training_eligibility("ballista")
-		CleanHud._paragraph(self,"重弩组 · "+("研究所已解锁" if bool(eligibility.available) else String(eligibility.reason)),Vector2(46,562),496,15,amber,21,2)
-		label("射程12.8米 · 重击46 · 每3.2秒一次",Vector2(46,613),14,ink)
-		label("训练10秒 · 三人一组 · 移速较慢",Vector2(46,639),14,muted)
+		label("重弩 · 射程12.8米 / 重击46 / 间隔3.2秒",Vector2(46,553),14,ink)
+		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
+		CleanHud._paragraph(self,"采运 · "+("白昼装料，返中转站收款" if bool(eligibility.available) else String(eligibility.reason)),Vector2(46,580),496,14,amber,21,1)
+		if is_instance_valid(game.logistics):
+			var transport: Dictionary=game.logistics.snapshot()
+			label("废料%d · 在途%d · 送达%d · 丢失%d" % [int(transport.remaining),int(transport.cargo),int(transport.delivered),int(transport.lost)],Vector2(46,609),13,muted)
+			var selected:=selected_hauler_ids()
+			var status:="选择工队后可恢复采运"
+			for team: Dictionary in transport.teams:
+				if selected.has(int(team.id)):
+					status="工队%d · %s · 载货%d" % [int(team.id),String(team.state_title),int(team.cargo)]
+					break
+			CleanHud._paragraph(self,status,Vector2(46,648),296,13,ink,20,1)
+			if haul_button_visible():
+				box(HAUL_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
+				label("恢复采运" if game.phase!="paused" else "暂停 · 恢复后采运",HAUL_BUTTON_RECT.position+Vector2(12,21),13,amber if game.phase!="paused" else muted)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
@@ -850,6 +881,10 @@ func _gui_input(event: InputEvent) -> void:
 					for index in visible_construction_kinds().size():
 						if construction_kind_rect(index).has_point(point):select_construction_slot(index);accept_event();return
 				elif detail_tab=="army":
+					if haul_button_visible() and HAUL_BUTTON_RECT.has_point(point):
+						var result: Dictionary=game.logistics.start_selected_hauling()
+						game.notify(String(result.reason),3)
+						queue_redraw();accept_event();return
 					var kinds:=visible_training_kinds()
 					for index in kinds.size():
 						if training_kind_rect(index).has_point(point):game.train_troop(kinds[index]);accept_event();return

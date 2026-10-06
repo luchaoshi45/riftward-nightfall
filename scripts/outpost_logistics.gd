@@ -1,0 +1,514 @@
+extends Node3D
+## Finite physical salvage: members carry goods, reachable live depots pay once.
+const HAUL := "haul"
+const DEPOT := "depot"
+const FIELD_STOCK := 96
+const MEMBER_CAPACITY := 8
+const LOAD_SECONDS := 3.0
+const UNLOAD_SECONDS := 1.0
+const FIELD_RADIUS := 1.3
+const ARRIVAL_RADIUS := .23
+const PLANNING_INTERVAL := .5
+const FIELD_SEEDS := [Vector3(-20, 0, 29), Vector3(20, 0, 29), Vector3(-33, 0, 43), Vector3(33, 0, 43), Vector3(0, 0, 59)]
+const STATE_TITLES := {"idle": "准备采运", "outbound": "前往废料堆", "loading": "装载中", "returning": "载货返站",
+	"unloading": "卸货中", "manual": "手动指挥", "night_wait": "夜间待命", "waiting_home": "等待可达中转站",
+	"waiting_field": "等待可达废料堆", "exhausted": "废料已采尽", "defeated": "工队已阵亡"}
+
+var game: Node3D
+var fields: Array[Dictionary] = []
+var delivered := 0
+var lost := 0
+var _teams: Dictionary = {}
+var _cargo: Dictionary = {}
+var _members: Dictionary = {}
+var _member_teams: Dictionary = {}
+var _properties: Dictionary = {}
+var _elapsed := 0.0
+var _navigation_token := -1
+var _route_cache: Dictionary = {}
+
+func setup(controller: Node3D) -> void:
+	clear()
+	game = controller
+	if get_parent() == null: game.add_child(self)
+	for property: Dictionary in game.get_property_list(): _properties[String(property.name)] = true
+	var used: Array[Vector3] = []
+	for index in FIELD_SEEDS.size():
+		var point := _field_site(FIELD_SEEDS[index], used)
+		if not point.is_finite():
+			push_error("Finite salvage field %d has no reachable position" % index)
+			continue
+		used.append(point)
+		fields.append(_create_field(index, point))
+
+func clear() -> void:
+	for token in _cargo.keys(): _show_cargo(int(token), 0)
+	for field: Dictionary in fields:
+		if is_instance_valid(field.get("node")): (field.node as Node).queue_free()
+	fields.clear()
+	_teams.clear(); _cargo.clear(); _members.clear(); _member_teams.clear(); _properties.clear()
+	_route_cache.clear()
+	delivered = 0; lost = 0; _elapsed = 0.0; _navigation_token = -1
+	game = null
+
+func _property(name: String) -> Variant:
+	return game.get(name) if is_instance_valid(game) and _properties.has(name) else null
+
+func _active() -> bool:
+	return is_instance_valid(game) and String(_property("phase")) in ["day", "night"]
+
+func _living(unit: Variant) -> bool:
+	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
+
+func _unit(token: int) -> BattleUnit:
+	var reference: Variant = _members.get(token)
+	if reference is WeakRef:
+		var value: Variant = reference.get_ref()
+		if _living(value): return value as BattleUnit
+	return null
+
+func _squads() -> Node:
+	var value: Variant = _property("squads")
+	return value as Node if is_instance_valid(value) and value is Node else null
+
+func _sync_teams() -> void:
+	var squads := _squads()
+	if not is_instance_valid(squads): return
+	var live_tokens: Dictionary = {}
+	for squad: Dictionary in squads.get("squads"):
+		if String(squad.kind) != "hauler": continue
+		var id := int(squad.id)
+		if not _teams.has(id):
+			_teams[id] = {"id": id, "state": "idle", "reason": "", "field": -1, "home": -1,
+				"loading": 0.0, "automatic": String(squad.order) == HAUL, "retry": 0.0,
+				"destinations": {}, "homes": {}, "unloading": {}, "tokens": [], "positions": {},
+				"stalled": 0.0, "blocked_fields": {}}
+		var team: Dictionary = _teams[id]
+		team.automatic = String(squad.order) == HAUL
+		var tokens: Array[int] = []
+		for member: Variant in squad.members:
+			if not _living(member): continue
+			var token: int = member.get_instance_id()
+			tokens.append(token); live_tokens[token] = true
+			_members[token] = weakref(member); _member_teams[token] = id
+		team.tokens = tokens
+	for token in _cargo.keys():
+		if not live_tokens.has(token): on_member_defeated(int(token))
+	for token in _members.keys():
+		if not live_tokens.has(token):
+			_members.erase(token); _member_teams.erase(token)
+
+func advance(delta: float) -> void:
+	if not _active() or not is_finite(delta) or delta <= 0.0: return
+	_elapsed += delta
+	_sync_teams()
+	var navigation: Variant = _property("hero_navigation")
+	var token: int = navigation.get_instance_id() if is_instance_valid(navigation) else -1
+	if token != _navigation_token:
+		_navigation_token = token; _route_cache.clear()
+		for team: Dictionary in _teams.values(): team.retry = 0.0; team.homes.clear()
+	for team: Dictionary in _teams.values():
+		if not _active(): return
+		team.retry = maxf(0.0, float(team.retry) - delta)
+		if (team.tokens as Array).is_empty():
+			_release_field(team); team.destinations.clear(); team.homes.clear()
+			_set_state(team, "defeated", "补员后可重新开始采运")
+			continue
+		if not bool(team.automatic):
+			_release_field(team); team.destinations.clear(); team.unloading.clear()
+			_set_state(team, "manual", "载货保留 · 点击恢复采运")
+			continue
+		if _team_cargo(int(team.id)) > 0:
+			_release_field(team)
+			_advance_return(team, delta, true)
+		elif String(_property("phase")) == "night":
+			_release_field(team)
+			_advance_return(team, delta, false)
+		else:
+			_advance_field(team, delta)
+
+func start_selected_hauling() -> Dictionary:
+	if not _active(): return {"ok": false, "reason": "暂停或选卡时不能恢复采运", "count": 0}
+	var squads := _squads()
+	if not is_instance_valid(squads): return {"ok": false, "reason": "部队尚未初始化", "count": 0}
+	_sync_teams()
+	var started := 0
+	for id: int in squads.get("selected_ids"):
+		if not _teams.has(id) or (_teams[id].tokens as Array).is_empty(): continue
+		if not bool(squads.call("set_haul_order", id)): continue
+		var team: Dictionary = _teams[id]
+		_release_field(team); team.automatic = true; team.retry = 0.0
+		team.homes.clear(); team.unloading.clear(); team.destinations.clear()
+		_set_state(team, "returning" if _team_cargo(id) > 0 else "idle", "")
+		started += 1
+	return {"ok": started > 0, "count": started,
+		"reason": ("%d队恢复采运" % started if String(_property("phase")) == "day" else "%d队返站 · 夜间不采料" % started) if started > 0 else "请先选择存活采运工队"}
+
+func on_manual_order(squad_id: int) -> void:
+	if not _teams.has(squad_id): return
+	var team: Dictionary = _teams[squad_id]
+	_release_field(team); team.automatic = false
+	team.destinations.clear(); team.homes.clear(); team.unloading.clear()
+	team.home = -1
+	_set_state(team, "manual", "载货保留 · 点击恢复采运")
+
+func on_member_defeated(member_token: int) -> void:
+	var row: Dictionary = _cargo.get(member_token, {})
+	var team_id := int(row.get("squad_id", _member_teams.get(member_token, -1)))
+	if not row.is_empty():
+		lost += int(row.amount)
+		_cargo.erase(member_token)
+		_show_cargo(member_token, 0)
+	if _teams.has(team_id):
+		var team: Dictionary = _teams[team_id]
+		_release_field(team)
+		team.destinations.erase(member_token); team.homes.erase(member_token); team.unloading.erase(member_token)
+		team.retry = 0.0
+
+func on_night() -> void:
+	for team: Dictionary in _teams.values():
+		_release_field(team); team.retry = 0.0
+		if bool(team.automatic):
+			_set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "night_wait", "天黑停止采料 · 载货继续返站")
+
+func on_day() -> void:
+	for team: Dictionary in _teams.values():
+		_release_field(team); team.retry = 0.0
+		if bool(team.automatic): _set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "idle", "")
+
+func destination_for(squad_id: int, member_token: int) -> Vector3:
+	if _teams.has(squad_id):
+		var destinations: Dictionary = _teams[squad_id].destinations
+		if destinations.has(member_token): return destinations[member_token]
+	var member := _unit(member_token)
+	return member.position if _living(member) else Vector3.INF
+
+func _set_state(team: Dictionary, state: String, reason: String) -> void:
+	team.state = state; team.reason = reason
+
+func _release_field(team: Dictionary) -> void:
+	var index := int(team.field)
+	if index >= 0 and index < fields.size() and int(fields[index].claimed_by) == int(team.id): fields[index].claimed_by = -1
+	team.field = -1; team.loading = 0.0; team.stalled = 0.0; team.positions.clear()
+
+func _team_cargo(id: int) -> int:
+	var amount := 0
+	for row: Dictionary in _cargo.values():
+		if int(row.squad_id) == id: amount += int(row.amount)
+	return amount
+
+func _advance_field(team: Dictionary, delta: float) -> void:
+	if _depots().is_empty():
+		_release_field(team); team.destinations.clear(); team.home = -1; team.homes.clear()
+		_set_state(team, "waiting_home", "需要存活中转站")
+		return
+	var field_index := int(team.field)
+	if field_index < 0:
+		if float(team.retry) > 0.0: return
+		field_index = _choose_field(team)
+		team.retry = PLANNING_INTERVAL
+		if field_index < 0:
+			team.destinations.clear()
+			_set_state(team, "exhausted" if _remaining() <= 0 else "waiting_field", "本局废料已采尽" if _remaining() <= 0 else "无空闲可达废料堆")
+			return
+		team.field = field_index; fields[field_index].claimed_by = int(team.id)
+		team.homes.clear(); team.unloading.clear(); team.home = -1
+		team.positions.clear(); team.stalled = 0.0
+	var field: Dictionary = fields[field_index]
+	if int(field.remaining) <= 0 or int(field.claimed_by) != int(team.id):
+		_release_field(team); team.destinations.clear(); team.retry = 0.0
+		return
+	var all_arrived := true
+	var destinations: Dictionary = {}
+	var movement := 0.0
+	for slot in (team.tokens as Array).size():
+		var member_token := int(team.tokens[slot])
+		var member := _unit(member_token)
+		if not _living(member): all_arrived = false; continue
+		var point := _field_destination(field.position, slot)
+		destinations[member_token] = point
+		if float(team.retry) <= 0.0 and _route_cost(member.position, point) < 0.0:
+			(team.blocked_fields as Dictionary)[field_index] = _elapsed + 3.0
+			_release_field(team); team.destinations.clear(); team.retry = 1.0
+			_set_state(team, "waiting_field", "路径被建筑阻断 · 预约已释放")
+			return
+		if (team.positions as Dictionary).has(member_token): movement += _distance(member.position, team.positions[member_token])
+		team.positions[member_token] = member.position
+		if not _at_field(member, field.position) or _distance(member.position, point) > ARRIVAL_RADIUS: all_arrived = false
+	team.destinations = destinations
+	if float(team.retry) <= 0.0: team.retry = PLANNING_INTERVAL
+	if not all_arrived:
+		team.loading = 0.0
+		team.stalled = float(team.stalled) + delta if movement < .001 else 0.0
+		if float(team.stalled) >= 3.0:
+			(team.blocked_fields as Dictionary)[field_index] = _elapsed + 3.0
+			_release_field(team); team.destinations.clear(); team.retry = 1.0
+			_set_state(team, "waiting_field", "移动受阻 · 预约已释放")
+		else: _set_state(team, "outbound", "")
+		return
+	team.stalled = 0.0
+	_set_state(team, "loading", "")
+	team.loading = float(team.loading) + delta
+	if float(team.loading) < LOAD_SECONDS: return
+	# Atomic finite source transfer. Only members really standing at this heap
+	# acquire goods; a dead or remotely located member never receives capacity.
+	var remaining := int(field.remaining)
+	for member_token: int in team.tokens:
+		var member := _unit(member_token)
+		if not _living(member) or not _at_field(member, field.position) or remaining <= 0: continue
+		var amount := mini(MEMBER_CAPACITY, remaining)
+		_cargo[member_token] = {"squad_id": int(team.id), "amount": amount}
+		remaining -= amount
+		_show_cargo(member_token, amount)
+	field.remaining = remaining
+	_refresh_field(field)
+	_release_field(team); team.destinations.clear(); team.retry = 0.0
+	_set_state(team, "returning", "")
+
+func _choose_field(team: Dictionary) -> int:
+	var member := _unit(int(team.tokens[0]))
+	if not _living(member): return -1
+	var candidates: Array[int] = []
+	for index in fields.size():
+		var field: Dictionary = fields[index]
+		if int(field.remaining) <= 0 or int(field.claimed_by) >= 0: continue
+		if float((team.blocked_fields as Dictionary).get(index, 0.0)) > _elapsed: continue
+		candidates.append(index)
+	candidates.sort_custom(func(left: int, right: int) -> bool: return _distance(member.position, fields[left].position) < _distance(member.position, fields[right].position))
+	for index in candidates:
+		var reachable := true
+		for slot in (team.tokens as Array).size():
+			var carrier := _unit(int(team.tokens[slot]))
+			if not _living(carrier) or _route_cost(carrier.position, _field_destination(fields[index].position, slot)) < 0.0:
+				reachable = false; break
+		if reachable: return index
+	return -1
+
+func _field_destination(point: Vector3, slot: int) -> Vector3:
+	var destination := point + Vector3((slot - 1) * .55, 0, 0)
+	if not _walkable(destination): destination = point
+	destination.y = _height(destination)
+	return destination
+
+func _at_field(member: BattleUnit, point: Vector3) -> bool:
+	return _distance(member.position, point) <= FIELD_RADIUS and absf(member.position.y - _height(member.position)) <= .75 and _walkable(member.position) and _line(member.position, point)
+
+func _advance_return(team: Dictionary, delta: float, has_goods: bool) -> void:
+	var waiting := false
+	var unloading := false
+	var destinations: Dictionary = {}
+	team.home = -1
+	for member_token: int in team.tokens:
+		var member := _unit(member_token)
+		if not _living(member): continue
+		var home: Dictionary = (team.homes as Dictionary).get(member_token, {})
+		if not _home_valid(home) or (float(team.retry) <= 0.0 and _route_cost(member.position, home.get("position", Vector3.INF)) < 0.0):
+			home = _choose_home(member)
+			team.homes[member_token] = home
+			team.unloading[member_token] = 0.0
+		if home.is_empty():
+			destinations[member_token] = member.position
+			team.unloading[member_token] = 0.0
+			if _cargo.has(member_token) or not has_goods: waiting = true
+			continue
+		team.home = int(home.index)
+		var destination: Vector3 = home.position
+		destinations[member_token] = destination
+		if not _cargo.has(member_token): continue
+		if not _at_home(member, home):
+			team.unloading[member_token] = 0.0
+			continue
+		unloading = true
+		var elapsed := float((team.unloading as Dictionary).get(member_token, 0.0)) + delta
+		team.unloading[member_token] = elapsed
+		var plot := _home_plot(home)
+		var interval := .5 if int(plot.get("level", 0)) >= 2 else UNLOAD_SECONDS
+		if elapsed < interval: continue
+		# Each carrier, not the squad centroid, must really reach the current
+		# live station and remain there. Erase before paying so reentry is inert.
+		var amount := int(_cargo[member_token].amount)
+		_cargo.erase(member_token); team.unloading.erase(member_token)
+		delivered += amount
+		game.set("scrap", int(_property("scrap")) + amount)
+		_show_cargo(member_token, 0)
+	team.destinations = destinations
+	if float(team.retry) <= 0.0: team.retry = PLANNING_INTERVAL
+	if waiting: _set_state(team, "waiting_home", "保留载货 · 等待可达存活中转站" if has_goods else "等待可达存活中转站 · 夜间不采料")
+	elif has_goods: _set_state(team, "unloading" if unloading else "returning", "")
+	else: _set_state(team, "night_wait", "夜間不出发 · 返回中转站待命")
+
+func _depots() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var districts: Variant = _property("districts")
+	if not is_instance_valid(districts): return rows
+	for plot: Dictionary in districts.get("plots"):
+		if String(plot.get("kind", "")) != DEPOT or int(plot.get("level", 0)) <= 0 or float(plot.get("hp", 0.0)) <= 0.0: continue
+		var model: Variant = plot.get("model")
+		if not is_instance_valid(model) or model.is_queued_for_deletion(): continue
+		rows.append(plot)
+	return rows
+
+func _home_plot(home: Dictionary) -> Dictionary:
+	if home.is_empty(): return {}
+	for plot: Dictionary in _depots():
+		if int(plot.index) == int(home.index) and (plot.model as Node).get_instance_id() == int(home.token): return plot
+	return {}
+
+func _home_valid(home: Dictionary) -> bool:
+	if home.is_empty(): return false
+	var point: Vector3 = home.get("position", Vector3.INF)
+	return point.is_finite() and _walkable(point) and not _home_plot(home).is_empty()
+
+func _choose_home(member: BattleUnit) -> Dictionary:
+	if not game.has_method("building_approach_position"): return {}
+	var selected: Dictionary = {}
+	var best := INF
+	for plot: Dictionary in _depots():
+		var point: Vector3 = game.call("building_approach_position", member.position, plot.position, DEPOT)
+		if not point.is_finite() or not _walkable(point): continue
+		var cost := _route_cost(member.position, point)
+		if cost < 0.0 or cost >= best: continue
+		best = cost
+		selected = {"index": int(plot.index), "token": (plot.model as Node).get_instance_id(), "position": point}
+	return selected
+
+func _at_home(member: BattleUnit, home: Dictionary) -> bool:
+	var plot := _home_plot(home)
+	if plot.is_empty(): return false
+	var point: Vector3 = home.position
+	return _distance(member.position, point) <= ARRIVAL_RADIUS and absf(member.position.y - _height(point)) <= .75 and _walkable(member.position) and _traversable(member.position, point) and _line(member.position, plot.position)
+
+func _show_cargo(token: int, amount: int) -> void:
+	var reference: Variant = _members.get(token)
+	var value: Variant = reference.get_ref() if reference is WeakRef else null
+	if not is_instance_valid(value) or not value is BattleUnit: return
+	value.set_meta("haul_cargo", amount)
+	var model := (value as BattleUnit).visual.find_child("HaulCargo", true, false) as Node3D
+	if is_instance_valid(model): model.visible = amount > 0
+
+func _remaining() -> int:
+	var amount := 0
+	for field: Dictionary in fields: amount += int(field.remaining)
+	return amount
+
+func snapshot() -> Dictionary:
+	# Presentation never plans routes, claims stock, advances clocks or pays.
+	var field_rows: Array[Dictionary] = []
+	for field: Dictionary in fields:
+		field_rows.append({"id": int(field.id), "position": field.position, "title": "废料堆", "stock": FIELD_STOCK,
+			"remaining": int(field.remaining), "claimed_by": int(field.claimed_by)})
+	var rows: Array[Dictionary] = []
+	var total_cargo := 0
+	for row: Dictionary in _cargo.values(): total_cargo += int(row.amount)
+	for team: Dictionary in _teams.values():
+		var members: Array[Dictionary] = []
+		var unload_progress := 0.0
+		for token: int in team.tokens:
+			var member := _unit(token)
+			var home: Dictionary = (team.homes as Dictionary).get(token, {})
+			var plot := _home_plot(home)
+			var seconds := .5 if int(plot.get("level", 0)) >= 2 else UNLOAD_SECONDS
+			var progress := clampf(float((team.unloading as Dictionary).get(token, 0.0)) / seconds, 0.0, 1.0)
+			unload_progress = maxf(unload_progress, progress)
+			members.append({"token": token, "cargo": int((_cargo.get(token, {}) as Dictionary).get("amount", 0)),
+				"alive": _living(member), "position": member.position if _living(member) else Vector3.INF,
+				"destination": (team.destinations as Dictionary).get(token, Vector3.INF), "unloading_progress": progress})
+		rows.append({"id": int(team.id), "state": String(team.state), "state_title": STATE_TITLES.get(String(team.state), "采运"),
+			"reason": String(team.reason), "field": int(team.field), "home": int(team.home), "automatic": bool(team.automatic),
+			"cargo": _team_cargo(int(team.id)), "loading_progress": clampf(float(team.loading) / LOAD_SECONDS, 0.0, 1.0),
+			"unloading_progress": unload_progress, "members": members})
+	return {"remaining": _remaining(), "cargo": total_cargo, "delivered": delivered, "lost": lost, "fields": field_rows, "teams": rows}
+
+func _distance(from: Vector3, to: Vector3) -> float:
+	return Vector2(from.x, from.z).distance_to(Vector2(to.x, to.z))
+
+func _height(point: Vector3) -> float:
+	if game.has_method("outpost_height"): return float(game.call("outpost_height", point))
+	return point.y
+
+func _walkable(point: Vector3) -> bool:
+	return point.is_finite() and (not game.has_method("outpost_walkable") or bool(game.call("outpost_walkable", point)))
+
+func _traversable(from: Vector3, to: Vector3) -> bool:
+	return game.has_method("can_traverse") and bool(game.call("can_traverse", from, to))
+
+func _line(from: Vector3, to: Vector3) -> bool:
+	return bool(game.call("can_attack_line", from, to)) if game.has_method("can_attack_line") else _traversable(from, to)
+
+func _route_cost(from: Vector3, to: Vector3) -> float:
+	if not from.is_finite() or not to.is_finite() or not _walkable(to): return -1.0
+	if _traversable(from, to): return _distance(from, to)
+	var navigation: Variant = _property("hero_navigation")
+	if not navigation is AStarGrid2D or not game.has_method("nearest_navigation_cell"): return -1.0
+	var start: Vector2i = game.call("nearest_navigation_cell", from, true)
+	var finish: Vector2i = game.call("nearest_navigation_cell", to, true)
+	if start.x == 999 or finish.x == 999: return -1.0
+	var key := "%s" % Vector4i(start.x, start.y, finish.x, finish.y)
+	if _route_cache.has(key): return float(_route_cache[key])
+	var path: PackedVector2Array = navigation.get_point_path(start, finish)
+	var cost := -1.0
+	if not path.is_empty():
+		cost = 0.0
+		for index in range(1, path.size()): cost += path[index - 1].distance_to(path[index])
+	if _route_cache.size() >= 2048: _route_cache.clear()
+	_route_cache[key] = cost
+	return cost
+
+func _field_site(seed: Vector3, used: Array[Vector3]) -> Vector3:
+	var origin := Vector3(0, 5, 3.9)
+	var hero: Variant = _property("hero")
+	if is_instance_valid(hero): origin = hero.position
+	for ring in 9:
+		for side in (1 if ring == 0 else 8):
+			var angle := TAU * float(side) / 8.0
+			var point := seed + Vector3(cos(angle), 0, sin(angle)) * float(ring) * 1.5
+			point.y = _height(point)
+			if not _walkable(point) or _route_cost(origin, point) < 0.0 or _overlapping_sources(point, used): continue
+			return point
+	return Vector3.INF
+
+func _overlapping_sources(point: Vector3, used: Array[Vector3]) -> bool:
+	for old: Vector3 in used:
+		if _distance(point, old) < 4.0: return true
+	for property in ["world", "expeditions", "discoveries"]:
+		var module: Variant = _property(property)
+		if not is_instance_valid(module): continue
+		var collections: Array = ["salvage", "relays", "nests"] if property == "world" else (["generators", "camps"] if property == "expeditions" else ["items"])
+		var available: Dictionary = {}
+		for definition: Dictionary in module.get_property_list(): available[String(definition.name)] = true
+		for collection: String in collections:
+			if not available.has(collection): continue
+			for source: Dictionary in module.get(collection):
+				var old: Vector3 = source.get("position", Vector3.INF)
+				if old.is_finite() and _distance(point, old) < 3.5: return true
+	return false
+
+func _create_field(id: int, point: Vector3) -> Dictionary:
+	var anchor := Node3D.new()
+	anchor.name = "FiniteSalvage%d" % id
+	add_child(anchor); anchor.position = point
+	var steel := BattleVisuals.material(Color("687872"))
+	var copper := BattleVisuals.material(Color("a38762"))
+	var heap := Node3D.new(); anchor.add_child(heap); heap.name = "FiniteHeap"
+	for piece in 8:
+		var position := Vector3(float(piece % 3 - 1) * .46, .20 + float(piece / 3) * .18, float(piece % 2) * .48 - .24)
+		var chunk := BattleVisuals.box(heap, position, Vector3(.56, .24, .43), steel if piece % 2 == 0 else copper)
+		chunk.rotation.y = float(piece) * .63
+	var ring := BattleVisuals.ring(anchor, Vector3(0, .07, 0), 1.04, Color("8ba57a"), .025)
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var label := Label3D.new(); anchor.add_child(label)
+	label.position = Vector3(0, 1.34, 0); label.font_size = 24; label.pixel_size = .006
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED; label.outline_size = 4; label.modulate = Color("b8cba8")
+	var field := {"id": id, "node": anchor, "label": label, "heap": heap, "position": point, "remaining": FIELD_STOCK, "stock": FIELD_STOCK, "claimed_by": -1}
+	_refresh_field(field)
+	return field
+
+func _refresh_field(field: Dictionary) -> void:
+	if is_instance_valid(field.label): (field.label as Label3D).text = "废料 · %d" % int(field.remaining)
+	if is_instance_valid(field.heap):
+		var pieces := ceili(float(field.remaining) / FIELD_STOCK * 8.0)
+		for index in (field.heap as Node).get_child_count():
+			(field.heap as Node).get_child(index).visible = index < pieces
+
+func _exit_tree() -> void:
+	clear()
