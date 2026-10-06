@@ -1,8 +1,14 @@
 # 《余烬守望》项目规则、双机派工与交接
 
-## 2026-10-07成品外部专项验证接入（主机A，进行中）
+## 2026-10-07成品外部专项验证接入（主机A，源码及Mac包内验收完成）
 
 领取已fetch核对的main `3aa45c021576a9c4a8b728b84ee4e6ab0fe5af7b`。上一轮交付登记预检及清爽HUD复验已普通推送，是有效进展；本轮修复成品排除tests后bonus-route继承和bounty夹具缺失，以及现代专项仅RESULT而无自身成功token的交付缺口。测试依赖只进入build下单独的验证PCK，不进入游戏EXE；外部入口先挂载验证包，再运行专项，生产scripts/assets仍读实际成品。主机A负责共享文档/Git及串行Godot验收；实现代理仅负责`tools/export_verified_build.ps1`及新`tools/prepare_packaged_tests.gd`、`tools/run_packaged_test.gd`，专项代理只负责路线与悬赏两测试的成功协议，审查代理只读。保留用户编辑器及两cfg；Mac读取Windows包只能证明包内加载/行为，不能替代Windows原生验收。本轮维护不计玩法优化，正式0.8.37、47/100和百项目标active保持。
+
+实现与本机验收完成，解除上述文件占用。prepare只收所选测试和静态`res://tests/*.gd`代码依赖，PNG输出路径不入代码闭包；manifest绑定整包与逐entry SHA。bootstrap先校验物理路径/manifest/包hash，拒绝源码或成品已有测试fallback，再挂载验证PCK并核对entry字节；复用当前SceneTree执行专项。导出工具保留原参数、独立ProjectPath及build内自定义EXE名称、原CRLF，每套新建GUID空工作目录，核对真实PE版本、前后EXE SHA、唯一READY/自身OK、实际exit0和无诊断。路线八段与悬赏七段只有全套完成及证据/cleanup成功才发整套OK，单段不发整套OK、未知段退出1。
+
+Godot4.7.2后台Dummy无头实际验收：两helper解析、prepare、源码bonus16290项/悬赏7428项、生产包loop/bonus/悬赏均实际退出0，完整日志无错误、告警或泄漏；partial与unknown协议符合预期。14个真实negative/兼容案例全部通过：13个拒绝均退出1，PNG输出不打包兼容案例退出0。独立字节审查验证测试PCK精确5份raw GD与全部MD5/SHA/EOF，维护候选EXE包内302项全部MD5/EOF且无tests/tools；隔离生产快照305文件与真实生产源码一致。维护候选沿用用户导出配置0.8.28元数据，不登记为正式新Windows版本。
+
+独立终审回执仅留本地`build/packaged-harness-independent-audit-final-v1.json`，Root已复核五代码冻结hash、五原文件保留hash、完整日志hash及14案例。每次代码编辑均完成sec-code安全扫描并上报风险情况，导出工具确认PATH_TRAVERSAL已修，其余无确认风险。仅用户编辑器PID77795保留，两cfg未提交。Windows PowerShell5.1、junction路径语义、GUI/中文/键鼠/渲染与原生启动关闭仍待从机实测；从机拉main后使用现有`export_verified_build.ps1 -Version <真实新版本> -Tests @('nightfall_loop','nightfall_bonus_route_choices','nightfall_bounty')`，先使导出配置版本一致并保留真实验收日志，再按上一节登记流程交付。正式仍0.8.37、47/100，Windows成品仍0.8.25，维护不计玩法优化，百项目标active。
 
 ## 2026-10-07清爽界面反馈复验（主机A，Mac验收完成）
 

@@ -618,6 +618,7 @@ func capture(tag: String) -> void:
 
 func finalize() -> void:
 	await close_game(); await create_timer(.5,true,false,true).timeout; evidence.shutdown_audio_drain_seconds=.5
+	check(not is_instance_valid(game) and current_scene==null,"Final bonus-route scene cleanup completes before the suite result")
 	var folder: String=ProjectSettings.globalize_path(output_dir); DirAccess.make_dir_recursive_absolute(folder)
 	var file: FileAccess=FileAccess.open(folder.path_join("nightfall-bonus-route-choices.json"),FileAccess.WRITE)
 	check(file!=null,"Route evidence opens below the local build directory")
@@ -630,7 +631,9 @@ func finalize() -> void:
 func run() -> void:
 	var cases: Dictionary={"options":options_case,"input":input_case,"identity":identity_case,"path":path_case,"ledger":ledger_case,"lifecycle":lifecycle_case,"hud":hud_case,"economy":economy_case}
 	var args: PackedStringArray=OS.get_cmdline_user_args(); var selected: Array=cases.keys(); var index: int=args.find("--case")
-	if index>=0 and index+1<args.size():selected=[args[index+1]]
+	if index>=0:
+		if index+1<args.size():selected=[args[index+1]]
+		else:check(false,"Missing bonus-route case after --case"); selected=[]
 	for name: String in selected:
 		if not cases.has(name):check(false,"Unknown bonus-route case "+name); break
 		active_stage=name; stage_returned=false; print("BONUS_ROUTE_STAGE_BEGIN ",name)
@@ -638,4 +641,7 @@ func run() -> void:
 		check(stage_returned,"Route stage "+name+" reaches its explicit full-body completion marker")
 		print("BONUS_ROUTE_STAGE_END ",name," checks=",checks," failures=",failures.size()); evidence.completed.append(name)
 		if not failures.is_empty():break
-	await finalize(); finished=true; print("BONUS_ROUTE_RESULT checks=",checks," failures=",failures.size()); quit(0 if failures.is_empty() else 1)
+	if index<0:check((evidence.completed as Array)==cases.keys(),"The complete bonus-route suite finishes every expected stage")
+	await finalize(); finished=true; print("BONUS_ROUTE_RESULT checks=",checks," failures=",failures.size())
+	if index<0 and (evidence.completed as Array)==cases.keys() and failures.is_empty():print("NIGHTFALL_BONUS_ROUTE_CHOICES_OK checks=",checks)
+	quit(0 if failures.is_empty() else 1)

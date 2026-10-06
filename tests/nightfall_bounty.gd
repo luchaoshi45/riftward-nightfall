@@ -47,6 +47,7 @@ var output_dir := "res://build/nightfall-bounty"
 var render_test := false
 var active_stage := "initialization"
 var finished := false
+var stage_returned := false
 var births: Dictionary = {}
 var natural_deaths: Array[Dictionary] = []
 var natural_tokens: Dictionary = {}
@@ -327,6 +328,7 @@ func saved_plan_matrix() -> void:
 	malformed=valid.duplicate(true); malformed[2].roles.append("unknown"); malformed[2].count+=1; malformed[2].role_count+=1
 	check(encounters.with_bounty(malformed).is_empty(),"Unknown real role identity cannot enter a locked bounty roster")
 	var empty: Array[Dictionary]=[]; check(encounters.with_bounty(empty).is_empty(),"Empty plans cannot create free bounty income")
+	stage_returned=true
 
 func physical_selection_and_lock() -> void:
 	await day_fixture()
@@ -363,6 +365,7 @@ func physical_selection_and_lock() -> void:
 	check(bool(nest.cleansed) and game.bounty_snapshot().state=="offered" and not bool(game.bounty_snapshot().available),"Actual F sealing withdraws the selected bounty when the explicit capacity boundary loses both ordinary followers")
 	var scarce: Array[Dictionary]=game.encounters.make_plan(game.run_mode,2,SEED,game.cleansed_nests())
 	check(game.night_plan==scarce and not game.night_plan[2].has("bounty_id") and not game.notice.is_empty(),"Capacity withdrawal leaves the exact unmarked reduced plan and a visible reason instead of partially replacing specialists")
+	stage_returned=true
 
 func real_births_and_ledgers() -> void:
 	var units: Array[BattleUnit]=await target_fixture()
@@ -395,6 +398,7 @@ func real_births_and_ledgers() -> void:
 	check(game.bounty_snapshot().state=="won" and game.bounty_snapshot().paid==48,"The earned one-time result survives dawn without becoming another offer")
 	await press(KEY_1)
 	check(not game.select_bounty() and game.bounty_snapshot().paid==48,"A later dawn cannot repeat the already won run-local bounty")
+	stage_returned=true
 
 func rejection_boundaries() -> void:
 	for failure_kind: String in ["alive-signal","released-member","zero-time","negative-time","hero-death","beacon-death"]:
@@ -440,6 +444,7 @@ func rejection_boundaries() -> void:
 	game.phase_time=.000001
 	if is_instance_valid(last):last.hurt(100000.0,null)
 	check(game.bounty_snapshot().state=="won" and game.bounty_snapshot().paid==48,"A genuine last death with strictly positive remaining original time can claim exactly once")
+	stage_returned=true
 
 func frozen_phases_and_retry() -> void:
 	await day_fixture(); await select_gui()
@@ -483,6 +488,7 @@ func frozen_phases_and_retry() -> void:
 	captured=null
 	await fresh(); game.day_number=2; game.finish_night(); await press(KEY_1)
 	check(game.bounty_snapshot().state=="idle" and not game.select_bounty(),"An unchosen skipped second-night offer cannot appear at a later dawn")
+	stage_returned=true
 
 func hud_and_default_coverage() -> void:
 	await day_fixture(); await close_drawer(); clear_transient_hud(); await redraw()
@@ -510,6 +516,7 @@ func hud_and_default_coverage() -> void:
 	game.night_plan[2].bounty_reward=0; game.start_night()
 	check(game.phase=="night" and game.day_number==2 and game.bounty_snapshot().state=="expired" and game.night_plan==baseline,"An explicitly malformed bounty reward fails sunset lock and restores the exact ordinary second-night plan")
 	await open_defense(); await actual_hud("expired-invalid-lock-boundary"); await capture("bounty-expired-invalid-lock-boundary")
+	stage_returned=true
 
 func on_natural_death(unit: BattleUnit, _source: BattleUnit) -> void:
 	natural_deaths.append({"token":unit.get_instance_id(),"wave":int(unit.get_meta("wave_reward_id",-1)),"role":String(unit.get_meta("threat","")),"alive":unit.alive,"hp":unit.hp,"night":int(game.day_number),"time_left":float(game.phase_time)})
@@ -587,23 +594,30 @@ func natural_economic_comparison() -> void:
 		print("BOUNTY_NATURAL ",route," dawn_parts=",dawn_parts," after95=",purchased_parts," final_parts=",game.scrap," hero=",game.hero.hp," beacon=",game.beacon_hp," shellguards=",actual_shellguards," state=",bounty.state," bonus=",bounty.paid)
 		if game.phase=="draft":await press(KEY_1)
 		camera_at(Vector3(0,5,10)); await capture("bounty-natural-"+route)
+	stage_returned=true
 
 func run() -> void:
 	var cases: Dictionary={"plan":saved_plan_matrix,"input":physical_selection_and_lock,"ledger":real_births_and_ledgers,"boundary":rejection_boundaries,"lifecycle":frozen_phases_and_retry,"hud":hud_and_default_coverage,"economy":natural_economic_comparison}
 	var args:=OS.get_cmdline_user_args(); var selected: Array=cases.keys(); var index:=args.find("--case")
-	if index>=0 and index+1<args.size():selected=[args[index+1]]
+	if index>=0:
+		if index+1<args.size():selected=[args[index+1]]
+		else:check(false,"Missing bounty stage after --case"); selected=[]
 	for name: String in selected:
 		if not cases.has(name):check(false,"Unknown bounty stage "+name); break
-		active_stage=name; print("BOUNTY_STAGE_BEGIN ",name)
+		active_stage=name; stage_returned=false; print("BOUNTY_STAGE_BEGIN ",name)
 		await (cases[name] as Callable).call()
+		check(stage_returned,"Bounty stage "+name+" reaches its explicit full-body completion marker")
 		print("BOUNTY_STAGE_END ",name," checks=",checks," failures=",failures.size())
 		(evidence.completed as Array).append(name)
 		if not failures.is_empty():break
+	if index<0:check((evidence.completed as Array)==cases.keys(),"The complete bounty suite finishes every expected stage")
 	await close_game()
+	check(not is_instance_valid(game) and current_scene==null,"Final bounty scene cleanup completes before the suite result")
 	var folder:=ProjectSettings.globalize_path(output_dir); DirAccess.make_dir_recursive_absolute(folder)
 	var file:=FileAccess.open(folder.path_join("nightfall-bounty.json"),FileAccess.WRITE)
 	check(file!=null,"Bounty structured evidence opens below local build")
 	evidence.checks=checks; evidence.failures=failures
 	if file!=null:file.store_string(JSON.stringify(evidence,"\t")); file.close()
 	finished=true; print("BOUNTY_RESULT checks=",checks," failures=",failures.size())
+	if index<0 and (evidence.completed as Array)==cases.keys() and failures.is_empty():print("NIGHTFALL_BOUNTY_OK checks=",checks)
 	quit(0 if failures.is_empty() else 1)
