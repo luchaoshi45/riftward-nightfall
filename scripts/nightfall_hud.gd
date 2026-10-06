@@ -1091,12 +1091,12 @@ func draw_squads() -> void:
 			label("前摇1秒 + 飞行0.8秒 · 发射后间隔4.8秒",Vector2(46,580),14,amber)
 			CleanHud._paragraph(self,"近敌停火 · 固定落点，仅伤敌 · 开火不另收费",Vector2(46,609),496,14,muted,21,1)
 			CleanHud._paragraph(self,"猎手 · 近战2.3米 / 移速5.4 · 专职敌30伤",Vector2(46,648),496,13,ink,20,1)
-			var footer:="猎手需活工坊 · 驻守追击8米 · 无护甲"
+			var footer:="猎手需活工坊 · 驻守追击8米 · 无护甲 · 喷火队需活军械厂"
 			if game.squads.has_method("artillery_snapshot"):
 				var barrage: Dictionary=game.squads.artillery_snapshot()
 				if int(barrage.get("casting",0))+int(barrage.get("flight",0))>0:
 					footer="炮兵准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))]
-			CleanHud._paragraph(self,footer,Vector2(46,681),496,12,muted,18,1)
+			CleanHud._paragraph(self,"喷火队 · 射程2.5–6.5米 / 22伤 · 扇形32° · 最多4目标 · 前摇0.55秒 · %s" % footer,Vector2(46,681),496,12,muted,18,1)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory

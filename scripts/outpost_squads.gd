@@ -8,11 +8,12 @@ const Catalog := preload("res://scripts/outpost_catalog.gd")
 const ArtilleryScript := preload("res://scripts/outpost_artillery.gd")
 const HunterScript := preload("res://scripts/outpost_hunters.gd")
 const EscortScript := preload("res://scripts/outpost_escort.gd")
+const FlamethrowerScript := preload("res://scripts/outpost_flamethrower.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队", "artillery": "迫击炮队", "hunter": "猎手队"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26, "artillery": 36, "hunter": 32}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110, "flamer": 125}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0, "flamer": 11.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队", "artillery": "迫击炮队", "hunter": "猎手队", "flamer": "喷火队"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26, "artillery": 36, "hunter": 32, "flamer": 30}
 const MEDIC_RANGE := 4.8
 const MEDIC_HEIGHT_LIMIT := 1.0
 const MEDIC_MIN_MISSING := 12.0
@@ -44,6 +45,7 @@ var _has_rally := false
 var _medic_states: Dictionary = {}
 var artillery: Node3D
 var hunters: Node3D
+var flamethrower: Node3D
 var escort: RefCounted
 var _epoch := 0
 
@@ -60,6 +62,11 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 		hunters.name = "OutpostHunters"
 		add_child(hunters)
 	hunters.setup(game, self)
+	if not is_instance_valid(flamethrower):
+		flamethrower = FlamethrowerScript.new()
+		flamethrower.name = "OutpostFlamethrower"
+		add_child(flamethrower)
+	flamethrower.setup(game, self)
 	if not is_instance_valid(escort): escort = EscortScript.new()
 	escort.setup(game, self)
 	for property: Dictionary in game.get_property_list():
@@ -315,11 +322,11 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
 	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0, "artillery": 32.0, "hunter": 12.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0, "artillery": 16.0, "hunter": 2.3}[squad.kind])
-	soldier.attack_interval = 1.4 if squad.kind == "hunter" else (4.8 if squad.kind == "artillery" else (3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)))
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0, "artillery": 32.0, "hunter": 12.0, "flamer": 22.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0, "artillery": 16.0, "hunter": 2.3, "flamer": FlamethrowerScript.MAX_RANGE}[squad.kind])
+	soldier.attack_interval = 1.4 if squad.kind == "hunter" else (3.2 if squad.kind == "flamer" else (4.8 if squad.kind == "artillery" else (3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65))))
 	soldier.speed = 5.4 if squad.kind == "hunter" else (2.4 if squad.kind == "artillery" else (3.06 if squad.kind == "ballista" else 3.6))
-	soldier.windup_duration = .22 if squad.kind == "hunter" else (1.0 if squad.kind == "artillery" else (.55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)))
+	soldier.windup_duration = .22 if squad.kind == "hunter" else (FlamethrowerScript.WINDUP if squad.kind == "flamer" else (1.0 if squad.kind == "artillery" else (.55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26))))
 	soldier.visual.scale *= .85
 	soldier.selection.visible = int(squad.id) in selected_ids
 	soldier.position = _resolve_destination(squad.origin + Vector3((slot - 1) * 1.2, 0, 0))
@@ -330,6 +337,7 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 			"treatments": 0, "healed_hp": 0.0, "spent": 0}
 	if squad.kind == "artillery": artillery.register(soldier)
 	if squad.kind == "hunter": hunters.register(soldier, int(squad.id), slot)
+	if squad.kind == "flamer": flamethrower.register_with_roster(soldier, int(squad.id), slot)
 	_style_member(soldier, str(squad.kind))
 	if not _owns_squad(squad, generation):
 		_retire_member(soldier)
@@ -381,7 +389,7 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7", "artillery": "73bcb8", "hunter": "d8a087"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7", "artillery": "73bcb8", "hunter": "d8a087", "flamer": "ee9852"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -410,6 +418,9 @@ func _style_member(soldier: BattleUnit, kind: String) -> void:
 	if kind == "hunter":
 		_style_hunter(right_arm, soldier.visual)
 		return
+	if kind == "flamer":
+		_style_flamethrower(right_arm, soldier.visual)
+		return
 	var tool := MeshInstance3D.new()
 	var tool_mesh := BoxMesh.new()
 	tool_mesh.size = Vector3(.7, .1, .16) if kind == "ranged" else Vector3(.18, .58, .12)
@@ -435,6 +446,18 @@ func _style_hunter(right_arm: Node3D, visual: Node3D) -> void:
 		blade.name = "HunterShortBlade"
 		var grip := BattleVisuals.box(arm, Vector3(0, -.23, -.19), Vector3(.10, .13, .13), leather)
 		grip.name = "HunterBladeGrip"
+
+func _style_flamethrower(arm: Node3D, visual: Node3D) -> void:
+	# Compact native tank and nozzle geometry keeps the squad readable without
+	# introducing a new imported character asset.
+	var brass := BattleVisuals.material(Color("d28a45"), 0.0)
+	var iron := BattleVisuals.material(Color("65747a"), 0.0)
+	var tank := BattleVisuals.box(visual, Vector3(-.24, .96, .14), Vector3(.36, .54, .28), brass)
+	tank.name = "FlamethrowerFuelTank"
+	var hose := BattleVisuals.box(arm, Vector3(0, -.36, -.12), Vector3(.11, .48, .11), iron)
+	hose.name = "FlamethrowerHose"
+	var nozzle := BattleVisuals.box(arm, Vector3(0, -.62, -.32), Vector3(.16, .18, .38), brass)
+	nozzle.name = "FlamethrowerNozzle"
 
 func _style_artillery(arm: Node3D) -> void:
 	# Original guard rig and a native mortar tube, a gameplay prototype.
@@ -658,6 +681,7 @@ func _set_squad_order(squad: Dictionary, order: String) -> void:
 		if String(squad.kind) == "medic": _cancel_medic(soldier, "order_changed")
 		if String(squad.kind) == "artillery" and is_instance_valid(artillery): artillery.cancel(soldier)
 		if String(squad.kind) == "hunter" and is_instance_valid(hunters): hunters.on_order(soldier)
+		if String(squad.kind) == "flamer" and is_instance_valid(flamethrower): flamethrower.cancel(soldier, "order_changed")
 		soldier.target = null
 		soldier.attack_queued = false
 		soldier.attack_windup = 0.0
@@ -896,6 +920,7 @@ func on_day() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	if is_instance_valid(flamethrower): flamethrower.clear_pending()
 	if is_instance_valid(escort): escort.on_phase_changed()
 	_clear_attack_move_encounters()
 	for squad in squads:
@@ -908,6 +933,7 @@ func on_night() -> void:
 	_cancel_medic_casts("phase_changed")
 	if is_instance_valid(artillery): artillery.clear_pending()
 	if is_instance_valid(hunters): hunters.clear_pending()
+	if is_instance_valid(flamethrower): flamethrower.clear_pending()
 	if is_instance_valid(escort): escort.on_phase_changed()
 	_clear_attack_move_encounters()
 	for squad in squads:
@@ -987,6 +1013,11 @@ func advance(delta: float, active: bool = true) -> void:
 			if String(squad.kind) == "hunter":
 				hunters.advance_member(squad, soldier, slot, elapsed, recovering_hunter)
 				if generation != _epoch or not _active(): return
+				if _living(soldier): _animate_member(soldier)
+				continue
+			if String(squad.kind) == "flamer":
+				_advance_flamethrower_member(squad, soldier, elapsed, designated, slot)
+				if not _owns_squad(squad, generation): return
 				if _living(soldier): _animate_member(soldier)
 				continue
 			if String(squad.kind) == "artillery":
@@ -1084,6 +1115,54 @@ func _stop_artillery(soldier: BattleUnit) -> void:
 	soldier.attack_queued = false
 	soldier.attack_windup = 0.0
 
+func _stop_flamethrower(soldier: BattleUnit) -> void:
+	soldier.moving = false
+	soldier.path.clear()
+	soldier.target = null
+	soldier.attack_queued = false
+	soldier.attack_windup = 0.0
+
+func _advance_flamethrower_member(squad: Dictionary, soldier: BattleUnit, delta: float, designated: BattleUnit, slot: int) -> void:
+	if flamethrower.casting(soldier):
+		flamethrower.advance_unit(soldier, delta)
+		return
+	var preferred: BattleUnit = designated if flamethrower.real_enemy(designated) else null
+	if preferred == null and squad.order not in [MOVE, RECALL]:
+		var focus: Variant = game.get("focus_target")
+		if flamethrower.real_enemy(focus) and float(game.get("focus_time")) > 0.0: preferred = focus as BattleUnit
+	if squad.order in [AMOVE, ESCORT] or preferred != null:
+		var target: BattleUnit = flamethrower.pick_target(soldier, preferred)
+		if is_instance_valid(target):
+			_stop_flamethrower(soldier)
+			flamethrower.begin(soldier, target)
+			return
+		if preferred != null:
+			var approach := _flamethrower_approach(soldier, preferred)
+			_move_member(soldier, approach, delta)
+			if flamethrower.legal_target(soldier, preferred): _stop_flamethrower(soldier)
+			return
+	var station := _station(squad, slot, String(squad.order))
+	_move_member(soldier, station, delta)
+	if soldier.moving or squad.order == RECALL: return
+	var target: BattleUnit = flamethrower.pick_target(soldier)
+	if is_instance_valid(target): flamethrower.begin(soldier, target)
+
+func _flamethrower_approach(soldier: BattleUnit, target: BattleUnit) -> Vector3:
+	var direction := Vector2(soldier.position.x - target.position.x, soldier.position.z - target.position.z).normalized()
+	if direction.length_squared() < .001: direction = Vector2.UP
+	for radius in [6.0, 5.0, 4.0, 3.0]:
+		for step in 16:
+			var radial := direction.rotated(TAU * float(step) / 16.0)
+			var candidate := _resolve_destination(target.position + Vector3(radial.x, 0, radial.y) * float(radius))
+			# legal_target requires the actual source position, so evaluate the
+			# candidate geometry here before moving the unit.
+			var separation := _ground_distance(candidate, target.position)
+			if separation < FlamethrowerScript.MIN_RANGE or separation > FlamethrowerScript.MAX_RANGE: continue
+			if absf(candidate.y - target.position.y) > FlamethrowerScript.HEIGHT_LIMIT: continue
+			if not _attack_line(candidate, target.position): continue
+			return candidate
+	return soldier.position
+
 func _advance_artillery_member(squad: Dictionary, soldier: BattleUnit, delta: float, designated: BattleUnit, slot: int) -> void:
 	if artillery.casting(soldier):
 		artillery.advance_unit(soldier,delta)
@@ -1147,6 +1226,10 @@ func _artillery_approach(soldier: BattleUnit, target: BattleUnit) -> Vector3:
 func artillery_snapshot() -> Dictionary:
 	return artillery.snapshot() if is_instance_valid(artillery) else {"launched":0,"impacts":0,"hits":0,
 		"pending":0,"casting":0,"flight":0,"shots":[],"units":[]}
+
+func flamethrower_snapshot() -> Dictionary:
+	return flamethrower.snapshot() if is_instance_valid(flamethrower) else {"alive": 0,
+		"casting": 0, "bursts": 0, "hits": 0, "cancellations": 0, "members": []}
 
 func hunter_snapshot() -> Dictionary:
 	return hunters.snapshot() if is_instance_valid(hunters) else {"hits": 0, "cancellations": 0,
@@ -1379,6 +1462,7 @@ func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
 	if is_instance_valid(escort): escort.on_member_defeated(unit)
 	if String(unit.get_meta("squad_kind","")) == "artillery" and is_instance_valid(artillery): artillery.unregister(unit)
 	if String(unit.get_meta("squad_kind","")) == "hunter" and is_instance_valid(hunters): hunters.unregister(unit)
+	if String(unit.get_meta("squad_kind","")) == "flamer" and is_instance_valid(flamethrower): flamethrower.unregister(unit)
 	var logistics := _logistics()
 	if is_instance_valid(logistics): logistics.call("on_member_defeated", unit.get_instance_id())
 	# A real casualty invalidates all pending treatments of that exact member
@@ -1473,6 +1557,7 @@ func clear() -> void:
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()
 	if is_instance_valid(hunters): hunters.clear()
+	if is_instance_valid(flamethrower): flamethrower.clear()
 	if is_instance_valid(escort): escort.clear()
 	for squad in squads:
 		for soldier: BattleUnit in squad.members: _retire_member(soldier)
@@ -1495,5 +1580,6 @@ func _exit_tree() -> void:
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()
 	if is_instance_valid(hunters): hunters.clear()
+	if is_instance_valid(flamethrower): flamethrower.clear()
 	if is_instance_valid(escort): escort.clear()
 	_medic_states.clear()
