@@ -278,8 +278,8 @@ func record_hurt(victim: BattleUnit, source: BattleUnit, hp_loss: float, shield_
 
 func catalog_build_and_training() -> void:
  await fresh()
- check(Catalog.BUILDING_IDS == ["tower","barracks","workshop","recycler","laboratory","depot","infirmary"]
-  and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic"], "New support appends the two real IDs while preserving all original catalog order")
+ check(Catalog.BUILDING_IDS.slice(0,7) == ["tower","barracks","workshop","recycler","laboratory","depot","infirmary"]
+  and Catalog.TROOP_IDS.slice(0,6) == ["shield","ranged","engineer","ballista","hauler","medic"], "Support catalog retains its original seven-building/six-troop prefix after artillery appends")
  var building: Dictionary = Catalog.building("infirmary"); var troop: Dictionary = Catalog.troop("medic")
  check(building.size == Vector2i(3, 3) and int(building.cost) == 100 and is_equal_approx(float(building.hp), 480.0)
   and building.requires == ["barracks"], "Infirmary authoritative footprint, cost, durability and live prerequisite match the design")
@@ -667,7 +667,7 @@ func selected_switch_and_default_layout() -> void:
   for rect: Rect2 in game.hud.visible_hud_rects():
    check(Rect2(0,0,1440,900).encloses(rect), "Default medic HUD reports only logical-viewport UI")
    area += rect.get_area()
-  check(area / (1440.0 * 900.0) < .16, "Actual default medical battlefield keeps permanent UI near fifteen percent at every viewport")
+  check(area / (1440.0 * 900.0) < .16, "Actual default medical battlefield keeps permanent UI below its sixteen-percent budget at every viewport")
   (evidence.support as Dictionary)["default_coverage_%dx%d" % [viewport.x,viewport.y]] = area / (1440.0 * 900.0)
  root.size = VIEWPORTS[0]; root.content_scale_size = VIEWPORTS[0]
  await capture("medic-default-clear-battlefield")
