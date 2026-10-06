@@ -15,6 +15,7 @@ static func snapshot(game: Node3D) -> Dictionary:
 	var candidates: Array[Dictionary] = []
 	for index in range(game.world.tower_pads.size()):
 		var pad: Dictionary = game.world.tower_pads[index]
+		if bool(pad.get("removed", false)): continue
 		var level: int = int(pad.get("level", 0))
 		var alive: bool = level > 0 and float(pad.get("hp", 0.0)) > 0.0
 		if level == 0:

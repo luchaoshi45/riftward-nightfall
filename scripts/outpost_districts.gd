@@ -129,6 +129,7 @@ func nearest() -> int:
 	var selected := -1
 	var distance := INTERACTION_RADIUS
 	for index in plots.size():
+		if bool(plots[index].get("removed", false)): continue
 		var candidate: float = game.hero.position.distance_to(plots[index].position)
 		if candidate <= distance:
 			selected = index
@@ -152,7 +153,7 @@ func build_at(point: Vector3, kind: String) -> Dictionary:
 	if int(game.scrap) < cost: return _failure("零件不足 · 需要%d" % cost)
 	var index := -1
 	for candidate in plots.size():
-		if int(plots[candidate].level) == 0 and (plots[candidate].position as Vector3).distance_to(placement.point) <= 0.01:
+		if not bool(plots[candidate].get("removed", false)) and int(plots[candidate].level) == 0 and (plots[candidate].position as Vector3).distance_to(placement.point) <= 0.01:
 			index = candidate
 			break
 	if index < 0:
@@ -160,6 +161,8 @@ func build_at(point: Vector3, kind: String) -> Dictionary:
 		plots.append(_new_plot(index, placement.point))
 	var plot: Dictionary = plots[index]
 	game.scrap -= cost
+	# Only this generation's actual payment is refundable after a rebuild.
+	plot.paid_investment = cost
 	plot.kind = kind
 	plot.level = 1
 	plot.max_hp = float(definition.hp)
@@ -173,7 +176,8 @@ func build_at(point: Vector3, kind: String) -> Dictionary:
 	return _success(index, cost)
 
 func choose(index: int, kind: String) -> Dictionary:
-	if index < 0 or index >= plots.size(): return _failure("无效建筑")
+	var allowed := _can_change(index)
+	if not allowed.ok: return allowed
 	if int(plots[index].level) > 0: return _failure("已建建筑不能更换方向")
 	return build_at(plots[index].position, kind)
 
@@ -185,6 +189,7 @@ func upgrade(index: int) -> Dictionary:
 	if int(plot.level) >= MAX_LEVEL: return _failure("建筑已达到二级")
 	if int(game.scrap) < UPGRADE_COST: return _failure("升级需要 80 零件")
 	game.scrap -= UPGRADE_COST
+	plot.paid_investment = maxi(0, int(plot.get("paid_investment", 0))) + UPGRADE_COST
 	plot.level = int(plot.level) + 1
 	plot.max_hp = float(Catalog.building(String(plot.kind)).hp) + 180.0
 	plot.hp = plot.max_hp
@@ -203,6 +208,7 @@ func damage(index: int, amount: float) -> Dictionary:
 	plot.hp = maxf(0.0, float(plot.hp) - amount)
 	var destroyed := float(plot.hp) <= 0.0
 	if destroyed:
+		plot.paid_investment = 0
 		plot.level = 0
 		plot.pending = 0
 		plot.recovery_elapsed = 0.0
@@ -212,6 +218,63 @@ func damage(index: int, amount: float) -> Dictionary:
 		_changed()
 	_refresh_label(index)
 	return {"ok": true, "index": index, "damage": dealt, "hp": float(plot.hp), "destroyed": destroyed, "kind": String(plot.kind)}
+
+func demolition_quote(index: int) -> Dictionary:
+	var result := {"ok": false, "reason": "", "index": index, "kind": "", "refund": 0,
+		"investment": 0, "live": false, "queue_refund": 0}
+	var allowed := _can_change(index)
+	if not allowed.ok:
+		result.reason = String(allowed.reason)
+		return result
+	var plot: Dictionary = plots[index]
+	var live := _living(plot)
+	var investment := maxi(0, int(plot.get("paid_investment", 0))) if live else 0
+	result.merge({"ok": true, "kind": String(plot.kind), "investment": investment,
+		"live": live, "refund": floori(float(investment) * .5), "queue_refund": _queued_refund(index)}, true)
+	return result
+
+func demolish(index: int) -> Dictionary:
+	# Requote at commit; previews never consume investment or training receipts.
+	var quote := demolition_quote(index)
+	if not bool(quote.ok): return quote
+	var plot: Dictionary = plots[index]
+	var anchor: Variant = plot.get("node")
+	var refund := int(quote.refund)
+	var queue_refund := int(quote.queue_refund)
+	# End the identity before paying or invoking callbacks. Even a zero-refund
+	# ruin is consumed once, and its stable index is never reused after removal.
+	plot.removed = true
+	plot.paid_investment = 0
+	plot.level = 0
+	plot.hp = 0.0
+	plot.max_hp = 0.0
+	plot.pending = 0
+	plot.recovery_elapsed = 0.0
+	plot.recovered = 0
+	for reference: String in ["model", "node", "ring", "label", "lamp"]: plot[reference] = null
+	if is_instance_valid(anchor): (anchor as Node).queue_free()
+	game.scrap += refund
+	# The existing barracks refresh refunds each unfinished training receipt,
+	# separately from this building's investment, and consumes its queue once.
+	_changed()
+	return {"ok": true, "reason": "", "index": index, "kind": String(quote.kind), "refund": refund,
+		"queue_refund": queue_refund, "investment": int(quote.investment), "live": bool(quote.live),
+		"removed": true, "scrap": int(game.scrap)}
+
+func _queued_refund(index: int) -> int:
+	if String(plots[index].kind) != BARRACKS: return 0
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) != "squads": continue
+		var squads: Node = game.get("squads") as Node
+		if not is_instance_valid(squads): return 0
+		for squad_property: Dictionary in squads.get_property_list():
+			if String(squad_property.name) != "training_queues": continue
+			var queues: Dictionary = squads.get("training_queues")
+			var refund := 0
+			for item: Dictionary in queues.get(index, []): refund += maxi(0, int(item.cost))
+			return refund
+		return 0
+	return 0
 
 func active_barracks() -> Array[Dictionary]:
 	var active: Array[Dictionary] = []
@@ -250,6 +313,7 @@ func snapshots() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for index in plots.size():
 		var plot: Dictionary = plots[index]
+		if bool(plot.get("removed", false)): continue
 		var level := int(plot.level)
 		var kind := String(plot.kind)
 		var definition := Catalog.building(kind)
@@ -442,6 +506,7 @@ func _new_plot(index: int, point: Vector3) -> Dictionary:
 	lamp.light_energy = 0.0
 	lamp.shadow_enabled = false
 	return {"index": index, "id": index, "position": point, "kind": "", "level": 0, "node": anchor,
+		"removed": false, "paid_investment": 0,
 		"model": null, "ring": ring, "label": label, "lamp": lamp, "hp": 0.0, "max_hp": 0.0,
 		"pending": 0, "recovery_elapsed": 0.0, "recovered": 0}
 
@@ -455,6 +520,7 @@ func _build_model(plot: Dictionary) -> void:
 
 func _refresh_label(index: int) -> void:
 	var plot: Dictionary = plots[index]
+	if bool(plot.get("removed", false)): return
 	var title := String(Catalog.building(String(plot.kind)).get("title", "建筑"))
 	(plot.label as Label3D).text = "%s · %d级 · %d/%d" % [title, int(plot.level), ceili(float(plot.hp)), ceili(float(plot.max_hp))] if _living(plot) else title + "残址"
 	if String(plot.kind) == RECYCLER and _living(plot) and int(plot.pending) > 0:
@@ -468,7 +534,7 @@ func _levels(kind: String) -> int:
 	return total
 
 func _living(plot: Dictionary) -> bool:
-	return int(plot.get("level", 0)) > 0 and float(plot.get("hp", 0.0)) > 0.0
+	return not bool(plot.get("removed", false)) and int(plot.get("level", 0)) > 0 and float(plot.get("hp", 0.0)) > 0.0
 
 func _active() -> bool:
 	return is_instance_valid(game) and String(game.phase) in ["day", "night"]
@@ -477,6 +543,7 @@ func _can_change(index: int) -> Dictionary:
 	if not is_instance_valid(game): return _failure("建设系统尚未初始化")
 	if not _active(): return _failure("暂停或选卡时不能建设")
 	if index < 0 or index >= plots.size(): return _failure("无效建筑")
+	if bool(plots[index].get("removed", false)): return _failure("建筑已拆除")
 	return {"ok": true, "reason": ""}
 
 func _changed() -> void:

@@ -342,7 +342,7 @@ func add_tower_pad(point: Vector3, zone: String="castle") -> int:
 	tower_light.light_energy=0.0
 	tower_light.shadow_enabled=false
 	add_child(tower_light)
-	tower_pads.append({"node":pad,"position":point,"zone":zone,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light})
+	tower_pads.append({"node":pad,"position":point,"zone":zone,"turret":null,"level":0,"cooldown":0.0,"mode":"nearest","hp":0.0,"max_hp":0.0,"damage_ring":null,"light":tower_light,"removed":false,"paid_investment":0})
 	return tower_pads.size()-1
 
 func outskirts_point(angle: float, radius: float) -> Vector3:
@@ -400,6 +400,7 @@ func apply_lighting() -> void:
 		(relay.light as OmniLight3D).light_energy=blend*3.2 if relay.activated else 0.0
 		(relay.light as OmniLight3D).visible=relay.light.light_energy>.001
 	for pad in tower_pads:
+		if bool(pad.get("removed",false)) or not is_instance_valid(pad.get("light")):continue
 		(pad.light as OmniLight3D).light_energy=blend*(1.65+float(pad.level)*.45) if pad.level>0 else 0.0
 		(pad.light as OmniLight3D).visible=pad.light.light_energy>.001
 	for i in gate_lights.size():

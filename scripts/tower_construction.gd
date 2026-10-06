@@ -17,6 +17,7 @@ const TECH_COLOR := Color(0.57, 0.56, 0.94, 0.32)
 
 var game: Node3D
 var active := false
+var sell_mode := false
 var kind := "tower"
 var ghost: Node3D
 var grid_preview: Node3D
@@ -44,6 +45,7 @@ func setup(owner_game: Node3D) -> void:
 func begin(structure_kind: String = "tower") -> bool:
 	if not is_instance_valid(game) or game.phase not in ["day", "night"] or not Catalog.BUILDING_IDS.has(structure_kind): return false
 	kind = structure_kind
+	sell_mode = false
 	active = true
 	_ensure_preview()
 	tick(0.0)
@@ -54,8 +56,15 @@ func select_kind(structure_kind: String) -> bool:
 
 func cancel() -> void:
 	active = false
+	sell_mode = false
 	if is_instance_valid(ghost): ghost.visible = false
 	if is_instance_valid(grid_preview): grid_preview.hide()
+
+func toggle_sell() -> bool:
+	if not active or not is_instance_valid(game) or game.phase not in ["day", "night"]: return false
+	sell_mode = not sell_mode
+	tick(0.0)
+	return true
 
 func clear() -> void:
 	cancel()
@@ -80,6 +89,17 @@ func tick(_delta: float) -> void:
 		if is_instance_valid(grid_preview): grid_preview.hide()
 		return
 	_ensure_preview()
+	if sell_mode:
+		ghost.hide()
+		var quote: Dictionary = game.demolition_at(game.aim)
+		if bool(quote.valid):
+			# The original full footprint is marked red, without placing another
+			# overlapping ghost model on the building being removed.
+			quote.cell_states = []
+			for cell: Vector2i in quote.cells: quote.cell_states.append({"cell": cell, "space_valid": false})
+			grid_preview.show_placement(quote)
+		else: grid_preview.hide()
+		return
 	var placement := validity(game.aim, -1, kind)
 	var point: Vector3 = placement.point
 	if not point.is_finite() or (placement.cells as Array).is_empty():
@@ -105,8 +125,9 @@ func tick(_delta: float) -> void:
 
 func snapshot() -> Dictionary:
 	var point: Vector3 = game.aim if is_instance_valid(game) else Vector3.ZERO
-	var placement := validity(point, -1, kind)
+	var placement: Dictionary = game.demolition_at(point) if sell_mode and is_instance_valid(game) else validity(point, -1, kind)
 	placement.active = active
+	placement.sell_mode = sell_mode
 	return placement
 
 func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String = "tower", ignore_plot_index: int = -1) -> Dictionary:
@@ -180,6 +201,7 @@ func occupied_cells(ignore_pad_index: int = -1, ignore_plot_index: int = -1) -> 
 	for index in game.world.tower_pads.size():
 		if index == ignore_pad_index: continue
 		var pad: Dictionary = game.world.tower_pads[index]
+		if bool(pad.get("removed", false)): continue
 		if int(pad.get("level", 0)) <= 0 and not bool(pad.get("free_built", false)): continue
 		_reserve_cells(occupied, pad.position, "tower", "占地格有防御塔或残基")
 	return occupied
@@ -236,6 +258,10 @@ func navigation_blocks() -> Array[Rect2]:
 
 func confirm() -> bool:
 	if not active or not is_instance_valid(game): return false
+	if sell_mode:
+		if not game.sell_structure_at(game.aim): return false
+		tick(0.0)
+		return true
 	var placement := validity(game.aim, -1, kind)
 	if not bool(placement.valid): return false
 	if not game.build_structure_at(placement.point, kind): return false

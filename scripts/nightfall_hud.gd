@@ -5,6 +5,7 @@ const CleanHud = preload("res://scripts/nightfall_clean_hud.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
 const CATALOG_PAGE_SIZE := 3
 const CONSTRUCTION_PANEL_RECT := Rect2(435,642,570,140)
+const DEMOLITION_BUTTON_RECT := Rect2(870,748,119,26)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
@@ -183,8 +184,10 @@ func draw_context_prompt() -> void:
 	if rect.size.y<80:return
 	var district_index: int=game.districts.nearest()
 	if district_index>=0:
-		var district: Dictionary=game.districts.snapshots()[district_index]
-		CleanHud._paragraph(self,String(district.title)+" · "+String(district.benefit),rect.position+Vector2(18,67),534,13,muted,18,1)
+		for district: Dictionary in game.districts.snapshots():
+			if int(district.index)!=district_index:continue
+			CleanHud._paragraph(self,String(district.title)+" · "+String(district.benefit),rect.position+Vector2(18,67),534,13,muted,18,1)
+			break
 	else:
 		var pad: Dictionary=game.world.tower_pads[game.nearest_tower_pad()]
 		var hint: String="J 破甲 / K 牵制 · 45零件 · 每座只能改装一次" if game.specializations.branch(pad)=="standard" else "H 修复 · G 目标模式 · C 指定集火"
@@ -291,18 +294,24 @@ func change_troop_page(direction: int) -> void:
 func draw_construction() -> void:
 	if not game.construction.active or game.phase not in ["day","night"]:return
 	var placement: Dictionary=game.construction.snapshot()
+	var selling: bool=game.construction.sell_mode
 	var tint:=Color("85d5a5") if bool(placement.valid) else red
 	if not bool(placement.valid) and bool(placement.space_valid):tint=amber if bool(placement.tech_valid) else Color("aca0e8")
+	if selling:tint=red if bool(placement.valid) else muted
 	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
 	var kinds:=visible_construction_kinds()
 	for index in kinds.size():
 		var kind: String=kinds[index]
 		var rect:=construction_kind_rect(index)
-		box(rect,Color(.06,.15,.12,.95) if kind==String(placement.kind) else panel,tint if kind==String(placement.kind) else muted)
+		var selected: bool=not selling and kind==String(game.construction.kind)
+		box(rect,Color(.06,.15,.12,.95) if selected else panel,tint if selected else muted)
 		label("%d %s" % [index+1,String(Catalog.building(kind).title)],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
-	label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
-	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(placement.kind)))/CATALOG_PAGE_SIZE
+	if selling:
+		label("%s%s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖模式 · 指向建筑查看退款",Vector2(457,714),18,red if bool(placement.valid) else ink)
+	else:
+		label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
+	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
 	var pages:=ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))
 	label("%d/%d" % [page+1,pages],Vector2(877,716),13,muted,true)
 	for direction in [-1,1]:
@@ -311,7 +320,9 @@ func draw_construction() -> void:
 		box(rect,panel,muted)
 		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber if available else muted)
 	label(String(placement.reason),Vector2(457,740),15,tint)
-	label("PgUp/PgDn翻页 · 左键/F建造 · 右键/Esc/Y退出",Vector2(457,766),14,amber)
+	label("PgUp/Dn翻页 · 左键/F确认 · 右键/Esc/Y退出",Vector2(457,766),13,amber)
+	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.95) if selling else panel,red if selling else muted)
+	label("Del 建造" if selling else "Del 拆卖",DEMOLITION_BUTTON_RECT.position+Vector2(17,18),13,red if selling else ink)
 
 func draw_selection_rect() -> void:
 	if not game.selection_dragging or game.phase not in ["day","night"]:return
@@ -656,6 +667,7 @@ func draw_minimap() -> void:
 			draw_circle(center+Vector2(p.x,p.z)*scale,5.1,Color("d75b77"))
 			draw_arc(center+Vector2(p.x,p.z)*scale,7.0,0,TAU,12,Color("73384b"),1.2)
 	for pad in game.world.tower_pads:
+		if bool(pad.get("removed",false)):continue
 		var p: Vector3=pad.position
 		var pad_color: Color=Color("78d1c2") if String(pad.get("zone","outer"))=="core" else amber
 		var tower_color: Color=Color("697473")
@@ -1045,6 +1057,7 @@ func _gui_input(event: InputEvent) -> void:
 			if game.phase in ["day","night"]:
 				if MEMORY_BUTTON_RECT.has_point(point):game.request_upgrade();accept_event();return
 				if game.construction.active:
+					if DEMOLITION_BUTTON_RECT.has_point(point):game.construction.toggle_sell();accept_event();return
 					for direction in [-1,1]:
 						if construction_page_rect(direction).has_point(point):change_construction_page(direction);accept_event();return
 					for index in visible_construction_kinds().size():

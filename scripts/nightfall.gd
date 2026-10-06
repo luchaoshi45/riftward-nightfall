@@ -3,6 +3,7 @@ extends Node3D
 const Layout = preload("res://scripts/outpost_layout.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
+const DemolitionScript = preload("res://scripts/outpost_demolition.gd")
 const UnitScript = preload("res://scripts/unit.gd")
 const HudScript = preload("res://scripts/nightfall_hud.gd")
 const SquadScript = preload("res://scripts/outpost_squads.gd")
@@ -256,6 +257,7 @@ func prepare_opening_defenses() -> void:
 		var pad: Dictionary=world.tower_pads[index]
 		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
 		pad.level=1;pad.max_hp=280.0;pad.hp=280.0
+		pad["paid_investment"]=0
 		pad["free_built"]=true
 		pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
 		pad.damage_ring.visible=false
@@ -2184,6 +2186,7 @@ func nearest_tower_pad() -> int:
 	var selected:=-1
 	var best:=2.6
 	for i in world.tower_pads.size():
+		if bool(world.tower_pads[i].get("removed",false)):continue
 		var distance: float=hero.position.distance_to(world.tower_pads[i].position)
 		if distance<best:selected=i;best=distance
 	return selected
@@ -2629,6 +2632,12 @@ func build_structure_at(point: Vector3, kind: String) -> bool:
 	notify("%s建成 · -%d零件 · 可继续放置" % [String(placement.title),int(result.cost)],3)
 	return true
 
+func demolition_at(point: Vector3) -> Dictionary:
+	return DemolitionScript.quote_at(self,point)
+
+func sell_structure_at(point: Vector3) -> bool:
+	return DemolitionScript.sell_at(self,point)
+
 func build_tower_at(point: Vector3) -> bool:
 	if not construction:return false
 	var placement: Dictionary=construction.validity(point,-1,"tower")
@@ -2638,6 +2647,7 @@ func build_tower_at(point: Vector3) -> bool:
 	var index: int=-1
 	for i in world.tower_pads.size():
 		var candidate: Dictionary=world.tower_pads[i]
+		if bool(candidate.get("removed",false)):continue
 		# Reuse only an effectively identical, still-valid suggestion. Snapping
 		# a free point to a nearby foundation can violate spacing after a green
 		# preview and would otherwise move the tower away from the chosen point.
@@ -2653,6 +2663,7 @@ func build_tower_at(point: Vector3) -> bool:
 func build_or_upgrade_tower(index: int) -> bool:
 	if phase not in ["day","night"] or index<0 or index>=world.tower_pads.size():return false
 	var pad: Dictionary=world.tower_pads[index]
+	if bool(pad.get("removed",false)):return false
 	var level: int=int(pad.level)
 	if level>=3:return false
 	if level==0:
@@ -2668,6 +2679,7 @@ func build_or_upgrade_tower(index: int) -> bool:
 		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
 		if not is_instance_valid(pad.damage_ring):pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
 	scrap-=tower_cost
+	pad["paid_investment"]=tower_cost if level==0 else maxi(0,int(pad.get("paid_investment",0)))+tower_cost
 	pad.level=level+1
 	pad.max_hp=280.0+float(level)*110.0
 	pad.hp=pad.max_hp
@@ -3005,6 +3017,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif hud.detail_tab=="army":hud.change_troop_page(direction)
 			return
 		match event.keycode:
+			KEY_DELETE,KEY_BACKSPACE:
+				if construction.active:construction.toggle_sell()
 			KEY_1,KEY_2,KEY_3:hud.select_construction_slot(int(event.keycode)-KEY_1)
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()

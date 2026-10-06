@@ -28,11 +28,13 @@ func choose(pad: Dictionary, requested: String, scrap: int, phase: String, froze
 	elif scrap < COST: reason = "需要45零件"
 	if not reason.is_empty(): return {"ok": false, "scrap": scrap, "reason": reason}
 	pad["specialization"] = requested
+	pad["paid_investment"] = maxi(0, int(pad.get("paid_investment", 0))) + COST
 	return {"ok": true, "scrap": scrap - COST, "reason": ""}
 
 func on_destroyed(pad: Dictionary) -> void:
 	# 改装随塔体报废。原建造费用/等级逻辑不变，重建后二级可重新付费选择。
 	pad["specialization"] = STANDARD
+	pad["paid_investment"] = 0
 	# 已射出的短时牵制仍自然到期，不因毁塔永久残留。
 
 func heavy(enemy: BattleUnit) -> bool:
