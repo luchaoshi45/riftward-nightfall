@@ -2500,7 +2500,6 @@ func interaction_prompt() -> String:
 		var title:=String(definition.title)
 		if int(plot.level)==0:return "F 重建%s · %d零件" % [title,int(definition.cost)]
 		return "%s %d/%d · %s" % [title,ceili(plot.hp),ceili(plot.max_hp),"F升级80" if int(plot.level)<2 else "已满级"]
-	if squads and squads.selected_count()>0:return "已选%d队 · 右键移动/攻击 · O光标驻守 · Esc取消选择" % squads.selected_count()
 	return ""
 
 func _squads_all_holding(snapshot: Dictionary) -> bool:
