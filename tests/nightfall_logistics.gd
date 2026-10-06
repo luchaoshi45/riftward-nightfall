@@ -278,7 +278,7 @@ func close_drawer() -> void:
 
 func train_gui() -> void:
 	await open_army()
-	check(game.hud.visible_training_kinds() == ["ballista", "hauler"], "Actual second army page includes heavy troops and haulers")
+	check(game.hud.visible_training_kinds() == ["ballista", "hauler", "medic"], "Actual second army page retains heavy troops and haulers alongside the new medical entry")
 	var balance: int = game.scrap
 	await click_ui(game.hud.training_kind_rect(1))
 	check(game.scrap == balance - 70, "Actual hauler button charges exactly 70 parts")
@@ -349,7 +349,9 @@ func frozen_transport(stage: String) -> void:
 
 func catalog_queue_and_first_trip() -> void:
 	await fresh()
-	check(Catalog.BUILDING_IDS.size() == 6 and Catalog.TROOP_IDS.size() == 5, "Finite transport is the sixth building and fifth troop")
+	check(Catalog.BUILDING_IDS.slice(0, 6) == ["tower", "barracks", "workshop", "recycler", "laboratory", "depot"]
+		and Catalog.TROOP_IDS.slice(0, 5) == ["shield", "ranged", "engineer", "ballista", "hauler"],
+		"Finite transport retains its sixth-building/fifth-troop position in the original catalog prefix")
 	check(Catalog.building("depot").requires == ["workshop"] and Catalog.troop("hauler").requires == ["depot"], "Depot/hauler depend on distinct live prerequisites")
 	await select_building("depot"); await aim_at(DEPOT)
 	var preview: Dictionary = game.construction.snapshot()

@@ -330,8 +330,9 @@ func capture(name: String, night: bool = false) -> void:
 func catalog_and_technology() -> void:
 	await fresh()
 	await clean_build_navigation("Idle night")
-	check(Catalog.BUILDING_IDS.size() == 6 and Catalog.TROOP_IDS.size() == 5,
-		"The playable catalog must contain six buildings and five troops")
+	check(Catalog.BUILDING_IDS.slice(0, 6) == ["tower", "barracks", "workshop", "recycler", "laboratory", "depot"]
+		and Catalog.TROOP_IDS.slice(0, 5) == ["shield", "ranged", "engineer", "ballista", "hauler"],
+		"The original six-building/five-troop catalog prefix must retain its authoritative order")
 	var copy := Catalog.building("laboratory")
 	copy.cost = -1
 	(copy.requires as Array).clear()
@@ -476,7 +477,7 @@ func troop_pages_and_paid_queue() -> void:
 	check(game.hud.visible_training_kinds() == ["shield", "ranged", "engineer"], "Army page one must retain three original troop slots")
 	var balance: int = game.scrap
 	await press(KEY_PAGEDOWN)
-	check(game.hud.visible_training_kinds() == ["ballista", "hauler"] and game.hud.training_page == 0 and game.scrap == balance,
+	check(game.hud.visible_training_kinds() == ["ballista", "hauler", "medic"] and game.hud.training_page == 0 and game.scrap == balance,
 		"Actual army PgDn must switch only the troop page without spending or moving the refund page")
 	await redraw()
 	check(game.hud.drawn_rects.has(game.hud.training_kind_rect(1)) and game.hud.drawn_labels.has("采运工队70"),
@@ -486,7 +487,7 @@ func troop_pages_and_paid_queue() -> void:
 		"The visible new hauler choice must not charge or train while its depot prerequisite is missing")
 	await click_ui(game.hud.training_kind_rect(2))
 	check(game.scrap == balance and game.squads.training_queues.is_empty(),
-		"The remaining empty third advanced troop slot must consume drawer input without training hidden ranged or engineers")
+		"The real third advanced medic slot must reject its missing live infirmary without charging or training a different troop")
 	await train_heavy_gui()
 	var queue: Array = game.squads.training_queues.get(barracks, [])
 	check(queue.size() == 1 and String(queue[0].kind) == "ballista" and float(queue[0].remaining) == 10.0,
