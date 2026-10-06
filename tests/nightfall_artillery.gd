@@ -333,7 +333,7 @@ func land(source: BattleUnit) -> void:
 func catalog_technology_queue() -> void:
  await fresh()
  check(Catalog.BUILDING_IDS == ["tower","barracks","workshop","recycler","laboratory","depot","infirmary","armory"]
-  and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic","artillery"],
+  and Catalog.TROOP_IDS.slice(0,7) == ["shield","ranged","engineer","ballista","hauler","medic","artillery"],
   "The new eight-building/seven-troop catalog preserves its entire original prefix")
  var building := Catalog.building("armory"); var troop := Catalog.troop("artillery")
  check(building.size == Vector2i(4,3) and building.cost == 140 and building.hp == 600.0
@@ -349,13 +349,13 @@ func catalog_technology_queue() -> void:
  check(game.scrap == balance and not game.districts.has_live("armory"), "Locked real armory preview cannot spend or create")
  await capture("armory-locked-third-building-page",false); await press(KEY_ESCAPE)
  await open_army()
- check(game.hud.visible_training_kinds() == ["artillery"], "Third real troop page contains exactly one炮兵 slot")
+ check(game.hud.visible_training_kinds().slice(0,1) == ["artillery"], "Third real troop page preserves its original炮兵 slot when later troops append")
  await click_ui(game.hud.training_kind_rect(0))
  check(game.scrap == balance and game.squads.training_queues.is_empty(), "Missing-armory visible artillery button never charges")
  for viewport: Vector2i in VIEWPORTS:
   root.size = viewport; root.content_scale_size = viewport; await redraw()
   var before := orders()
-  for slot in [1,2]:
+  for slot in range(game.hud.visible_training_kinds().size(),3):
    await click_ui(game.hud.training_kind_rect(slot)); await click_ui(game.hud.training_kind_rect(slot),MOUSE_BUTTON_RIGHT)
    check(game.scrap == balance and game.squads.training_queues.is_empty() and orders() == before,
     "Actual third-page hidden troop slots are inert and block battlefield pass-through at " + str(viewport))

@@ -686,6 +686,16 @@ func selected_medic_ids() -> Array[int]:
 func medic_button_visible() -> bool:
 	return detail_tab=="army" and troop_page==1 and not game.construction.active and not selected_medic_ids().is_empty()
 
+func selected_hunter_ids() -> Array[int]:
+	var ids: Array[int]=[]
+	if not is_instance_valid(game.squads):return ids
+	for squad: Dictionary in game.squads.squads:
+		if String(squad.kind)!="hunter" or not game.squads.selected_ids.has(int(squad.id)):continue
+		for member: BattleUnit in squad.members:
+			if is_instance_valid(member) and member.alive and not member.is_queued_for_deletion():
+				ids.append(int(squad.id));break
+	return ids
+
 func selected_medics_enabled() -> bool:
 	var ids:=selected_medic_ids()
 	if ids.is_empty():return false
@@ -784,13 +794,23 @@ func draw_squads() -> void:
 			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2零件"
 			label("暂停 · 医护保持" if game.phase=="paused" else caption,MEDIC_BUTTON_RECT.position+Vector2(9,18),12,muted if game.phase=="paused" else amber)
 	elif troop_page==2:
-		label("迫击炮 · 射程5.5–16米 · 半径2.2米 / 32伤",Vector2(46,553),14,ink)
-		label("前摇1秒 + 飞行0.8秒 · 发射后间隔4.8秒",Vector2(46,580),14,amber)
-		CleanHud._paragraph(self,"近敌停火 · 右键后撤，配盾卫掩护",Vector2(46,609),496,14,muted,21,1)
-		CleanHud._paragraph(self,"固定落点 · 仅伤敌人 · 开火不另收费",Vector2(46,648),496,13,ink,20,1)
-		if game.squads.has_method("artillery_snapshot"):
-			var barrage: Dictionary=game.squads.artillery_snapshot()
-			CleanHud._paragraph(self,"准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))],Vector2(46,681),496,12,muted,18,1)
+		if not selected_hunter_ids().is_empty():
+			label("猎手 · 近战2.3米 / 移速5.4 · 无护甲",Vector2(46,553),14,ink)
+			label("疾行/噬灯/投蚀/活召潮30伤 · 其余12伤",Vector2(46,580),14,amber)
+			CleanHud._paragraph(self,"前摇0.22秒 · 间隔1.4秒 · 需活工坊",Vector2(46,609),496,14,muted,21,1)
+			CleanHud._paragraph(self,"驻守追击8米 · 指定敌越出落点8米就返回",Vector2(46,648),496,13,ink,20,1)
+			CleanHud._paragraph(self,"移动/召回不追敌 · 脆皮，留盾卫保护后排",Vector2(46,681),496,12,muted,18,1)
+		else:
+			label("迫击炮 · 射程5.5–16米 · 半径2.2米 / 32伤",Vector2(46,553),14,ink)
+			label("前摇1秒 + 飞行0.8秒 · 发射后间隔4.8秒",Vector2(46,580),14,amber)
+			CleanHud._paragraph(self,"近敌停火 · 固定落点，仅伤敌 · 开火不另收费",Vector2(46,609),496,14,muted,21,1)
+			CleanHud._paragraph(self,"猎手 · 近战2.3米 / 移速5.4 · 专职敌30伤",Vector2(46,648),496,13,ink,20,1)
+			var footer:="猎手需活工坊 · 驻守追击8米 · 无护甲"
+			if game.squads.has_method("artillery_snapshot"):
+				var barrage: Dictionary=game.squads.artillery_snapshot()
+				if int(barrage.get("casting",0))+int(barrage.get("flight",0))>0:
+					footer="炮兵准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))]
+			CleanHud._paragraph(self,footer,Vector2(46,681),496,12,muted,18,1)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory

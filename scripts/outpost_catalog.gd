@@ -2,7 +2,7 @@ class_name OutpostCatalog
 extends RefCounted
 ## The shared playable building and troop definitions used by costs and technology.
 const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary", "armory"]
-const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery"]
+const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery", "hunter"]
 const BUILDINGS := {
 	"tower": {"title": "防御塔", "cost": 60, "size": Vector2i(3, 3), "hp": 280.0, "requires": []},
 	"barracks": {"title": "兵营", "cost": 60, "size": Vector2i(4, 3), "hp": 600.0, "requires": []},
@@ -21,6 +21,7 @@ const TROOPS := {
 	"hauler": {"title": "采运工队", "cost": 70, "time": 8.0, "hp": 120.0, "requires": ["depot"]},
 	"medic": {"title": "医护队", "cost": 90, "time": 9.0, "hp": 100.0, "requires": ["infirmary"]},
 	"artillery": {"title": "迫击炮队", "cost": 150, "time": 12.0, "hp": 130.0, "requires": ["armory"]},
+	"hunter": {"title": "猎手", "cost": 110, "time": 10.0, "hp": 125.0, "requires": ["workshop"]},
 }
 
 static func building(kind: String) -> Dictionary:

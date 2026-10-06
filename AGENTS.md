@@ -8,6 +8,8 @@
 
 内部逻辑代理独占`outpost_squads.gd`与必要新`outpost_hunters.gd`；验收代理独占新`tests/nightfall_hunters.gd`及旧炮兵目录断言必要适配；主机A负责`outpost_catalog.gd`、部队详情HUD、文档/Git/GPU；塔射程代理仍仅拥有`nightfall.gd/update_towers()`及新targeting测试。从机勿并发此范围。兵种追加到第三页，不增加常驻区域；模型复用原创卫兵附工具，仅为玩法原型。GPU串行隐藏/屏幕外/无焦点/Dummy，两用户cfg保留不提交；正式0.8.37、47/100及Windows成品0.8.25保持，新内容待源码/Mac及Windows相应验收。
 
+实现与九个分段生产用例已接入，猎手规则首轮行为均通过，七段完整日志干净；priority/anchor实测召潮/投蚀死源清控制器后，death_effects缓存已释放功能mesh，typed循环在有效性检查前抛错，不登记这两段验收成功。塔射程代理改为独占`death_effects.gd`必要生命周期有效性防护和新`tests/nightfall_caster_corpses.gd`：先真死源旧代码反例，保留原GLB尸体/关节/渐隐，再新用例及相关旧死亡效果回归。另C夹具须真实推进22秒控制器冷却，不以只推进小队冒充。新模块/目录/HUD已通过语法与空风险sec-code上报，双后端猎手/最终界面仍待收尾。另一台先拉main，勿并发上述新增范围；版本/计数仍保持，未宣告百项目标完成。
+
 ## 2026-10-06防御塔威胁射程复核（主机A，源码及Mac验收完成）
 
 领取已fetch核对的main基线`0723f895858f080d3d812ed405284977b22eee81`，已交付清爽界面保持。继续长期百项目标，先以真实生产反例核对威胁模式是否会选择射程外高威胁敌；静态疑点尚未登记为已确认缺陷。内部逻辑代理独占`nightfall.gd`的`update_towers()`必要修复及新`tests/nightfall_tower_targeting.gd`，主机A负责审查、GPU、共享文档和Git；从机勿并发此范围。其他下一项仍处于只读设计核对，不按历史提案盲增兵种。所有测试继续隐藏/屏幕外/无焦点/Dummy音频，用户两份cfg保留不提交；正式0.8.37、47/100与Windows成品0.8.25保持。
