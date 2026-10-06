@@ -14,6 +14,8 @@ const RALLY_PROMPT_RECT := Rect2(435,674,570,84)
 const RALLY_CANCEL_RECT := Rect2(870,726,119,26)
 const SALVAGE_NAV_RECT := Rect2(46,692,190,30)
 const SALVAGE_DRAW_RECT := Rect2(46,418,496,38)
+const BONUS_RETURN_RECT := Rect2(46,244,496,32)
+const BONUS_CONFIRM_RECT := Rect2(46,568,496,34)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
@@ -49,6 +51,7 @@ var salvage_draw_open := false
 var map_expanded := false
 var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
+var bonus_route_budgets: Array[Dictionary] = []
 var budget_refresh_time := 0.0
 var world_warning_rects: Array[Rect2] = []
 var rally_feedback := ""
@@ -115,6 +118,11 @@ func refresh_contract_budgets() -> void:
 	if game.phase=="paused" and game.paused_from!="day":return
 	if game.contracts.status=="active":contract_primary_budget=game.contracts.primary_budget()
 	elif game.contracts.status in ["bonus_offer","bonus_active","returning"]:contract_return_budget=game.contracts.return_budget()
+	bonus_route_budgets.clear()
+	if game.contracts.status=="bonus_offer":bonus_route_budgets.assign(game.contracts.bonus_route_options())
+
+func bonus_route_rect(slot: int) -> Rect2:
+	return Rect2(46,288+90*slot,496,82)
 
 func dismiss_details() -> void:
 	detail_tab=""
@@ -1167,6 +1175,13 @@ func _gui_input(event: InputEvent) -> void:
 						salvage_draw_open=not salvage_draw_open;queue_redraw();accept_event();return
 					if salvage_draw_open and SALVAGE_DRAW_RECT.has_point(point):
 						game.draw_salvage_supply();queue_redraw();accept_event();return
+				if detail_tab=="contract" and game.phase=="day" and game.contracts.status=="bonus_offer":
+					if BONUS_RETURN_RECT.has_point(point):game.choose_bonus_route(0);accept_event();return
+					if BONUS_CONFIRM_RECT.has_point(point):game.choose_bonus_route(1);accept_event();return
+					for slot in mini(3,bonus_route_budgets.size()):
+						if bonus_route_rect(slot).has_point(point):
+							var route: Dictionary=bonus_route_budgets[slot]
+							game.select_bonus_route(int(route.index),int(route.serial),route);accept_event();return
 				if detail_tab=="army":
 					if RALLY_SELECTOR_RECT.has_point(point) and game.rally:
 						game.rally.cycle_selection(1);queue_redraw();accept_event();return

@@ -910,6 +910,34 @@ func select_run_mode(index: int) -> bool:
 	notify("本局模式：%s · 选择核心后锁定" % run_mode_title(),3)
 	return true
 
+func select_bonus_route(index: int, serial: int, expected: Dictionary = {}) -> bool:
+	if quitting or restart_pending or phase!="day" or phase_time<=0.0:return false
+	# A displayed card must still refer to the same discovery when clicked.
+	# Index/serial alone cannot detect a replaced dictionary with copied fields.
+	if not expected.is_empty():
+		if int(expected.get("index",-1))!=index or int(expected.get("serial",-1))!=serial:return false
+		if not is_instance_valid(discoveries) or index<0 or index>=discoveries.items.size():return false
+		var source: Dictionary=discoveries.items[index]
+		if not is_same(source,expected.get("source",{})) or String(source.get("kind",""))!=String(expected.get("kind","")):return false
+	if not is_instance_valid(contracts) or not contracts.select_bonus_route(index,serial):return false
+	if is_instance_valid(hud):
+		hud.refresh_contract_budgets()
+		hud.queue_redraw()
+	notify("已选择追加路线 · 5确认后锁定目标",2)
+	return true
+
+func choose_bonus_route(action: int) -> bool:
+	if quitting or restart_pending or phase!="day" or phase_time<=0.0:return false
+	var accepted: bool=is_instance_valid(contracts) and contracts.choose_bonus(action)
+	if is_instance_valid(hud):
+		hud.refresh_contract_budgets()
+		hud.queue_redraw()
+	if accepted:
+		notify("立即返家领取主委托保底" if action==0 else "追加目标已锁定 · 完成后回灯塔领额外奖励",3)
+	else:
+		notify("所选追加路线不可用 · 请在F3重选或4返家" if action==1 else "追加选择不可用",2)
+	return accepted
+
 func contract_goal() -> Vector3:
 	if contracts.status in ["bonus_offer", "returning"]:
 		return Vector3(0,NightfallWorld.FORT_HEIGHT,3.1)
@@ -3146,10 +3174,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if phase=="day" and event.keycode in [KEY_4,KEY_5,KEY_6]:
 			if contracts.status=="bonus_offer" and event.keycode in [KEY_4,KEY_5]:
 				var bonus_index: int=int(event.keycode)-KEY_4
-				if contracts.choose_bonus(bonus_index):
-					notify("立即返家领取主委托保底" if bonus_index==0 else "追加目标已锁定 · 完成后回灯塔领额外奖励",3)
-				else:
-					notify("附近没有可达的追加发现物" if bonus_index==1 else "追加选择不可用",2)
+				choose_bonus_route(bonus_index)
 				return
 			var offer_index: int = int(event.keycode)-KEY_4
 			if contracts.choose_offer(offer_index):

@@ -39,6 +39,7 @@ var risk_spawn_count := 0
 var done: Dictionary = {}
 var pending_reward: Dictionary = {}
 var bonus_target: Dictionary = {}
+var _bonus_selection: Dictionary = {}
 var bonus_done := false
 var bonus_choice := ""
 var last_text := ""
@@ -67,6 +68,7 @@ func setup(owner_game: Node3D, seed_value: int = -1) -> void:
 	done.clear()
 	pending_reward.clear()
 	bonus_target.clear()
+	_bonus_selection.clear()
 	bonus_done=false
 	bonus_choice=""
 	selected_reward={"scrap":REWARD_SCRAP,"risk":0,"risk_hunters":0,"risk_seconds":0.0}
@@ -140,6 +142,7 @@ func on_day() -> void:
 	offer_rejection_reason=""
 	pending_reward.clear()
 	bonus_target.clear()
+	_bonus_selection.clear()
 	bonus_done=false
 	bonus_choice=""
 	risk_spawned=false
@@ -175,6 +178,7 @@ func on_day() -> void:
 	emit_progress()
 
 func on_night() -> void:
+	_bonus_selection.clear()
 	risk_spawned=false
 	risk_spawn_count=0
 	if status == "active":
@@ -273,7 +277,7 @@ func choice_hint() -> String:
 	return " · ".join(parts)
 
 func choose_bonus(index: int) -> bool:
-	if game.phase!="day" or status!="bonus_offer":return false
+	if not _bonus_operation_reason().is_empty():return false
 	if index==0:
 		bonus_choice="return"
 		status="returning"
@@ -284,6 +288,8 @@ func choose_bonus(index: int) -> bool:
 	# than binding a presentation estimate that may have outlived a respawn.
 	var candidate:=bonus_candidate(true)
 	if candidate.is_empty():return false
+	var budget:=_bonus_budget(candidate)
+	if not bool(budget.available):return false
 	bonus_target=candidate
 	bonus_done=false
 	bonus_choice="scavenge"
@@ -322,14 +328,7 @@ func _select_offer(index: int) -> void:
 	selected_reward={"scrap":int(offer.scrap),"risk":int(offer.get("risk", index)),"risk_hunters":int(offer.get("risk_hunters", 0)),"risk_seconds":float(offer.get("risk_seconds", 0.0))}
 
 func bonus_source() -> Dictionary:
-	if bonus_target.is_empty() or not is_instance_valid(game):return {}
-	var discoveries: Node=game.get("discoveries")
-	if not is_instance_valid(discoveries):return {}
-	var index:=int(bonus_target.get("index",-1))
-	if index<0 or index>=discoveries.items.size():return {}
-	var source: Dictionary=discoveries.items[index]
-	if int(source.get("serial",-1))!=int(bonus_target.get("serial",-2)):return {}
-	return source
+	return _bonus_source_for(bonus_target)
 
 func bonus_finished() -> bool:
 	var source:=bonus_source()
@@ -395,14 +394,15 @@ func bonus_candidates() -> Array[Dictionary]:
 	var result: Array[Dictionary]=[]
 	if not is_instance_valid(game):return result
 	var discoveries: Node=game.get("discoveries")
-	if not is_instance_valid(discoveries):return result
+	if not is_instance_valid(discoveries) or not _bonus_actor_valid():return result
 	for index in discoveries.items.size():
 		var item: Dictionary=discoveries.items[index]
 		if String(item.get("state",""))!="ready":continue
+		if not _bonus_discovery_valid(item):continue
 		var distance:=route_distance(game.hero.position,item.position)
 		if not is_finite(distance) or distance>58.0:continue
 		var payout: Dictionary=BONUS_PAYOUTS.get(String(item.kind),{"scrap":15})
-		result.append({"index":index,"serial":int(item.get("serial",0)),"kind":String(item.kind),"position":item.position,"distance":distance,"scrap":int(payout.scrap)})
+		result.append({"index":index,"serial":int(item.get("serial",0)),"kind":String(item.kind),"position":item.position,"distance":distance,"scrap":int(payout.scrap),"source":item})
 	result.sort_custom(func(a: Dictionary,b: Dictionary)->bool:
 		if not is_equal_approx(float(a.distance),float(b.distance)):return float(a.distance)<float(b.distance)
 		return int(a.index)<int(b.index)
@@ -411,44 +411,174 @@ func bonus_candidates() -> Array[Dictionary]:
 
 func bonus_candidate(force_refresh: bool = false) -> Dictionary:
 	if force_refresh:clear_budget_cache()
+	if not _bonus_selection.is_empty():
+		var source:=_bonus_source_for(_bonus_selection)
+		if source.is_empty() or String(source.get("state",""))!="ready" or not _bonus_actor_valid():return {}
+		var distance:=route_distance(game.hero.position,source.position)
+		if not is_finite(distance) or distance>58.0:return {}
+		var selected:=_bonus_selection.duplicate(false)
+		selected.position=source.position
+		selected.distance=distance
+		selected.scrap=int(BONUS_PAYOUTS.get(String(source.kind),{"scrap":15}).scrap)
+		return selected
 	var candidates:=bonus_candidates()
 	return candidates[0] if not candidates.is_empty() else {}
 
+func bonus_route_options() -> Array[Dictionary]:
+	# A presentation query never creates a selection. The nearest route stays
+	# first; offer category variety before filling any remaining nearest slots.
+	var result: Array[Dictionary]=[]
+	if status!="bonus_offer" or not _bonus_day_context():return result
+	var candidates:=bonus_candidates()
+	var picked: Array[Dictionary]=[]
+	var kinds: Dictionary={}
+	if not candidates.is_empty():
+		picked.append(candidates[0])
+		kinds[String(candidates[0].kind)]=true
+	for candidate: Dictionary in candidates:
+		if picked.size()>=3:break
+		if kinds.has(String(candidate.kind)):continue
+		picked.append(candidate)
+		kinds[String(candidate.kind)]=true
+	for candidate: Dictionary in candidates:
+		if picked.size()>=3:break
+		if _bonus_picked(picked,candidate):continue
+		picked.append(candidate)
+	var selection_included:=false
+	for candidate: Dictionary in picked:
+		var selected:=_bonus_matches_selection(candidate) if not _bonus_selection.is_empty() else result.is_empty()
+		selection_included=selection_included or selected
+		result.append(_bonus_option(candidate,selected))
+	if not _bonus_selection.is_empty() and not selection_included:
+		var selected_candidate:=bonus_candidate()
+		if selected_candidate.is_empty():selected_candidate=_bonus_selection.duplicate(false)
+		if result.size()>=3:result.pop_back()
+		result.append(_bonus_option(selected_candidate,true))
+	return result
+
+func select_bonus_route(index: int, serial: int) -> bool:
+	if not _bonus_operation_reason().is_empty():return false
+	var discoveries: Node=game.get("discoveries")
+	if not is_instance_valid(discoveries) or index<0 or index>=discoveries.items.size():return false
+	var source: Dictionary=discoveries.items[index]
+	if int(source.get("serial",-1))!=serial or String(source.get("state",""))!="ready" or not _bonus_discovery_valid(source):return false
+	# Revalidate the actual route instead of trusting a cached HUD estimate.
+	clear_budget_cache()
+	var distance:=route_distance(game.hero.position,source.position)
+	if not is_finite(distance) or distance>58.0:return false
+	var candidate: Dictionary={"index":index,"serial":serial,"kind":String(source.kind),
+		"position":source.position,"distance":distance,
+		"scrap":int(BONUS_PAYOUTS.get(String(source.kind),{"scrap":15}).scrap),"source":source}
+	if not bool(_bonus_budget(candidate).available):return false
+	_bonus_selection=candidate
+	return true
+
+func _bonus_option(candidate: Dictionary, selected: bool) -> Dictionary:
+	var result:=candidate.duplicate(false)
+	var source:=_bonus_source_for(candidate)
+	var budget:=_bonus_budget(candidate)
+	var reason:=_bonus_operation_reason()
+	if source.is_empty():reason="原追加目标已失效 · 请选其他路线或返家"
+	elif String(source.get("state",""))!="ready":reason="目标已开始或已探索 · 请选其他路线或返家"
+	elif not bool(budget.available) or float(budget.outbound_distance)>58.0:reason="目标或返家路线不可达"
+	var route_valid:=not source.is_empty() and String(source.get("state",""))=="ready" \
+		and bool(budget.available) and float(budget.outbound_distance)<=58.0
+	# A stale source must not display a feasible budget. Pausing only blocks
+	# submitting the choice; its unchanged, valid geometry remains visible.
+	if not route_valid:
+		budget.available=false
+		budget.total_seconds=INF
+		budget.spare_seconds=-INF
+		budget.risk="unreachable"
+	result.selected=selected
+	result.available=reason.is_empty()
+	result.reason=reason if not reason.is_empty() else ("已选路线" if selected else "可选择追加路线")
+	result.budget=budget
+	return result
+
+func _bonus_picked(picked: Array[Dictionary], candidate: Dictionary) -> bool:
+	for previous: Dictionary in picked:
+		if int(previous.index)==int(candidate.index) and int(previous.serial)==int(candidate.serial) and is_same(previous.source,candidate.source):return true
+	return false
+
+func _bonus_matches_selection(candidate: Dictionary) -> bool:
+	return int(candidate.index)==int(_bonus_selection.get("index",-1)) \
+		and int(candidate.serial)==int(_bonus_selection.get("serial",-1)) \
+		and String(candidate.kind)==String(_bonus_selection.get("kind","")) \
+		and is_same(candidate.get("source",{}),_bonus_selection.get("source",{}))
+
+func _bonus_source_for(candidate: Dictionary) -> Dictionary:
+	if candidate.is_empty() or not is_instance_valid(game):return {}
+	var discoveries: Node=game.get("discoveries")
+	if not is_instance_valid(discoveries):return {}
+	var index:=int(candidate.get("index",-1))
+	if index<0 or index>=discoveries.items.size():return {}
+	var source: Dictionary=discoveries.items[index]
+	if int(source.get("serial",-1))!=int(candidate.get("serial",-2)) or String(source.get("kind",""))!=String(candidate.get("kind","")):return {}
+	# Legacy isolated fixtures can supply index/serial metadata; every new
+	# route created by this module also binds the original dictionary identity.
+	if candidate.has("source") and not is_same(source,candidate.source):return {}
+	return source if _bonus_discovery_valid(source) else {}
+
+func _bonus_discovery_valid(source: Dictionary) -> bool:
+	var node: Variant=source.get("node")
+	var point: Variant=source.get("position")
+	return is_instance_valid(node) and node is Node3D and not node.is_queued_for_deletion() \
+		and point is Vector3 and point.is_finite() and bool(game.outpost_walkable(point))
+
+func _bonus_actor_valid() -> bool:
+	if not is_instance_valid(game):return false
+	var hero: Variant=game.get("hero")
+	return is_instance_valid(hero) and hero is Node3D and not hero.is_queued_for_deletion() \
+		and bool(hero.get("alive")) and float(hero.get("hp"))>0.0 and hero.position.is_finite()
+
+func _bonus_day_context() -> bool:
+	if not is_instance_valid(game):return false
+	return game.phase=="day" or (game.phase=="paused" and game.paused_from=="day") or (game.phase=="draft" and game.return_phase=="day")
+
+func _bonus_operation_reason() -> String:
+	if not is_instance_valid(game) or game.is_queued_for_deletion() or bool(game.get("quitting")) or bool(game.get("restart_pending")):return "当前守望已结束"
+	if game.phase!="day" or status!="bonus_offer" or float(game.phase_time)<=0.0:return "仅白昼追加待选时可切换路线"
+	if not _bonus_actor_valid() or not (float(game.get("beacon_hp"))>0.0):return "守望者或灯塔已失守"
+	return ""
+
 func bonus_summary() -> String:
 	var candidate: Dictionary=bonus_target if not bonus_target.is_empty() else bonus_candidate()
-	if candidate.is_empty():return "4 立即返家保底 · 暂无可达追加补给"
+	if candidate.is_empty():
+		if status=="bonus_offer" and not _bonus_selection.is_empty():return "所选%s已失效 · 重选路线或4返家" % BONUS_TITLES.get(String(_bonus_selection.kind),"追加目标")
+		return "4 立即返家保底 · 暂无可达追加补给"
 	var title: String=BONUS_TITLES.get(String(candidate.kind),"追加补给")
 	return "%s%s · +%d零件" % ["5 贪一笔：" if status=="bonus_offer" else "追加 ",title,int(candidate.scrap)]
 
 func return_budget() -> Dictionary:
 	# Cache only route geometry. Time left, actual movement speed and the
 	# remaining cache-opening channel stay live, including during a detour.
-	var candidate: Dictionary={}
-	var source: Dictionary={}
+	var candidate: Dictionary=bonus_candidate() if status=="bonus_offer" else bonus_target if status=="bonus_active" else {}
+	return _bonus_budget(candidate,status in ["bonus_offer","bonus_active"])
+
+func _bonus_budget(candidate: Dictionary, requires_target: bool = true) -> Dictionary:
 	var outbound:=0.0
 	var action_seconds:=0.0
-	var return_from: Vector3=game.hero.position
-	var available:=true
-	if status in ["bonus_offer","bonus_active"]:
-		candidate=bonus_candidate() if status=="bonus_offer" else bonus_target
-		if candidate.is_empty():available=false
-		else:
-			var index:=int(candidate.get("index",-1))
-			if index>=0 and index<game.discoveries.items.size():
-				source=game.discoveries.items[index]
-			available=not source.is_empty() and int(source.get("serial",-1))==int(candidate.serial) and String(source.state) in ["ready","channel"]
+	var actor_valid:=_bonus_actor_valid()
+	var hero: Variant=game.get("hero") if is_instance_valid(game) else null
+	var speed: float=maxf(1.0,float(hero.get("speed"))) if is_instance_valid(hero) else 1.0
+	var return_from: Vector3=game.hero.position if actor_valid else RETURN_HOME
+	var available:=actor_valid
+	if requires_target:
+		var source:=_bonus_source_for(candidate)
+		available=available and not source.is_empty() and String(source.get("state","")) in ["ready","channel"]
 		if available:
 			outbound=route_distance(game.hero.position,source.position)
 			return_from=source.position
 			if String(source.kind)=="supply_cache":
 				action_seconds=maxf(0.0,game.discoveries.CHANNEL_SECONDS-float(source.progress)) if String(source.state)=="channel" else game.discoveries.CHANNEL_SECONDS
-	var returning_distance:=route_distance(return_from,RETURN_HOME)
-	if status=="returning" and returned_home():returning_distance=0.0
+	var returning_distance:=route_distance(return_from,RETURN_HOME) if actor_valid else INF
+	if not requires_target and status=="returning" and actor_valid and returned_home():returning_distance=0.0
 	available=available and is_finite(outbound) and is_finite(returning_distance)
-	var total_seconds: float=(outbound+returning_distance)/maxf(1.0,float(game.hero.speed))+action_seconds if available else INF
-	var spare_seconds: float=float(game.phase_time)-total_seconds
+	var total_seconds: float=(outbound+returning_distance)/speed+action_seconds if available else INF
+	var spare_seconds: float=float(game.phase_time)-total_seconds if is_instance_valid(game) else -INF
 	var risk: String="unreachable" if not available else ("late" if spare_seconds<0.0 else ("tight" if spare_seconds<EARLY_RETURN_SECONDS else "ready"))
-	return {"available":available,"candidate":candidate.duplicate(),"outbound_distance":outbound,"return_distance":returning_distance,"action_seconds":action_seconds,"total_seconds":total_seconds,"spare_seconds":spare_seconds,"risk":risk}
+	return {"available":available,"candidate":candidate.duplicate(),"outbound_distance":outbound,"return_distance":returning_distance,"action_seconds":action_seconds,"total_seconds":total_seconds,"spare_seconds":spare_seconds,"risk":risk,"speed":speed}
 
 func return_budget_text(budget: Dictionary) -> String:
 	if not budget.available:return "追加目标不可达 · 主委托保底保留"
