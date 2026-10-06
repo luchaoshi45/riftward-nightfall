@@ -3250,9 +3250,20 @@ func update_salvage_refresh(delta: float) -> void:
 func salvage_draw_snapshot() -> Dictionary:
 	return salvage_draw.snapshot()
 
+func select_salvage_draw_mode(mode: String) -> bool:
+	var selected: bool=salvage_draw.select_mode(mode)
+	if not selected:
+		notify(salvage_draw_reason(salvage_draw.mode_reason(mode)),2)
+	else:
+		notify("废墟补给 · %s档已选 · 不消耗随机" % ("押大" if mode=="jackpot" else "稳妥"),2)
+	hud.queue_redraw()
+	return selected
+
 func salvage_draw_reason(reason: String) -> String:
 	match reason:
 		"":return "已解锁 · 可自愿抽取"
+		"invalid_mode":return "未知抽取档位"
+		"jackpot_requires_first":return "押大档需先完成一次稳妥抽取"
 		"not_day":return "仅剩余白昼时间内可抽取"
 		"day_unavailable":return "首夜结束后的白昼开放"
 		"hero_unavailable":return "守望者需要存活"
@@ -3261,17 +3272,19 @@ func salvage_draw_reason(reason: String) -> String:
 		"return_home":return "返回灯塔旁的高台（6米内）"
 		"daily_limit":return "今日两次已用完 · 下个白昼再开放"
 		"insufficient_scrap":return "至少保留30零件才能抽取"
+		"insufficient_scrap_jackpot":return "押大档需要至少60零件"
 		"settling":return "补给正在结算"
 		_:return "本次守望已结束"
 
-func draw_salvage_supply() -> Dictionary:
-	var result: Dictionary=salvage_draw.draw()
+func draw_salvage_supply(mode: String="safe") -> Dictionary:
+	var result: Dictionary=salvage_draw.draw(mode)
 	if not bool(result.ok):
 		notify(salvage_draw_reason(String(result.reason)),2)
 		return result
 	var net: int=int(result.net)
 	var net_text: String="+%d" % net if net>=0 else str(net)
-	var detail: String="支付%d · 回款%d · 净%s零件" % [int(result.cost),int(result.payout),net_text]
+	var mode_text: String="押大" if String(result.get("mode","safe"))=="jackpot" else "稳妥"
+	var detail: String="%s档 · 支付%d · 回款%d · 净%s零件" % [mode_text,int(result.cost),int(result.payout),net_text]
 	var color:=Color("a3d7bd") if net>=0 else Color("e2a960")
 	# The draw has already settled the one wallet. This is a receipt, not a
 	# gathering event: no exploration count, route bonus or milestone is granted.

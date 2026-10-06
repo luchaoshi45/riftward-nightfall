@@ -5,8 +5,9 @@ extends RefCounted
 const PHASE_RECT := Rect2(24,20,238,62)
 const OBJECTIVE_RECT := Rect2(426,20,588,76)
 const RESOURCE_RECT := Rect2(1080,20,336,54)
-const HERO_RECT := Rect2(344,800,752,80)
+const HERO_RECT := Rect2(344,816,752,64)
 const MEMORY_RECT := Rect2(1108,800,104,80)
+const MEMORY_DRAW_RECT := Rect2(1108,816,104,64)
 const TACTICS_RECT := Rect2(24,824,126,36)
 const MAP_BUTTON_RECT := Rect2(164,824,96,36)
 const BUILD_BUTTON_RECT := Rect2(272,824,64,36)
@@ -20,12 +21,12 @@ const GREEN := Color("a3d7bd")
 const BLUE := Color("8ec8d8")
 # Keep the default battlefield quiet: permanent cards share a translucent
 # hierarchy while urgent states still supply stronger tints at the call site.
-const PHASE_FILL := Color(.028,.045,.046,.80)
-const OBJECTIVE_DAY_FILL := Color(.026,.060,.048,.84)
-const OBJECTIVE_NIGHT_FILL := Color(.075,.050,.046,.84)
-const RESOURCE_FILL := Color(.030,.046,.049,.84)
-const HERO_FILL := Color(.022,.038,.044,.86)
-const DRAWER_FILL := Color(.021,.037,.040,.94)
+const PHASE_FILL := Color(.028,.045,.046,.66)
+const OBJECTIVE_DAY_FILL := Color(.026,.060,.048,.70)
+const OBJECTIVE_NIGHT_FILL := Color(.075,.050,.046,.72)
+const RESOURCE_FILL := Color(.030,.046,.049,.70)
+const HERO_FILL := Color(.022,.038,.044,.74)
+const DRAWER_FILL := Color(.021,.037,.040,.92)
 
 static func draw_live(ui: Control) -> void:
 	var game: Node3D=ui.get("game") as Node3D
@@ -51,16 +52,16 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
 	ui.box(PHASE_RECT,PHASE_FILL,Color("645e4c"))
-	ui.label("第%d%s · %s" % [game.day_number,"夜" if night else "日","守卫" if night else "搜寻"],Vector2(40,45),18,tint)
+	ui.label("第%d%s · %s" % [game.day_number,"夜" if night else "日","守卫" if night else "搜寻"],Vector2(40,44),17,tint)
 	# A quiet divider separates the persistent phase label from its clock.
 	ui.draw_line(Vector2(171,31),Vector2(171,54),Color("7d7660",.55),1.0)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
-	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(185,45),17,ui.ink)
+	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(185,44),16,ui.ink)
 	var detail: String=game.run_mode_title()
 	if night:detail="第%d/%d波 · %s" % [game.wave_index,game.WAVES_PER_NIGHT,game.run_mode_title()]
-	ui.label(detail,Vector2(40,68),13,ui.muted)
+	ui.label(detail,Vector2(40,66),12,ui.muted)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
-	ui.progress(Rect2(40,75,206,3),float(game.phase_time)/length,tint)
+	ui.progress(Rect2(40,74,206,2),float(game.phase_time)/length,tint)
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
@@ -100,8 +101,8 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 		else:detail="Y 城内建设 · 或外出搜寻 · F3 查看详情"
 	if float(game.beacon_alarm_time)>0.0:
 		detail="灯塔受到攻击 -%d · 立即回防" % ceili(float(game.beacon_alarm_damage))
-	_paragraph(ui,title,Vector2(444,46),552,18,ui.amber if phase=="night" else GREEN,22,1)
-	_paragraph(ui,detail,Vector2(444,72),552,14,ui.red if float(game.beacon_alarm_time)>0.0 else ui.muted,20,1)
+	_paragraph(ui,title,Vector2(444,45),552,17,ui.amber if phase=="night" else GREEN,20,1)
+	_paragraph(ui,detail,Vector2(444,69),552,13,ui.red if float(game.beacon_alarm_time)>0.0 else ui.muted,18,1)
 
 static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 	var state:=String(boss.get("phase","approach"))
@@ -133,10 +134,10 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.box(HERO_RECT,HERO_FILL,Color("53635d"))
-	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,826),14,ui.ink)
-	ui.progress(Rect2(360,835,178,7),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,860),13,BLUE)
-	ui.progress(Rect2(360,868,178,4),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
+	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,832),13,ui.ink)
+	ui.progress(Rect2(360,840,178,6),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,864),12,BLUE)
+	ui.progress(Rect2(360,870,178,3),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
@@ -144,22 +145,22 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		var status: String=game.skill_status(index)
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
-		ui.box(Rect2(x+8,815,25,23),Color(.052,.072,.069,.9),tint)
-		ui.label(keys[index],Vector2(x+14,832),14,tint,true)
-		ui.label(names[index],Vector2(x+41,833),14,ui.ink if ready else ui.muted)
+		ui.box(Rect2(x+8,817,25,21),Color(.052,.072,.069,.82),tint)
+		ui.label(keys[index],Vector2(x+14,832),13,tint,true)
+		ui.label(names[index],Vector2(x+41,832),13,ui.ink if ready else ui.muted)
 		if ready:
-			ui.draw_rect(Rect2(x+11,853,75,3),Color("668571"))
+			ui.draw_rect(Rect2(x+11,850,75,2),Color("668571"))
 		else:
-			ui.label(status,Vector2(x+11,858),13,tint)
+			ui.label(status,Vector2(x+11,864),12,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
 	var ready: bool=pending>0 or affordable
-	ui.box(MEMORY_RECT,Color(.034,.069,.060,.94),ui.amber if ready else Color("527568"))
-	ui.label("V 铭刻",Vector2(1125,828),16,ui.amber if ready else ui.muted)
+	ui.box(MEMORY_DRAW_RECT,Color(.034,.069,.060,.82),ui.amber if ready else Color("527568"))
+	ui.label("V 铭刻",Vector2(1125,833),15,ui.amber if ready else ui.muted)
 	var memory_text:="可选%d张" % pending if pending>0 else ("%d零件" % game.run.memory_cost() if affordable else "差%d零件" % maxi(0,game.run.memory_cost()-int(game.scrap)))
 	if pending<=0 and not available:memory_text="强化已满"
-	_paragraph(ui,memory_text,Vector2(1117,853),86,13,GREEN if ready else ui.muted,18,2)
+	_paragraph(ui,memory_text,Vector2(1117,857),86,12,GREEN if ready else ui.muted,16,2)
 
 static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var open:=String(ui.get("detail_tab")) in TAB_IDS
@@ -398,8 +399,10 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 
 static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
 	var state: Dictionary=game.salvage_draw_snapshot()
+	var selected_mode: String=String(state.get("selected_mode","safe"))
+	var selected_label: String="押大" if selected_mode=="jackpot" else "稳妥"
 	ui.label("废墟补给 · 可选抽取",Vector2(TEXT_X,184),18,GREEN)
-	_paragraph(ui,"当天完成一次探索并返回灯塔，再花30零件试一次。",Vector2(TEXT_X,215),TEXT_WIDTH,15,ui.ink,22)
+	_paragraph(ui,"当天完成一次探索并返回灯塔 · 第一次稳妥，第二次可押大。",Vector2(TEXT_X,215),TEXT_WIDTH,15,ui.ink,22)
 	ui.label("概率",Vector2(TEXT_X,249),14,ui.muted)
 	ui.label("回款",Vector2(230,249),14,ui.muted)
 	ui.label("扣除费用后",Vector2(380,249),14,ui.muted)
@@ -411,23 +414,32 @@ static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
 		ui.label("%d零件" % int(result.payout),Vector2(230,y),17,ui.ink)
 		ui.label(net_text+"零件",Vector2(380,y),17,GREEN if net>=0 else ui.amber)
 		y+=40.0
-	_paragraph(ui,"每白昼最多2次 · 已用%d/2 · 不参与也可正常建设守夜。" % int(state.used),Vector2(TEXT_X,393),TEXT_WIDTH,14,ui.muted,20)
+	_paragraph(ui,"当前%s档 · 每白昼最多2次 · 已用%d/2 · 不参与也可正常建设守夜。" % [selected_label,int(state.used)],Vector2(TEXT_X,393),TEXT_WIDTH,14,ui.muted,20)
 	var available: bool=bool(state.available)
 	var button: Rect2=ui.SALVAGE_DRAW_RECT
 	ui.box(button,Color(.075,.13,.105,.98) if available else Color(.033,.047,.043,.98),GREEN if available else Color("52695c"))
-	ui.label("支付30零件 · 抽取一次" if available else "暂不可抽取",button.position+Vector2(149 if available else 206,25),16,GREEN if available else ui.muted)
+	var action_text: String="支付%d零件 · 抽取%s档" % [int(state.stake),selected_label] if available else "暂不可抽取"
+	ui.label(action_text,button.position+Vector2(135 if available else 206,25),16,GREEN if available else ui.muted)
+	var safe_rect: Rect2=ui.SALVAGE_SAFE_MODE_RECT
+	var jackpot_rect: Rect2=ui.SALVAGE_JACKPOT_MODE_RECT
+	var safe_selected: bool=selected_mode=="safe"
+	var jackpot_unlocked: bool=int(state.used)>=1
+	ui.box(safe_rect,Color(.075,.13,.105,.98) if safe_selected else Color(.033,.047,.043,.98),GREEN if safe_selected else Color("52695c"))
+	ui.label("稳妥 · 30零件 · 60/30/10",safe_rect.position+Vector2(16,23),14,GREEN if safe_selected else ui.muted)
+	ui.box(jackpot_rect,Color(.13,.085,.045,.98) if selected_mode=="jackpot" and jackpot_unlocked else Color(.033,.047,.043,.98),ui.amber if jackpot_unlocked else Color("52695c"))
+	ui.label("押大 · 60零件 · 70/25/5" if jackpot_unlocked else "押大 · 第二抽解锁",jackpot_rect.position+Vector2(16,23),14,ui.amber if jackpot_unlocked else ui.muted)
 	var reason: String=String(state.reason)
 	var status_text: String=game.salvage_draw_reason(reason)
 	if game.phase=="paused":status_text="暂停中 · 恢复白昼后可抽取"
-	_paragraph(ui,status_text,Vector2(TEXT_X,484),TEXT_WIDTH,15,GREEN if available else ui.amber,22)
+	_paragraph(ui,status_text,Vector2(TEXT_X,510),TEXT_WIDTH,15,GREEN if available else ui.amber,22)
 	var last: Dictionary=state.last
 	if not last.is_empty():
 		var net: int=int(last.net)
 		var net_text: String="+%d" % net if net>=0 else str(net)
-		ui.label("最近结果 · 第%d日第%d次" % [int(last.day_id),int(last.draw_number)],Vector2(TEXT_X,537),16,GREEN)
-		_paragraph(ui,"支付%d · 回款%d · 净%s零件" % [int(last.cost),int(last.payout),net_text],Vector2(TEXT_X,565),TEXT_WIDTH,16,ui.ink,23)
-	else:_paragraph(ui,"尚未抽取 · 先探索，再回家整备。",Vector2(TEXT_X,537),TEXT_WIDTH,15,ui.muted,22)
-	_paragraph(ui,"可能亏损20，也可能多得10或90；保留建造与维修用的零件，由你决定是否尝试。",Vector2(TEXT_X,619),TEXT_WIDTH,14,ui.muted,20)
+		ui.label("最近结果 · %s档 · 第%d日第%d次" % ["押大" if String(last.get("mode","safe"))=="jackpot" else "稳妥",int(last.day_id),int(last.draw_number)],Vector2(TEXT_X,550),16,GREEN)
+		_paragraph(ui,"支付%d · 回款%d · 净%s零件" % [int(last.cost),int(last.payout),net_text],Vector2(TEXT_X,578),TEXT_WIDTH,16,ui.ink,23)
+	else:_paragraph(ui,"尚未抽取 · 先探索，再回家整备。",Vector2(TEXT_X,550),TEXT_WIDTH,15,ui.muted,22)
+	_paragraph(ui,"稳妥净变化−20/+10/+90；押大净变化−60/+60/+540。第二抽再决定是否加注。",Vector2(TEXT_X,628),TEXT_WIDTH,14,ui.muted,20)
 
 static func _draw_defense(ui: Control, game: Node3D) -> void:
 	var bounty: Dictionary=game.bounty_snapshot()

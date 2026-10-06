@@ -14,6 +14,8 @@ const RALLY_PROMPT_RECT := Rect2(435,674,570,84)
 const RALLY_CANCEL_RECT := Rect2(870,726,119,26)
 const SALVAGE_NAV_RECT := Rect2(46,692,190,30)
 const SALVAGE_DRAW_RECT := Rect2(46,418,496,38)
+const SALVAGE_SAFE_MODE_RECT := Rect2(46,464,250,34)
+const SALVAGE_JACKPOT_MODE_RECT := Rect2(302,464,240,34)
 const BONUS_RETURN_RECT := Rect2(46,244,496,32)
 const BONUS_CONFIRM_RECT := Rect2(46,568,496,34)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
@@ -46,6 +48,10 @@ const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
 const HAUL_BUTTON_RECT := Rect2(356,628,176,32)
 const MEDIC_BUTTON_RECT := Rect2(356,662,176,26)
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
+# Keep transient world text subordinate to the battlefield; rings and urgent
+# hero warnings remain visible even when secondary labels are capped.
+const MAX_RENDERED_COMBAT_FLOATS := 6
+const MAX_RENDERED_WORLD_LABELS := 3
 var detail_tab := ""
 var salvage_draw_open := false
 var map_expanded := false
@@ -428,7 +434,9 @@ func draw_combat_floats() -> void:
 	occupied.append_array(world_warning_rects)
 	# New contacts get their natural screen position first; older messages stack
 	# above them or expire without obscuring another reward or a fixed HUD panel.
+	var rendered_count := 0
 	for index in range(game.combat.floats.size()-1,-1,-1):
+		if rendered_count >= MAX_RENDERED_COMBAT_FLOATS:break
 		var item: Dictionary=game.combat.floats[index]
 		var point: Vector3=item.point
 		if game.camera.is_position_behind(point):continue
@@ -459,6 +467,7 @@ func draw_combat_floats() -> void:
 		world_warning_rects.append(footprint)
 		draw_string_outline(font,position,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,3,Color(.014,.024,.028,.84*fade))
 		label(value,position,size_px,tint)
+		rendered_count += 1
 
 func _world_screen(point: Vector3) -> Variant:
 	if not is_instance_valid(game.camera) or game.camera.is_position_behind(point):return null
@@ -471,6 +480,7 @@ func draw_target_warnings() -> void:
 	var hero_warning_count:=0
 	var hero_remaining:=INF
 	var hero_source_title: String=""
+	var rendered_labels := 0
 	for warning: Dictionary in game.target_warning_snapshot():
 		var source:=warning.get("source") as BattleUnit
 		var target:=warning.get("target") as Node3D
@@ -503,11 +513,13 @@ func draw_target_warnings() -> void:
 				hero_remaining=remaining
 				hero_source_title=String(warning.get("title","敌人"))
 		if target!=game.hero:
+			if rendered_labels >= MAX_RENDERED_WORLD_LABELS:continue
 			var text_width:=font.get_string_size(label_text,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x
 			var label_point:=position+Vector2(-text_width*.5,-radius-13)
 			# Later support/armor labels must respect this actual target-side text.
 			world_warning_rects.append(Rect2(label_point-Vector2(3,font.get_ascent(12)+3),Vector2(text_width+6,font.get_ascent(12)+font.get_descent(12)+6)))
 			label(label_text,label_point,12,danger)
+			rendered_labels += 1
 	if hero_warning_count>0 and hero_remaining<INF:
 		var detail: String="被锁定 · %s · %.1f秒后命中" % [hero_source_title,hero_remaining]
 		box(Rect2(566,606,530,32),Color(.12,.035,.028,.95),Color("d87961"))
@@ -518,7 +530,9 @@ func draw_lobber_warnings() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
 	occupied.append_array(world_warning_rects)
+	var rendered_labels := 0
 	for warning: Dictionary in game.lobber_warning_snapshot():
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
 		var point: Vector3=warning.position
 		var screen: Variant=_world_screen(point+Vector3.UP*.18)
 		if screen==null:continue
@@ -543,12 +557,15 @@ func draw_lobber_warnings() -> void:
 		world_warning_rects.append(footprint)
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("eed897"))
+		rendered_labels += 1
 
 func draw_summoner_warnings() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
 	occupied.append_array(world_warning_rects)
+	var rendered_labels := 0
 	for warning: Dictionary in game.summoner_warning_snapshot():
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
 		var screen: Variant=_world_screen((warning.position as Vector3)+Vector3.UP*2.1)
 		if screen==null:continue
 		var center: Vector2=screen as Vector2
@@ -571,30 +588,39 @@ func draw_summoner_warnings() -> void:
 		if not free_position or position.y<96:continue
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("c4a9e5"))
+		rendered_labels += 1
 
 func draw_warder_warnings() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
 	occupied.append_array(world_warning_rects)
+	var rendered_labels := 0
 	for warning: Dictionary in game.warder_warning_snapshot():
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
 		var text_value:="织壳 %.1f秒 · 余%d/3" % [maxf(0.0,float(warning.remaining)),maxi(0,int(warning.max_casts)-int(warning.casts))]
 		_draw_shell_label((warning.position as Vector3)+Vector3.UP*2.1,text_value,Color("d4dec3"),occupied)
+		rendered_labels += 1
 	# Read the recipient's real shield, even after the source has been killed.
 	for value: Variant in game.enemies:
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
 		if not is_instance_valid(value) or value.is_queued_for_deletion() or not value.alive:continue
 		if not bool(value.get_meta("warder_shield",false)) or value.shield<=0.0 or value.shield_time<=0.0:continue
 		var text_value:="护盾%d · %.1f秒" % [ceili(float(value.shield)),float(value.shield_time)]
 		_draw_shell_label(value.position+Vector3.UP*1.65,text_value,Color("b8dcd3"),occupied)
+		rendered_labels += 1
 
 func draw_shellguard_armor() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
 	occupied.append_array(world_warning_rects)
+	var rendered_labels := 0
 	for value: Variant in game.enemies:
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
 		if not is_instance_valid(value) or value.is_queued_for_deletion() or not value.alive:continue
 		if value.get_meta("threat","")!="shellguard" or float(value.armor)<=0.0:continue
 		# The local label reads actual armor; support timers take placement priority.
 		_draw_shell_label(value.position+Vector3.UP*2.1,"甲%d" % ceili(float(value.armor)),Color("d8cda3"),occupied)
+		rendered_labels += 1
 
 func _draw_shell_label(point: Vector3, text_value: String, tint: Color, occupied: Array[Rect2]) -> void:
 	var screen: Variant=_world_screen(point)
@@ -1174,7 +1200,11 @@ func _gui_input(event: InputEvent) -> void:
 					if SALVAGE_NAV_RECT.has_point(point):
 						salvage_draw_open=not salvage_draw_open;queue_redraw();accept_event();return
 					if salvage_draw_open and SALVAGE_DRAW_RECT.has_point(point):
-						game.draw_salvage_supply();queue_redraw();accept_event();return
+						game.draw_salvage_supply(String(game.salvage_draw_snapshot().get("selected_mode","safe")));queue_redraw();accept_event();return
+					if salvage_draw_open and SALVAGE_SAFE_MODE_RECT.has_point(point):
+						game.select_salvage_draw_mode("safe");queue_redraw();accept_event();return
+					if salvage_draw_open and SALVAGE_JACKPOT_MODE_RECT.has_point(point):
+						game.select_salvage_draw_mode("jackpot");queue_redraw();accept_event();return
 				if detail_tab=="contract" and game.phase=="day" and game.contracts.status=="bonus_offer":
 					if BONUS_RETURN_RECT.has_point(point):game.choose_bonus_route(0);accept_event();return
 					if BONUS_CONFIRM_RECT.has_point(point):game.choose_bonus_route(1);accept_event();return
