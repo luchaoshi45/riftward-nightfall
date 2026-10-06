@@ -54,7 +54,11 @@ func verify_plan_rules() -> void:
 					check(int(actual_counts.get("lobber", 0)) == int(LOBBERS_PER_WAVE[night][wave]), "Every mode must use the declared progressive lobber wave counts")
 					var summoner_count := 1 if night >= 3 and wave == 2 else 0
 					check(int(actual_counts.get("summoner", 0)) == summoner_count and int(entry.get("reinforcement_cap",0)) == summoner_count * 2, "Only later third waves may advertise one source and two finite potential reinforcements")
-					check(int(actual_counts.get("basic", 0)) == population - original.roles.size() - summoner_count, "Summoner must replace exactly one basic while preserving every declared lobber")
+					var warder_count := 1 if (night == 2 and wave == 3) or (night >= 3 and wave in [1,3]) else 0
+					var shellguard_count := 1 if (night == 2 and wave == 2) or (night >= 3 and wave in [0,4]) else 0
+					check(int(actual_counts.get("warder",0)) == warder_count and int(entry.get("warder_count",0)) == warder_count and int(entry.get("shield_cast_cap",0)) == warder_count*3, "Saved finite shielding remains in its declared waves")
+					check(int(actual_counts.get("shellguard",0)) == shellguard_count and int(entry.get("shellguard_count",0)) == shellguard_count, "One armored ordinary replacement appears only in its declared waves")
+					check(int(actual_counts.get("basic", 0)) == population - original.roles.size() - summoner_count - warder_count - shellguard_count, "Finite sources and armored actors replace ordinary population while preserving every original specialist")
 					for role in original_counts:
 						check(int(actual_counts.get(role, 0)) >= 1 and int(actual_counts[role]) <= int(original_counts[role]), "Every original specialist identity must retain at least one member")
 					for role in entry.roles: check(Encounters.KNOWN_ROLES.has(String(role)), "Every saved role must have a known production identity")
