@@ -676,7 +676,7 @@ func draw_squads() -> void:
 		box(rect,panel,muted)
 		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
 		training_cancel_buttons.append({"rect":rect,"barracks":row.barracks,"queue_index":row.queue_index})
-	if rows.is_empty():label("先自由建兵营 · 每营独立队列",Vector2(46,325),13,muted)
+	if rows.is_empty():label("暂无训练订单 · 点击兵种安排生产" if not snapshot.queues.is_empty() else "先自由建兵营 · 每营独立队列",Vector2(46,325),13,muted)
 	label("兵营%d · 训练%d组 · 页%d/%d" % [snapshot.queues.size(),total_orders,training_page+1,pages],Vector2(46,465),12,muted)
 	label("点选/框选 · Shift追加 · 右键指挥 · O驻守",Vector2(46,494),14,amber)
 	label("Tab 全选 · L 白昼补员 · 每营独立训练",Vector2(46,522),14,muted)
@@ -691,7 +691,7 @@ func draw_squads() -> void:
 			var status:="选择工队后可恢复采运"
 			for team: Dictionary in transport.teams:
 				if selected.has(int(team.id)):
-					status="工队%d · %s · 载货%d" % [int(team.id),String(team.state_title),int(team.cargo)]
+					status="工队%d · %s · 载货%d" % [int(team.id)+1,String(team.state_title),int(team.cargo)]
 					break
 			CleanHud._paragraph(self,status,Vector2(46,648),296,13,ink,20,1)
 			if haul_button_visible():
