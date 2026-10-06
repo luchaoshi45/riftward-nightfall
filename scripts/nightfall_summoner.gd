@@ -101,6 +101,14 @@ func advance(delta: float) -> bool:
 	_begin()
 	return true
 
+func revalidate_cast() -> void:
+	# Tower control is applied later in the same simulation frame. Recheck
+	# without advancing time so the displayed cast ends on that actual hit.
+	if not is_instance_valid(game) or String(game.get("phase")) != "night" or _state != "windup": return
+	var rejection := _source_rejection()
+	if _controlled(): rejection = "source_controlled"
+	if not rejection.is_empty(): _cancel(rejection)
+
 func snapshot() -> Dictionary:
 	var source: BattleUnit = host if is_instance_valid(host) else null
 	return {"phase": _state, "remaining": _remaining, "total": WINDUP_SECONDS,

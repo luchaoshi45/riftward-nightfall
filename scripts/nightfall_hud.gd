@@ -39,6 +39,7 @@ var map_expanded := false
 var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
 var budget_refresh_time := 0.0
+var world_warning_rects: Array[Rect2] = []
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
@@ -188,6 +189,7 @@ func draw_context_prompt() -> void:
 		label(hint,rect.position+Vector2(18,67),13,muted)
 
 func _draw() -> void:
+	world_warning_rects.clear()
 	if not is_instance_valid(game) or not is_instance_valid(game.hero):return
 	draw_set_transform(Vector2.ZERO,0,get_viewport_rect().size/Vector2(1440,900))
 	card_rects.clear()
@@ -321,6 +323,7 @@ func draw_combat_floats() -> void:
 	var canvas_size: Vector2=get_viewport_rect().size
 	if canvas_size.x<=0.0 or canvas_size.y<=0.0:return
 	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
 	# New contacts get their natural screen position first; older messages stack
 	# above them or expire without obscuring another reward or a fixed HUD panel.
 	for index in range(game.combat.floats.size()-1,-1,-1):
@@ -351,6 +354,7 @@ func draw_combat_floats() -> void:
 			position.y-=size_px+6
 		if not free_position or position.y<float(size_px+12):continue
 		occupied.append(footprint)
+		world_warning_rects.append(footprint)
 		draw_string_outline(font,position,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,3,Color(.014,.024,.028,.84*fade))
 		label(value,position,size_px,tint)
 
@@ -403,6 +407,7 @@ func draw_target_warnings() -> void:
 func draw_lobber_warnings() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
 	for warning: Dictionary in game.lobber_warning_snapshot():
 		var point: Vector3=warning.position
 		var screen: Variant=_world_screen(point+Vector3.UP*.18)
@@ -431,6 +436,7 @@ func draw_lobber_warnings() -> void:
 func draw_summoner_warnings() -> void:
 	if game.phase not in ["night","paused"]:return
 	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
 	for warning: Dictionary in game.summoner_warning_snapshot():
 		var screen: Variant=_world_screen((warning.position as Vector3)+Vector3.UP*2.1)
 		if screen==null:continue
@@ -447,6 +453,7 @@ func draw_summoner_warnings() -> void:
 				if rect.intersects(footprint):overlaps=true;break
 			if not overlaps:
 				occupied.append(footprint)
+				world_warning_rects.append(footprint)
 				free_position=true
 				break
 			position.y-=22

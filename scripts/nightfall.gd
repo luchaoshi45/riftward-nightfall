@@ -1204,8 +1204,15 @@ func target_warning_snapshot() -> Array[Dictionary]:
 	# screens, and automatically follows a moving hero or squad member.
 	var warnings: Array[Dictionary]=[]
 	if phase not in ["day","night","paused"]:return warnings
+	var casting_sources: Dictionary={}
+	for summoner: Node3D in summoners:
+		if not is_instance_valid(summoner):continue
+		var cast: Dictionary=summoner.snapshot()
+		if String(cast.get("phase","")) not in ["windup","committing"]:continue
+		var source: Variant=cast.get("source")
+		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
 	for creature: BattleUnit in enemies:
-		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber" or creature.get_meta("summoner_active",false):continue
+		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber" or casting_sources.has(creature.get_instance_id()):continue
 		if not creature.attack_queued or creature.attack_windup<=0.0:continue
 		var target:=attack_target_node(creature)
 		var target_kind:=String(creature.get_meta("attack_target_kind",""))
@@ -1803,6 +1810,7 @@ func update_towers(delta: float) -> void:
 				breaker=creature;breaker_distance=distance
 			if pad.mode=="threat":
 				var rank:=tower_threat_rank(String(creature.get_meta("threat","")))
+				if creature.get_meta("threat","")=="summoner" and not creature.get_meta("summoner_active",false):rank=99
 				if rank<99 and (rank<threat_rank or (rank==threat_rank and distance<threat_distance)):
 					threat_target=creature;threat_rank=rank;threat_distance=distance
 		if breaker!=null:selected=breaker
@@ -1820,6 +1828,9 @@ func update_towers(delta: float) -> void:
 		specializations.resolve_shot(pad,selected,enemies,damage,hero)
 		if specializations.branch(pad)=="control":BattleVisuals.burst(effects,impact,3.2,Color("8bbfcf"),.25)
 		elif specializations.branch(pad)=="piercing":BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f5b271"),8)
+	# A real control shot must cancel preparation before this frame is drawn.
+	for summoner: Node3D in summoners:
+		if is_instance_valid(summoner):summoner.revalidate_cast()
 
 func update_focus(delta: float) -> void:
 	focus_cooldown=maxf(0.0,focus_cooldown-delta)
