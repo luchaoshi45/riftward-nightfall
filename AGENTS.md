@@ -1,10 +1,31 @@
 # 《余烬守望》项目规则、双机派工与交接
 
-## 2026-10-06可玩交付登记预检补修（主机A，进行中）
+## 2026-10-06可玩交付登记预检补修（主机A，维护验收完成）
 
 领取已fetch核对的main `150e144a5dd38918b16c876148b0bec33be081ff`。上一轮追加路线已完成源码/Mac验收；本轮修复发布审计确认的登记缺口，属于交付维护，不计玩法优化。当前进度0.8.37但启动器两处仍0.8.25，旧工具按进度字符串替换会零命中，且在读完启动器/README/协作文件之前已写计数。改为先核对序列、真实产物和全部证据/目标文本，按完整且一致的两处EXE引用更新入口，保留历史回执和换行；缺失/异版/重复/证据失败均不得登记。临时文件准备与原字节复核后写入，进度最后写；普通I/O失败回滚，不能把多文件写入宣称为掉电安全事务。
 
-主机A独占AGENTS/Git及真实工作区验收；实现代理唯一修改`tools/record_gameplay_delivery.py`，独立专项代理唯一新建`tests/test_record_gameplay_delivery.py`，审查代理只读，从机勿并发这两代码文件。所有专项在临时假仓库，禁止对真实进度/README/启动器运行登记；不改用户两cfg，不启动Godot或Windows成品。真实计数47/100、源码0.8.37和Windows0.8.25保持，原生验收仍必需。本轮同时限定render-test为固定测试文件名并拒绝仓库外证据路径；修改业务/测试逐文件按sec-code要求上报。普通提交/推送main并核对远端，验收回执集中本文件。
+主机A负责AGENTS/Git及真实工作区验收，实现代理仅改`tools/record_gameplay_delivery.py`，独立专项代理仅新增`tests/test_record_gameplay_delivery.py`，审查代理只读；2026-10-07维护验收完成，解除两代码文件占用。所有登记只在TemporaryDirectory假仓库，真实进度/README/启动器及用户两cfg的五份原hash保持，不启动Godot或Windows成品。真实47/100、源码0.8.37、Windows0.8.25保持，百项目标active，本轮维护不计玩法优化。
+
+工具先完整读取四目标并预检产物/日志/序列，启动器两条真实if exist/start必须同指build内同名EXE，允许启动成品旧版本落后源码进度；只替换完整文件名，不改无关帮助。README只更新当前Windows摘要、启动器说明和当前使用/导出EXE引用；AGENTS只追加唯一交付marker行，并定向同步“项目与当前状态/当前共同基线”的当前source/count/Windows字段，历史回执和余句不动。原BOM/换行保留，target使用进度实际值。临时文件准备、目标与证据快照复核后写入，计数最后写；普通os.replace异常尽力回滚，外部编辑保留；不能称为多文件跨崩溃事务。
+
+新增必需`build/verified-Riftward_Nightfall_v<实际新版本>.log`，直接捕获现有Windows导出验证工具全部stdout/stderr，不改Windows工具架构。回执须唯一精确Windows startup and close exit: 0及唯一同版本VERIFIED_WINDOWS_BUILD，路径须绝对Windows路径且basename匹配新EXE；缺失、错误、非零关闭、异版/异名/裸名/相对或POSIX路径均拒绝。必需nightfall_loop成品日志的精确独立成功行；源码render日志须实际Metal/Vulkan/OpenGL Device后端及自身测试名成功token，允许既有contact/测量/JSON详情，拒绝_OK_FALSE及重复成功行。PowerShell5.1的UTF16 BOM日志可读。所有证据包括EXE解析后仍须在物理build目录，禁止build本身symlink和证据跨目录symlink；render-test仅ASCII测试文件名，不拼接任意路径。
+
+Windows正式交付时先将导出配置与真实下一版本一致，并完成对应玩法、中文/键鼠/渲染原生验收和真实非headless render日志。下列占位值必须换成实际版本/用例/结论，不能用合成证据登记；新路线专项等依赖测试目录继承的包内harness仍须另修，不直接把全部tests塞进成品：
+
+```powershell
+$deliveryVersion = '<下一实际版本>'
+$deliveryTests = @('nightfall_loop', '<对应成品生产用例>')
+$deliveryReceipt = "build\verified-Riftward_Nightfall_v$deliveryVersion.log"
+& .\tools\export_verified_build.ps1 -Version $deliveryVersion -Tests $deliveryTests *> $deliveryReceipt
+if (-not $?) { throw 'Windows交付验证失败，不得登记' }
+python .\tools\record_gameplay_delivery.py --version $deliveryVersion --name '<实际改进>' --verification '<真实原生验收结论>' --render-test '<实际渲染用例文件名>'
+```
+
+最终独立Python专项57个unittest方法、21个参数化方法内124个subTest，全套实际退出0、0失败/错误，9.226秒；覆盖陈旧版本、目录/文本不一致、target60、缺文件/marker/证据、重复版本/成功标记、真实风格render详情、原生回执/路径、UTF16、BOM/CRLF、历史保留、首/第三次真实os.replace失败回滚及未提交目标外部编辑保留。最初旧工具38方法实测22失败/5错误；另以原Git源码独立复现旧入口零替换却exit0和缺README仍先增加计数。二版裸EXE回执反例实际失败后补绝对路径；Root实际发现既有attack_visual等成功行带详情后补兼容。最终Root另复制真实四目标/工具到临时仓库运行完整CLI实际退出0，两当前section、EXE与48/100临时登记一致，历史Windows行/CRLF保留；所有EXE/日志为明确合成，既不证明Windows真实运行，也不证明证据不可伪造。未模拟进程强杀/掉电、已提交文件外部改写或多故障回滚失败，不将窄验证扩大为保证。
+
+独立审查另跑八个隔离案例，包括真实render详情成功、错目录/重复标记/伪后缀/POSIX原生路径/混合关闭exit/绝对render名拒绝及首次真实replace后证据被外部改写的拒绝与回滚，全部通过；外部证据修改保留，临时文件清理。真实文档只做内存变换，回退六个当前字段与一新增交付行后AGENTS其余全文相同，README历史后缀相同；未确认遗留问题。回执`build/delivery-preflight-independent-audit-final-v1.json`不混称原生游戏验收。
+
+最终生产SHA256 `53dd7ebe4d287988320a7c195f6852624a4a08b018a71ec98b5886184052bc1f`，专项 `b6a9f091314c314e2a5373e86af9db831ca241857b017bb01e2ddd05d0a36b48`。751个Git追踪文件/620处资源引用、diff/LFS检查通过；独立回执与原字节/真实文本夹具回执仅留本地build的delivery-preflight目录前缀。工具确认PATH_TRAVERSAL已按测试名白名单及物理build边界修复，专项无确认风险，每次代码编辑逐文件完成sec-code安全扫描并上报风险情况。本轮未更改真实版本、成品、启动入口和计数。发布记录缺口已补修，旧ZIP排除模块及测试继承资源缺口仍待修；最终普通推送及远端一致性以Git收尾核验为准。
 
 ## 2026-10-06追加补给多路线选择（主机A，源码及Mac验收完成）
 
