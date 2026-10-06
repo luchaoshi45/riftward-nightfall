@@ -236,6 +236,10 @@ static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 		"help":_draw_help(ui)
 	ui.box(DRAWER_CLOSE_RECT,Color(.027,.047,.042,.96),Color("52695c"))
 	ui.label("F3 收起",DRAWER_CLOSE_RECT.position+Vector2(22,21),14,ui.muted)
+	if tab=="exploration":
+		var nav: Rect2=ui.SALVAGE_NAV_RECT
+		ui.box(nav,Color(.027,.047,.042,.96),Color("52695c"))
+		ui.label("探索记录" if bool(ui.get("salvage_draw_open")) else "补给抽取",nav.position+Vector2(58,21),14,GREEN)
 
 static func _contract_objective(contract: Node) -> String:
 	var status:=String(contract.status)
@@ -306,6 +310,10 @@ static func _draw_contract(ui: Control, game: Node3D) -> void:
 
 static func _draw_exploration(ui: Control, game: Node3D) -> void:
 	if not is_instance_valid(game.exploration):return
+	var draw_open: bool=bool(ui.get("salvage_draw_open"))
+	if draw_open:
+		_draw_salvage_supply(ui,game)
+		return
 	var exploration: Node=game.exploration
 	var y:=_paragraph(ui,exploration.route_text(),Vector2(TEXT_X,183),TEXT_WIDTH,18,GREEN,24)
 	y=_paragraph(ui,"探索%d次 · 里程碑%d · %d/5：+55零件" % [game.exploration_count,game.exploration_milestones,game.exploration_count%5],Vector2(TEXT_X,y+4),TEXT_WIDTH,14,ui.amber,20)
@@ -325,6 +333,39 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 		var toast: Dictionary=toasts[index]
 		y=_paragraph(ui,String(toast.title)+"："+String(toast.detail),Vector2(TEXT_X,y+6),TEXT_WIDTH,14,toast.get("color",ui.ink),20)
 	if toasts.is_empty():_paragraph(ui,"采集或互动后，实际奖励与全部加成来源显示在这里。",Vector2(TEXT_X,y+8),TEXT_WIDTH,15,ui.muted,22)
+
+static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
+	var state: Dictionary=game.salvage_draw_snapshot()
+	ui.label("废墟补给 · 可选抽取",Vector2(TEXT_X,184),18,GREEN)
+	_paragraph(ui,"当天完成一次探索并返回灯塔，再花30零件试一次。",Vector2(TEXT_X,215),TEXT_WIDTH,15,ui.ink,22)
+	ui.label("概率",Vector2(TEXT_X,249),14,ui.muted)
+	ui.label("回款",Vector2(230,249),14,ui.muted)
+	ui.label("扣除费用后",Vector2(380,249),14,ui.muted)
+	var y:=280.0
+	for result: Dictionary in state.results:
+		var net: int=int(result.net)
+		var net_text: String="+%d" % net if net>=0 else str(net)
+		ui.label("%d%%" % int(result.probability),Vector2(TEXT_X,y),17,ui.ink)
+		ui.label("%d零件" % int(result.payout),Vector2(230,y),17,ui.ink)
+		ui.label(net_text+"零件",Vector2(380,y),17,GREEN if net>=0 else ui.amber)
+		y+=40.0
+	_paragraph(ui,"每白昼最多2次 · 已用%d/2 · 不参与也可正常建设守夜。" % int(state.used),Vector2(TEXT_X,393),TEXT_WIDTH,14,ui.muted,20)
+	var available: bool=bool(state.available)
+	var button: Rect2=ui.SALVAGE_DRAW_RECT
+	ui.box(button,Color(.075,.13,.105,.98) if available else Color(.033,.047,.043,.98),GREEN if available else Color("52695c"))
+	ui.label("支付30零件 · 抽取一次" if available else "暂不可抽取",button.position+Vector2(149 if available else 206,25),16,GREEN if available else ui.muted)
+	var reason: String=String(state.reason)
+	var status_text: String=game.salvage_draw_reason(reason)
+	if game.phase=="paused":status_text="暂停中 · 恢复白昼后可抽取"
+	_paragraph(ui,status_text,Vector2(TEXT_X,484),TEXT_WIDTH,15,GREEN if available else ui.amber,22)
+	var last: Dictionary=state.last
+	if not last.is_empty():
+		var net: int=int(last.net)
+		var net_text: String="+%d" % net if net>=0 else str(net)
+		ui.label("最近结果 · 第%d日第%d次" % [int(last.day_id),int(last.draw_number)],Vector2(TEXT_X,537),16,GREEN)
+		_paragraph(ui,"支付%d · 回款%d · 净%s零件" % [int(last.cost),int(last.payout),net_text],Vector2(TEXT_X,565),TEXT_WIDTH,16,ui.ink,23)
+	else:_paragraph(ui,"尚未抽取 · 先探索，再回家整备。",Vector2(TEXT_X,537),TEXT_WIDTH,15,ui.muted,22)
+	_paragraph(ui,"可能亏损20，也可能多得10或90；保留建造与维修用的零件，由你决定是否尝试。",Vector2(TEXT_X,619),TEXT_WIDTH,14,ui.muted,20)
 
 static func _draw_defense(ui: Control, game: Node3D) -> void:
 	var bounty: Dictionary=game.bounty_snapshot()

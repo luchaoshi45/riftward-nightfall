@@ -11,6 +11,8 @@ const RALLY_SET_RECT := Rect2(245,422,136,27)
 const RALLY_RESET_RECT := Rect2(392,422,140,27)
 const RALLY_PROMPT_RECT := Rect2(435,674,570,84)
 const RALLY_CANCEL_RECT := Rect2(870,726,119,26)
+const SALVAGE_NAV_RECT := Rect2(46,692,190,30)
+const SALVAGE_DRAW_RECT := Rect2(46,418,496,38)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
@@ -42,6 +44,7 @@ const HAUL_BUTTON_RECT := Rect2(356,628,176,32)
 const MEDIC_BUTTON_RECT := Rect2(356,662,176,26)
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 var detail_tab := ""
+var salvage_draw_open := false
 var map_expanded := false
 var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
@@ -114,6 +117,7 @@ func refresh_contract_budgets() -> void:
 
 func dismiss_details() -> void:
 	detail_tab=""
+	salvage_draw_open=false
 	map_expanded=false
 	training_cancel_buttons.clear()
 	queue_redraw()
@@ -127,6 +131,7 @@ func toggle_details(tab: String = "") -> void:
 		dismiss_details()
 		return
 	detail_tab=target
+	salvage_draw_open=false
 	map_expanded=false
 	training_cancel_buttons.clear()
 	game.selection_dragging=false
@@ -139,6 +144,7 @@ func toggle_map() -> void:
 	if game.rally:game.rally.cancel_setting()
 	map_expanded=not map_expanded
 	detail_tab=""
+	salvage_draw_open=false
 	training_cancel_buttons.clear()
 	game.selection_dragging=false
 	queue_redraw()
@@ -1110,6 +1116,11 @@ func _gui_input(event: InputEvent) -> void:
 				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
 				for index in CleanHud.TAB_IDS.size():
 					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
+				if detail_tab=="exploration":
+					if SALVAGE_NAV_RECT.has_point(point):
+						salvage_draw_open=not salvage_draw_open;queue_redraw();accept_event();return
+					if salvage_draw_open and SALVAGE_DRAW_RECT.has_point(point):
+						game.draw_salvage_supply();queue_redraw();accept_event();return
 				if detail_tab=="army":
 					if RALLY_SELECTOR_RECT.has_point(point) and game.rally:
 						game.rally.cycle_selection(1);queue_redraw();accept_event();return

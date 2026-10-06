@@ -12,6 +12,7 @@ const LogisticsScript = preload("res://scripts/outpost_logistics.gd")
 const WaveRewardsScript = preload("res://scripts/wave_rewards.gd")
 const BountyScript = preload("res://scripts/nightfall_bounty.gd")
 const ExplorationMotivationScript = preload("res://scripts/exploration_motivation.gd")
+const SalvageDrawScript = preload("res://scripts/salvage_draw.gd")
 const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const LobberScript = preload("res://scripts/nightfall_lobber.gd")
@@ -163,6 +164,7 @@ var survivors_rescued := 0
 var discoveries: Node3D
 var wildlife: Node3D
 var exploration: Node
+var salvage_draw = SalvageDrawScript.new()
 var exploration_count := 0
 var exploration_milestones := 0
 var reward_toasts: Array[Dictionary] = []
@@ -232,6 +234,7 @@ func _ready() -> void:
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self,run.seed_value)
 	wildlife=load("res://scripts/neutral_wildlife.gd").new();add_child(wildlife);wildlife.setup(self,run.seed_value)
 	exploration=ExplorationMotivationScript.new();add_child(exploration);exploration.setup(self,run.seed_value)
+	salvage_draw.setup(self,run.seed_value)
 	add_child(contracts);contracts.setup(self,run.seed_value)
 	contracts.target_started.connect(trigger_contract_risk)
 	districts.setup(self)
@@ -455,6 +458,7 @@ func simulate(delta: float) -> void:
 		else:finish_night()
 
 func start_night() -> void:
+	salvage_draw.on_night()
 	clear_lobbers()
 	clear_summoners()
 	clear_warders()
@@ -691,6 +695,7 @@ func finish_night() -> void:
 		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
+		salvage_draw.clear()
 		if rally:rally.clear()
 		if logistics:logistics.clear()
 		if squads:squads.clear()
@@ -733,6 +738,7 @@ func begin_day() -> void:
 	expeditions.on_day()
 	if squads:squads.on_day()
 	if exploration:exploration.begin_day(day_number)
+	salvage_draw.begin_day()
 	contracts.on_day()
 	prepare_next_night_plan(true)
 	spawn_timer=4
@@ -2189,6 +2195,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	salvage_draw.clear()
 	bounty.expire()
 	clear_lobbers()
 	clear_summoners()
@@ -3154,6 +3161,40 @@ func update_salvage_refresh(delta: float) -> void:
 		if item.respawn>0:continue
 		item.collected=false;item.node.visible=true
 
+func salvage_draw_snapshot() -> Dictionary:
+	return salvage_draw.snapshot()
+
+func salvage_draw_reason(reason: String) -> String:
+	match reason:
+		"":return "已解锁 · 可自愿抽取"
+		"not_day":return "仅剩余白昼时间内可抽取"
+		"day_unavailable":return "首夜结束后的白昼开放"
+		"hero_unavailable":return "守望者需要存活"
+		"beacon_unavailable":return "灯塔需要存活"
+		"exploration_required":return "今天先完成一次探索"
+		"return_home":return "返回灯塔旁的高台（6米内）"
+		"daily_limit":return "今日两次已用完 · 下个白昼再开放"
+		"insufficient_scrap":return "至少保留30零件才能抽取"
+		"settling":return "补给正在结算"
+		_:return "本次守望已结束"
+
+func draw_salvage_supply() -> Dictionary:
+	var result: Dictionary=salvage_draw.draw()
+	if not bool(result.ok):
+		notify(salvage_draw_reason(String(result.reason)),2)
+		return result
+	var net: int=int(result.net)
+	var net_text: String="+%d" % net if net>=0 else str(net)
+	var detail: String="支付%d · 回款%d · 净%s零件" % [int(result.cost),int(result.payout),net_text]
+	var color:=Color("a3d7bd") if net>=0 else Color("e2a960")
+	# The draw has already settled the one wallet. This is a receipt, not a
+	# gathering event: no exploration count, route bonus or milestone is granted.
+	reward_toasts.append({"title":"废墟补给","detail":detail,"time":3.5,"color":color})
+	while reward_toasts.size()>4:reward_toasts.pop_front()
+	notify("废墟补给 · "+detail,3)
+	hud.queue_redraw()
+	return result
+
 func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, hp_gain: float=0.0, mana_gain: float=0.0, category: String="") -> void:
 	contracts.on_action()
 	if phase!="day" and phase!="night":return
@@ -3216,6 +3257,7 @@ func make_pickup_sound() -> AudioStreamWAV:
 	return stream
 
 func _exit_tree() -> void:
+	salvage_draw.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
@@ -3229,6 +3271,7 @@ func request_run_restart(same_seed: bool) -> void:
 	var next_seed: int=run.seed_value if same_seed else RunSessionScript.fresh_seed(run.seed_value)
 	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode):return
 	restart_pending=true
+	salvage_draw.clear()
 	hud.queue_redraw()
 	# Keep music/playback cleanup in the tree before replacing the entire run.
 	await prepare_shutdown()
@@ -3246,6 +3289,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	set_process(false)
+	salvage_draw.clear()
 	bounty.reset()
 	clear_lobbers()
 	clear_summoners()
