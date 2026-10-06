@@ -360,6 +360,7 @@ func timing_and_damage() -> void:
  var target := spawn(source.position + Vector3(1.8,0,0))
  await begin(source,target); await step(.219)
  check(target.hp == 10000 and source.attack_queued, "Incomplete .219 melee windup causes no damage")
+ await capture("hunter-real-incomplete-melee-windup")
  game.squads.advance(.002)
  check(target.hp == 9988 and hurt_events.size() == 1 and is_equal_approx(source.attack_timer,1.4),
   "Complete preparation performs one actual12 hurt and starts1.4 seconds from impact")
@@ -373,7 +374,7 @@ func timing_and_damage() -> void:
  game.squads.advance(.002)
  check(target.hp == 9976 and hurt_events.size() == 2 and hurt_events[0].source == source.get_instance_id(),
   "Second real hit occurs once and credits the hunter rather than hero")
- await capture("hunter-real-melee-preparation")
+ await open_army(); await capture("hunter-selected-third-page-real-cooldown"); await press(KEY_F3)
  evidence.completed.append("timing")
 
 func specialist_bonus() -> void:
@@ -553,6 +554,51 @@ func cancellation_and_walls() -> void:
  await step(.5)
  check(target.hp == 10000 and not source.attack_queued, "Hunters cannot deliver close melee damage through the actual castle wall")
  await capture("hunter-wall-blocks-melee",false)
+ prepared = await ready(); source = prepared.source
+ var offsets := [[0.0,.89,true],[0.0,.9,true],[0.0,.91,false],
+  [.89,.89,true],[.9,.9,true],[.91,.91,false],[-.45,.45,true],[-.451,.45,false]]
+ for row: Array in offsets:
+  remove_enemies(); source.position.y = game.outpost_height(source.position)
+  game.squads.command_guard(STATION); await step(2.0)
+  source.position.y += float(row[0])
+  target = spawn(source.position + Vector3(1.5,0,0))
+  target.position.y = game.outpost_height(target.position) + float(row[1])
+  game.squads.advance(.001); await step(.221)
+  check(target.hp == (9988.0 if bool(row[2]) else 10000.0),
+   "Actual hunter contact respects source/target ground offsets " + str(row.slice(0,2)))
+ # The building is created through actual Y selection after a full melee
+ # preparation has started. Both actors remain outside its real occupied
+ # cells; only their close contact segment crosses the corner of the wall.
+ prepared = await ready(); source = prepared.source
+ var plot_point := Vector3(7.5,5,1.0)
+ var footprint: Rect2 = Grid.placement(plot_point,"workshop").rect
+ var corner: Vector2 = footprint.end
+ var east := Vector3(corner.x + .55,5,corner.y - 1.0)
+ var north := Vector3(corner.x - 1.0,5,corner.y + .55)
+ await guard_selected(east); await step(12.0)
+ target = spawn(north)
+ check(game.can_traverse(source.position,target.position) and planar(source.position,target.position) < 2.3,
+  "Real close bodies are on walkable terrain before the new corner building exists")
+ await begin(source,target)
+ var new_workshop := await build_gui("workshop",plot_point)
+ evidence.combat.contact = {"source":source.position,"target":target.position,
+  "actual_building":game.districts.plots[new_workshop].position,"expected_building":Grid.placement(plot_point,"workshop").point,
+  "source_walkable":game.outpost_walkable(source.position),"target_walkable":game.outpost_walkable(target.position),
+  "contact_walkable":game.can_traverse(source.position,target.position)}
+ check(game.outpost_walkable(source.position) and game.outpost_walkable(target.position)
+  and not game.can_traverse(source.position,target.position),
+  "A real newly-built workshop blocks contact without placing either live actor inside a building cell")
+ game.squads.advance(.221)
+ check(target.hp == 10000 and not source.attack_queued and source.attack_timer == 0,
+  "Real-time construction across contact cancels the already-started melee hit before any damage or cooldown")
+ await capture("hunter-real-workshop-cancels-contact",false)
+ game.districts.damage(new_workshop,100000.0)
+ game.squads.select_at(source.position); game.squads.command_move(east); await step(2.0)
+ game.squads.command_guard(east)
+ check(game.can_traverse(source.position,target.position), "Actual workshop demolition removes its contact blocker")
+ hurt_events.clear(); await begin(source,target); await step(.221)
+ check(target.hp == 9988 and hurt_events.size() == 1,
+  "After actual blocker demolition the hunter completes a new full melee preparation and one real hurt")
  evidence.completed.append("cancel")
 
 func freeze_phase_and_reentry() -> void:
@@ -646,7 +692,9 @@ func actual_economy_refill() -> void:
  check(game.scrap == balance, "Full group cannot pay a duplicate replacement fee")
  evidence.economy = {"opening":90,"deaths":deaths,"wave_income":120,"crate_income":crate_income,
   "build_train":230,"day_kill":5,"refill":32,"final":game.scrap}
+ stand(HOME); camera_at(STATION); await open_army()
  await capture("hunter-actual-day-refill-economy",false)
+ await press(KEY_F3)
  evidence.completed.append("economy")
 
 func run() -> void:

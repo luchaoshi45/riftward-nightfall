@@ -123,8 +123,12 @@ func _pose(corpse: Dictionary) -> void:
 	var p:=clampf(age/float(corpse.fall_duration),0,1)
 	var dissolve:=smoothstep(float(corpse.dissolve_start),float(corpse.duration)-.06,age)
 	corpse.alpha=1.0-dissolve
-	for mesh: MeshInstance3D in corpse.meshes:
-		if is_instance_valid(mesh):mesh.transparency=dissolve
+	# Caster controllers may retire their additions after the visual transfers.
+	# Check the raw reference before assigning it to a typed mesh variable.
+	for mesh_value: Variant in corpse.meshes:
+		if not is_instance_valid(mesh_value):continue
+		var mesh:=mesh_value as MeshInstance3D
+		mesh.transparency=dissolve
 	var shadow:=corpse.shadow as MeshInstance3D
 	var point: Vector3=(corpse.node as Node3D).global_position
 	point.y=_floor(point,float(corpse.ground))+.024
@@ -137,8 +141,9 @@ func _fall(corpse: Dictionary) -> void:
 	var fall: float=corpse.fall_duration
 	var p:=clampf(age/fall,0,1)
 	for joint: Dictionary in corpse.joints:
-		var node:=joint.node as Node3D
-		if not is_instance_valid(node):continue
+		var node_value: Variant=joint.node
+		if not is_instance_valid(node_value):continue
+		var node:=node_value as Node3D
 		var joint_p:=clampf((age-float(joint.delay))/(fall*.74),0,1)
 		node.rotation=(joint.start as Vector3).lerp(joint.target,smoothstep(0,1,joint_p))
 	var after:=maxf(0.0,age-fall)
@@ -196,8 +201,9 @@ func _bounds(meshes: Array[MeshInstance3D]) -> AABB:
 
 func _clearance(meshes: Array[MeshInstance3D], fallback: float) -> float:
 	var clearance:=INF
-	for mesh: MeshInstance3D in meshes:
-		if not is_instance_valid(mesh):continue
+	for mesh_value: Variant in meshes:
+		if not is_instance_valid(mesh_value):continue
+		var mesh:=mesh_value as MeshInstance3D
 		var transform:=mesh.global_transform
 		for local_point: Vector3 in _support_points(mesh.mesh):
 			var point:=transform*local_point
