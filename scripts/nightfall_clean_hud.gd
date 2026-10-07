@@ -28,11 +28,11 @@ const LIVE_MUTED := Color("9da9a2")
 const LIVE_QUIET := Color("b2bcb5", .88)
 # Short status groups share a quiet dark backing. Reducing the number of
 # persistent sections matters more than making necessary text transparent.
-const PHASE_FILL := Color(.020,.031,.033,.48)
-const OBJECTIVE_DAY_FILL := Color(.020,.035,.031,.48)
-const OBJECTIVE_NIGHT_FILL := Color(.045,.027,.026,.52)
-const RESOURCE_FILL := Color(.020,.031,.033,.48)
-const HERO_FILL := Color(.015,.026,.029,.62)
+const PHASE_FILL := Color(.020,.031,.033,0.0)
+const OBJECTIVE_DAY_FILL := Color(.020,.035,.031,0.0)
+const OBJECTIVE_NIGHT_FILL := Color(.045,.027,.026,.015)
+const RESOURCE_FILL := Color(.020,.031,.033,0.0)
+const HERO_FILL := Color(.015,.026,.029,.08)
 const DRAWER_FILL := Color(.021,.037,.040,.96)
 
 static func draw_live(ui: Control) -> void:
@@ -59,6 +59,7 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
 	ui.box(PHASE_RECT,PHASE_FILL,Color(0,0,0,0))
+	ui.draw_line(Vector2(PHASE_RECT.position.x,PHASE_RECT.end.y-1),Vector2(PHASE_RECT.end.x,PHASE_RECT.end.y-1),Color(tint,.24),1.0)
 	ui.draw_circle(Vector2(33,35),3.0,Color(tint,.82))
 	ui.label("D%d %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
@@ -83,13 +84,14 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var rect:=objective_rect(ui,game)
 	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color(0,0,0,0))
 	var accent:=Color("815e4b",.78) if phase=="night" else Color("587768",.72)
-	ui.draw_line(Vector2(rect.position.x,rect.position.y+15),Vector2(rect.position.x,rect.position.y+rect.size.y-14),accent,2.0)
+	ui.draw_line(rect.position+Vector2(0,rect.size.y-1),rect.position+Vector2(minf(rect.size.x,110.0),rect.size.y-1),accent,1.0)
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
-	_paragraph(ui,String(state.title),Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
+	var text_origin:=rect.position+Vector2(12,24)
+	_paragraph(ui,String(state.title),text_origin,rect.size.x-24,14,ui.amber if phase=="night" else GREEN,18,1)
 	if not String(state.detail).is_empty():
-		_paragraph(ui,String(state.detail),Vector2(444,66),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
+		_paragraph(ui,String(state.detail),text_origin+Vector2(0,20),rect.size.x-24,11,ui.red if bool(state.urgent) else LIVE_MUTED,15,1)
 
 static func objective_rect(ui: Control, game: Node3D) -> Rect2:
 	if _phase(game)=="night" and not game.boss_snapshot().is_empty():
@@ -169,6 +171,7 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	var threatened:=float(game.beacon_alarm_time)>0.0
 	var tint: Color=ui.red if threatened else Color(ui.amber,.92)
 	ui.box(RESOURCE_RECT,RESOURCE_FILL,Color(0,0,0,0))
+	ui.draw_line(Vector2(RESOURCE_RECT.position.x,RESOURCE_RECT.end.y-1),Vector2(RESOURCE_RECT.end.x,RESOURCE_RECT.end.y-1),Color(tint,.20),1.0)
 	ui.draw_circle(Vector2(1089,35),3.0,Color(ui.amber,.82))
 	ui.label("零件 %d" % int(game.scrap),Vector2(1100,40),15,ui.ink)
 	ui.draw_line(Vector2(1183,29),Vector2(1183,45),RAIL_FAINT,1.0)
@@ -180,6 +183,7 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	# backings stay inside the established input areas, leaving the world free.
 	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
+	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y),Vector2(HERO_RECT.end.x,HERO_RECT.position.y),RAIL_FAINT,1.0)
 	ui.draw_line(Vector2(543,826),Vector2(543,870),RAIL_FAINT,1.0)
 	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),13,LIVE_INK)
 	ui.progress(Rect2(360,840,168,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
@@ -239,8 +243,9 @@ static func _draw_skill_symbol(ui: Control, index: int, center: Vector2, tint: C
 			var flame:=PackedVector2Array([Vector2(0,-9),Vector2(-2,-3),Vector2(-6,0),Vector2(-5,6),Vector2(0,9),Vector2(5,5),Vector2(6,0),Vector2(2,-4),Vector2(2,2)])
 			for point in flame.size():flame[point]+=center
 			ui.draw_colored_polygon(flame,Color(tint,.18))
-			flame.append(flame[0])
-			ui.draw_polyline(flame,tint,1.5,true)
+			var outline:=flame.duplicate()
+			outline.append(outline[0])
+			ui.draw_polyline(outline,tint,1.5,true)
 		4:
 			ui.draw_line(center+Vector2(-7,0),center+Vector2(7,0),tint,3.0,true)
 			ui.draw_line(center+Vector2(0,-7),center+Vector2(0,7),tint,3.0,true)
@@ -250,6 +255,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.box(TACTICS_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.box(MAP_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.box(BUILD_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
+	ui.draw_line(Vector2(24,860),Vector2(336,860),RAIL_GHOST,1.0)
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
@@ -262,20 +268,27 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var advancing:=0
 	var escorting:=0
 	var recalling:=0
+	var capturing:=0
 	for row: Dictionary in snapshot.squads:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="attack_move":advancing+=1
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 		if bool(row.selected) and int(row.alive)>0 and bool(row.get("manual_recall",false)):recalling+=1
+		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="capture":capturing+=1
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
 	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
 	if recalling>0:title="已选%d队 · 撤回%d队" % [int(snapshot.selected),recalling]
+	if capturing>0:title="已选%d队 · 夺取%d队" % [int(snapshot.selected),capturing]
 	ui.box(SELECTED_SQUAD_RECT,PHASE_FILL,Color(0,0,0,0))
+	ui.draw_line(SELECTED_SQUAD_RECT.position,SELECTED_SQUAD_RECT.position+Vector2(78,0),Color(GREEN,.42),1.0)
 	ui.label(title,Vector2(38,783),14,GREEN)
 	ui.label(selected_command_hint(ui,game),Vector2(38,808),13,ui.muted)
 
 static func selected_command_hint(ui: Control, game: Node3D) -> String:
 	if ui.rally_setting():return "选点中 · 原部队命令保留"
 	if is_instance_valid(game.squads):
+		for squad: Dictionary in game.squads.squads:
+			if String(squad.order)=="capture" and game.squads.selected_ids.has(int(squad.id)):
+				return "夺取中 · 右键改令 / Alt+O撤回"
 		for squad: Dictionary in game.squads.squads:
 			if bool(squad.get("manual_recall",false)) and game.squads.selected_ids.has(int(squad.id)):
 				return "撤回中 · 右键改令 · Alt+O撤回所选"
@@ -496,12 +509,24 @@ static func _draw_exploration(ui: Control, game: Node3D) -> void:
 	if exploration.network_active():buffs.append("灯网共鸣 · 灯碑外额外+2零件")
 	if not buffs.is_empty():y=_paragraph(ui," · ".join(buffs),Vector2(TEXT_X,y+4),TEXT_WIDTH,15,BLUE,21)
 	y=_paragraph(ui,"P 前往共鸣/发现 · 白昼主委托优先",Vector2(TEXT_X,y+6),TEXT_WIDTH,14,ui.muted,20)
+	y=_draw_generator_tasks(ui,game,y+6)
 	y=_paragraph(ui,"最近收益",Vector2(TEXT_X,y+8),TEXT_WIDTH,16,GREEN,23)
 	var toasts: Array=game.reward_toasts
-	for index in mini(4,toasts.size()):
+	for index in mini(2,toasts.size()):
 		var toast: Dictionary=toasts[index]
 		y=_paragraph(ui,String(toast.title)+"："+String(toast.detail),Vector2(TEXT_X,y+6),TEXT_WIDTH,14,toast.get("color",ui.ink),20)
 	if toasts.is_empty():_paragraph(ui,"采集或互动后，实际奖励与全部加成来源显示在这里。",Vector2(TEXT_X,y+8),TEXT_WIDTH,15,ui.muted,22)
+
+static func _draw_generator_tasks(ui: Control, game: Node3D, y: float) -> float:
+	var tasks: Dictionary=game.expeditions.capture_snapshot()
+	y=_paragraph(ui,"地图争夺 · 白昼选队右键发电机",Vector2(TEXT_X,y),TEXT_WIDTH,15,GREEN,20,1)
+	for site: Dictionary in tasks.sites:
+		var status: String="待夺取" if site.assigned_ids.is_empty() else "部队行军中"
+		if String(site.state)=="complete":status="已夺取 · 能源芯入账"
+		elif String(site.state)=="active":status="充能%d%% · 圈内%d人 · 守卫%d" % [roundi(float(site.ratio)*100),int(site.holders),int(site.guards_alive)]
+		if bool(site.guards_lost):status="守卫失联 · 次日重试"
+		y=_paragraph(ui,"%d号 · %s" % [int(site.index)+1,status],Vector2(TEXT_X,y+2),TEXT_WIDTH,13,ui.ink,18,1)
+	return _paragraph(ui,"守圈12秒并清守 · 多队不加速 · 日落中断",Vector2(TEXT_X,y+3),TEXT_WIDTH,12,ui.muted,18,1)
 
 static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
 	var state: Dictionary=game.salvage_draw_snapshot()
@@ -620,7 +645,7 @@ static func _draw_help(ui: Control) -> void:
 			"生产   U 盾卫 · I 弩手 · N 工程员 · F3 更多",
 			"编队   Ctrl+1/2/3 保存 · 数字召回 · Tab 全选",
 			"指挥   O 驻守 · Alt+O 撤回 · Shift+右键推进",
-			"护航   Alt+右键活工队：护航往返",
+			"远征   白昼选队右键发电机 · Alt+右键工队护航",
 			"撤销   Esc 收起 / 取消建造 / 取消选队 / 暂停",
 			"声音   M 配乐 · F2 减弱震动和闪光",
 		]
@@ -637,14 +662,14 @@ static func _draw_help(ui: Control) -> void:
 		"科技：工坊→回收/中转；兵营+工坊→研究所。\n研究所→重弩；研究所+工坊→军械厂→迫击炮/指挥中继站。\n中转→采运；兵营→救护站→医护；中继站训练时长×0.9/×0.8。",
 		"互动：F搜集、修灯、升级与重建；普通H修近塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
-		"探索：P路线；4/5/6委托；追加4返家/5加码；7/8/9反制。",
+		"探索：P路线；4/5/6委托；追加4返家/5加码；7/8/9反制。\n白昼选队右键发电机：守圈12秒并清守；日落中断。",
 		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。\nF3选生产营和集结点；集结工队需恢复自动采运。",
 		"编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。\n点选/框选/Shift追加；Tab全选，O驻守，Alt+O撤回。\n右键指挥/工队采运；Shift+右键推进；撤回不改工队。\nAlt+右键活工队：护航往返；右键改令。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
 		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",
 	]
-	for text: String in groups:y=_paragraph(ui,text,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,21)+5.0
+	for text: String in groups:y=_paragraph(ui,text,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,20)+5.0
 
 static func _dictionary_property(object: Object, property_name: String) -> Dictionary:
 	var value: Variant=object.get(property_name)

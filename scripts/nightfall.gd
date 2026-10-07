@@ -926,6 +926,7 @@ func finish_night() -> void:
 		repairs.clear()
 		if rally:rally.clear()
 		if logistics:logistics.clear()
+		if expeditions:expeditions.cancel_capture_orders()
 		if squads:squads.clear()
 		for creature in enemies:
 			if is_instance_valid(creature):creature.queue_free()
@@ -1458,7 +1459,7 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	if selected.is_empty():
 		creature.moving=false;creature.attack_queued=false;creature.attack_windup=0.0
 		return
-	if day_hunter and hero.alive:
+	if day_hunter and hero.alive and not expeditions.is_generator_guard(creature):
 		selected={"kind":"hero","index":-1,"position":hero.position}
 	var target_kind: String=String(selected.get("kind","beacon"))
 	var target_pad: int=int(selected.get("index",-1)) if target_kind in ["tower","district"] else -1
@@ -1553,6 +1554,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 	if is_instance_valid(discoveries) and discoveries.cache_guards.owns(creature):
 		return discoveries.cache_guards.target_for(creature)
+	if is_instance_valid(expeditions) and expeditions.is_generator_guard(creature):
+		return expeditions.generator_guard_target(creature)
 	# Day scavengers defend against nearby troops outside the walls. They do
 	# not inherit the night assault's beacon/building fallback or unlimited chase.
 	if phase=="day":
@@ -2274,6 +2277,12 @@ func update_towers(delta: float) -> void:
 		for creature in enemies:
 			if not is_instance_valid(creature) or not creature.alive:continue
 			var distance: float=pad.position.distance_to(creature.position)
+			# Generator guards belong to the explicitly dispatched capture squads.
+			# While the hero remains inside the fort, keep the hero-owned tower
+			# source out of that damage ledger as well; the squads must clear the
+			# station through their own real weapons.
+			if is_instance_valid(expeditions) and near_squad_controls() and (expeditions.is_generator_guard(creature) or creature.get_meta("day_hunter",false)):
+				continue
 			# Priority changes the target, never the tower's strict attack radius.
 			if distance>=range_limit:continue
 			if distance<nearest:selected=creature;nearest=distance
@@ -2287,7 +2296,7 @@ func update_towers(delta: float) -> void:
 					threat_target=creature;threat_rank=rank;threat_distance=distance
 		if breaker!=null:selected=breaker
 		if pad.mode=="threat" and threat_target!=null:selected=threat_target
-		if is_instance_valid(focus_target) and focus_target.alive and focus_time>0 and pad.position.distance_to(focus_target.position)<range_limit:
+		if is_instance_valid(focus_target) and focus_target.alive and focus_time>0 and pad.position.distance_to(focus_target.position)<range_limit and not (is_instance_valid(expeditions) and near_squad_controls() and (expeditions.is_generator_guard(focus_target) or focus_target.get_meta("day_hunter",false))):
 			selected=focus_target
 		if selected==null:continue
 		pad.cooldown=maxf(.38,1.05-float(pad.level)*.18)*specializations.cooldown_multiplier(pad)
@@ -2374,6 +2383,12 @@ func auto_attack() -> void:
 	var best:=hero.attack_range+float(run.stats.range)
 	for creature in enemies:
 		if not is_instance_valid(creature) or not creature.alive:continue
+		# A generator capture is owned by the explicitly dispatched squads. When
+		# the hero stays inside the fort, do not let ordinary auto-attack pull
+		# station guards into the hero's damage ledger just because one reaches
+		# the castle edge. Leaving the fort restores the normal hero combat rule.
+		if is_instance_valid(expeditions) and near_squad_controls() and (expeditions.is_generator_guard(creature) or creature.get_meta("day_hunter",false)):
+			continue
 		var distance:=creature.position.distance_to(hero.position)
 		if distance<best:closest=creature;best=distance
 	if closest==null:return
@@ -2401,6 +2416,12 @@ func cancel_hero_attack() -> void:
 func update_hero_attack(delta: float) -> void:
 	if phase not in ["day","night"]:return
 	if not is_instance_valid(hero_attack_target):
+		cancel_hero_attack()
+		return
+	# A pending swing can outlive the target-selection frame. Re-check the
+	# generator ownership here so a hero who remains in the fort cannot land a
+	# queued hit on a station guard after the capture squads take control.
+	if is_instance_valid(expeditions) and near_squad_controls() and (expeditions.is_generator_guard(hero_attack_target) or hero_attack_target.get_meta("day_hunter",false)):
 		cancel_hero_attack()
 		return
 	if not hero.alive or not hero_attack_target.alive:
@@ -2569,6 +2590,7 @@ func end_defeat(message: String) -> void:
 	specializations.reset_effects()
 	if rally:rally.clear()
 	if logistics:logistics.clear()
+	if expeditions:expeditions.cancel_capture_orders()
 	if squads:squads.clear()
 	if is_instance_valid(siege_boss):
 		siege_boss.clear()
@@ -3418,6 +3440,8 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 			if candidate<distance:target=enemy;distance=candidate
 		var result: Dictionary
 		if is_instance_valid(target):result=squads.command_attack(target)
+		elif phase=="day" and expeditions.generator_at_point(click_point)>=0:
+			result=squads.command_generator(expeditions.generator_at_point(click_point))
 		elif is_instance_valid(logistics) and logistics.selected_hauler_count()>0:
 			var field_index: int=logistics.field_at_point(click_point)
 			if field_index>=0:
@@ -3743,6 +3767,7 @@ func prepare_shutdown() -> void:
 	if construction:construction.clear()
 	if rally:rally.clear()
 	if logistics:logistics.clear()
+	if expeditions:expeditions.cancel_capture_orders()
 	if squads:squads.clear()
 	if districts:districts.clear()
 	if skill_lights:skill_lights.clear()

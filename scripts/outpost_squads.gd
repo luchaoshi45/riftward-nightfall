@@ -31,6 +31,7 @@ const ESCORT := "escort"
 const ATTACK := "attack"
 const GUARD := "guard"
 const HAUL := "haul"
+const CAPTURE := "capture"
 
 var game: Node3D
 var ranged_enabled := false
@@ -44,6 +45,7 @@ var _has_logistics := false
 var _has_hero := false
 var _has_construction_blocks := false
 var _has_rally := false
+var _has_expeditions := false
 var _medic_states: Dictionary = {}
 var artillery: Node3D
 var hunters: Node3D
@@ -83,6 +85,7 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 		if String(property.name) == "hero": _has_hero = true
 		if String(property.name) == "construction_blocks": _has_construction_blocks = true
 		if String(property.name) == "rally": _has_rally = true
+		if String(property.name) == "expeditions": _has_expeditions = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
 	if not is_instance_valid(veterancy): veterancy = VeterancyScript.new()
@@ -151,6 +154,12 @@ func hire(kind: String) -> Dictionary:
 
 func _owns_squad(squad: Dictionary, generation: int) -> bool:
 	if generation != _epoch or not _active(): return false
+	var id := int(squad.get("id", -1))
+	return id >= 0 and id < squads.size() and is_same(squads[id], squad)
+
+func _owns_squad_lifecycle(squad: Dictionary, generation: int) -> bool:
+	if generation != _epoch or not is_instance_valid(game) or game.is_queued_for_deletion() or is_queued_for_deletion(): return false
+	if String(game.get("phase")) not in ["day", "night", "paused", "draft"]: return false
 	var id := int(squad.get("id", -1))
 	return id >= 0 and id < squads.size() and is_same(squads[id], squad)
 
@@ -361,6 +370,11 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	return soldier
 
 func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
+	if order == CAPTURE:
+		var expeditions := _expeditions()
+		if is_instance_valid(expeditions): return expeditions.call("capture_station", self, squad, slot)
+		var member: Variant = squad.members[slot]
+		return member.position if _living(member) else squad.destination
 	if order == ESCORT and is_instance_valid(escort): return escort.station(squad, slot)
 	var march_stations: Array = squad.get("attack_move_stations", [])
 	if order == AMOVE and march_stations.size() == MEMBERS_PER_SQUAD:
@@ -583,8 +597,15 @@ func cancel_selection() -> void:
 	selected_ids.clear()
 	_refresh_selection()
 
+func _selection_allowed() -> bool:
+	if not is_instance_valid(game) or game.is_queued_for_deletion() or is_queued_for_deletion(): return false
+	if String(game.get("phase")) not in ["day", "night", "paused", "draft"]: return false
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) == "squads" and not is_same(game.get(property.name), self): return false
+	return true
+
 func select_all() -> int:
-	if not _active(): return selected_count()
+	if not _selection_allowed(): return selected_count()
 	selected_ids.clear()
 	for squad in squads:
 		if _squad_alive(squad): selected_ids.append(int(squad.id))
@@ -592,7 +613,7 @@ func select_all() -> int:
 	return selected_ids.size()
 
 func select_ids(ids: Array[int], add: bool = false) -> Array[int]:
-	if not _active() or game.is_queued_for_deletion(): return selected_ids.duplicate()
+	if not _selection_allowed(): return selected_ids.duplicate()
 	var candidates: Array[int] = []
 	if add: candidates.assign(selected_ids)
 	candidates.append_array(ids)
@@ -606,7 +627,7 @@ func select_ids(ids: Array[int], add: bool = false) -> Array[int]:
 	return selected_ids.duplicate()
 
 func select_at(point: Vector3, add: bool = false) -> int:
-	if not _active(): return selected_count()
+	if not _selection_allowed(): return selected_count()
 	var chosen := -1
 	var nearest := 1.9
 	for squad in squads:
@@ -620,7 +641,7 @@ func select_at(point: Vector3, add: bool = false) -> int:
 	return chosen
 
 func select_rect(camera: Camera3D, rect: Rect2, add: bool = false) -> int:
-	if not _active() or not is_instance_valid(camera): return selected_count()
+	if not _selection_allowed() or not is_instance_valid(camera): return selected_count()
 	if not add: selected_ids.clear()
 	var area := rect.abs()
 	for squad in squads:
@@ -695,6 +716,68 @@ func command_recall() -> Dictionary:
 	if recalled == 0: return _result(false, "没有可撤回的原部队")
 	return _result(true, "所选非工队撤回灯塔，跨昼夜待命")
 
+func _expeditions() -> Node:
+	if not _has_expeditions or not is_instance_valid(game): return null
+	var value: Variant = game.get("expeditions")
+	return value as Node if is_instance_valid(value) and value is Node and not value.is_queued_for_deletion() else null
+
+func _capture_request_current(controller: Node3D, generation: int, expeditions: Node, site: Dictionary, index: int) -> bool:
+	if not _recall_context_current(controller, generation) or String(controller.get("phase")) != "day": return false
+	if not is_same(_expeditions(), expeditions): return false
+	var sites: Array = expeditions.get("generators")
+	return index >= 0 and index < sites.size() and is_same(sites[index], site) 		and String(site.get("state", "")) in ["ready", "active"] and bool(expeditions.call("_site_owned", site))
+
+func command_generator(index: int) -> Dictionary:
+	var controller := game
+	var generation := _epoch
+	var expeditions := _expeditions()
+	if not _recall_context_current(controller, generation) or String(controller.get("phase")) != "day" or not is_instance_valid(expeditions):
+		return _result(false, "只能在白昼指挥部队夺取发电机")
+	var sites: Array = expeditions.get("generators")
+	if index < 0 or index >= sites.size(): return _result(false, "请选择真实废墟发电机")
+	var site: Dictionary = sites[index]
+	if not _capture_request_current(controller, generation, expeditions, site, index): return _result(false, "该发电机已取回或不可用")
+	# Keep original row identities across every synchronous order callback.
+	var selection: Array[int] = selected_ids.duplicate()
+	var requested: Array[Dictionary] = []
+	for squad: Dictionary in squads:
+		if int(squad.id) in selection and String(squad.kind) != "hauler" and _owns_squad(squad, generation) and _squad_alive(squad): requested.append(squad)
+	if requested.is_empty(): return _result(false, "请先选择存活的非工队部队")
+	var count := 0
+	var unchanged := 0
+	for squad: Dictionary in requested:
+		if not _capture_request_current(controller, generation, expeditions, site, index): return _result(false, "场景或发电机已变化，请重新选择")
+		if not _owns_squad(squad, generation) or not _squad_alive(squad): continue
+		if bool(expeditions.call("capture_order_matches", self, squad, index)):
+			count += 1; unchanged += 1
+			continue
+		_set_squad_order(squad, CAPTURE)
+		if not _capture_request_current(controller, generation, expeditions, site, index): return _result(false, "部队状态已变化，请重新选择")
+		if not _owns_squad(squad, generation) or not _squad_alive(squad) or String(squad.order) != CAPTURE: continue
+		if bool(expeditions.call("assign_capture", self, squad, index, generation)):
+			if not _capture_request_current(controller, generation, expeditions, site, index) or not _owns_squad(squad, generation):
+				return _result(false, "部队状态已变化，请重新选择")
+			count += 1
+		elif _owns_squad(squad, generation) and String(squad.order) == CAPTURE:
+			_cancel_generator_order(squad)
+	if count == 0: return _result(false, "没有可夺取的原部队")
+	var result := _result(true, "部队前往发电机，守住原灯圈并清除守卫" if count > unchanged else "已在夺取该发电机，原进度保留")
+	result.count = count; result.unchanged = unchanged; result.site_index = index
+	return result
+
+func _cancel_generator_order(squad: Dictionary, completed: bool = false, stations: Array = []) -> void:
+	var generation := _epoch
+	if not _owns_squad_lifecycle(squad, generation) or String(squad.order) != CAPTURE: return
+	var order := GUARD if completed else RECALL
+	_set_squad_order(squad, order, true)
+	if not _owns_squad_lifecycle(squad, generation) or String(squad.order) != order: return
+	if completed and stations.size() == MEMBERS_PER_SQUAD: squad.rally_stations = stations.duplicate()
+	else: squad.destination = _squad_position(squad)
+
+func capture_snapshot() -> Dictionary:
+	var expeditions := _expeditions()
+	return expeditions.call("capture_snapshot") if is_instance_valid(expeditions) else {"count": 0, "sites": [], "squads": []}
+
 func command_move_non_haulers(point: Vector3) -> Dictionary: return _command(MOVE, point, null, true)
 
 func command_escort(target_member: Variant) -> Dictionary:
@@ -735,31 +818,54 @@ func set_order(order: String, squad_id: int = -1) -> Dictionary:
 		_set_squad_order(squad, order)
 	return _result(true, "小队驻守南门" if order == HOLD else "小队撤回灯塔", 0, squad_id)
 
-func _set_squad_order(squad: Dictionary, order: String) -> void:
+func _order_context_current(controller: Node3D, generation: int, allow_lifecycle: bool = false) -> bool:
+	if allow_lifecycle:
+		if generation != _epoch or not is_same(game, controller) or not is_instance_valid(controller) or controller.is_queued_for_deletion() or is_queued_for_deletion(): return false
+		if String(controller.get("phase")) not in ["day", "night", "paused", "draft"]: return false
+		for property: Dictionary in controller.get_property_list():
+			var key := String(property.name)
+			if key == "squads" and not is_same(controller.get(key), self): return false
+		return true
+	return _recall_context_current(controller, generation)
+
+func _set_squad_order(squad: Dictionary, order: String, allow_lifecycle: bool = false) -> void:
+	var generation := _epoch
+	var controller := game
+	if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation): return
 	squad.manual_recall = false
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("on_capture_order_changed", self, squad)
+	if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation): return
 	if is_instance_valid(escort): escort.on_order(squad)
+	if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation): return
 	# A manual command owns the squad immediately; arriving later must never
-	# replace that command with the old barracks destination.
+	# replace that command with the old barracks or expedition destination.
 	squad.rally_pending = false
 	squad.rally_stations = []
 	squad.attack_move_stations = []
 	if String(squad.kind) == "hauler" and order != HAUL:
 		var logistics := _logistics()
 		if is_instance_valid(logistics): logistics.call("on_manual_order", int(squad.id))
+		if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation): return
 	squad.order = order
-	for soldier: BattleUnit in squad.members:
-		if not _living(soldier): continue
+	var originals: Array = squad.members.duplicate()
+	for slot in originals.size():
+		if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation) or String(squad.order) != order: return
+		var soldier: BattleUnit = originals[slot]
+		if not _living(soldier) or slot >= squad.members.size() or not is_same(squad.members[slot], soldier): continue
 		soldier.set_meta("amove_engaged", false)
 		if String(squad.kind) == "medic": _cancel_medic(soldier, "order_changed")
 		if String(squad.kind) == "artillery" and is_instance_valid(artillery): artillery.cancel(soldier)
 		if String(squad.kind) == "hunter" and is_instance_valid(hunters): hunters.on_order(soldier)
 		if String(squad.kind) == "flamer" and is_instance_valid(flamethrower): flamethrower.cancel(soldier, "order_changed")
 		if String(squad.kind) == "netter" and is_instance_valid(netters): netters.cancel(soldier, "order_changed")
+		if not _order_context_current(controller, generation, allow_lifecycle) or not _owns_squad_lifecycle(squad, generation) 			or String(squad.order) != order or slot >= squad.members.size() or not is_same(squad.members[slot], soldier) or not _living(soldier): return
 		soldier.target = null
 		soldier.attack_queued = false
 		soldier.attack_windup = 0.0
 		soldier.path.clear(); soldier.path_timer = 0.0
-	squad.attack_target = null
+		soldier.set_meta("capture_route", order == CAPTURE)
+	if _owns_squad_lifecycle(squad, generation) and String(squad.order) == order: squad.attack_target = null
 
 func _logistics() -> Node:
 	# Existing isolated fixtures do not declare the controller's logistics property.
@@ -988,6 +1094,8 @@ func medic_snapshot() -> Dictionary:
 		"treatments": treatments, "healed_hp": healed_hp, "spent": spent, "squads": rows}
 
 func on_day() -> void:
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("cancel_capture_orders")
 	_epoch += 1
 	_cancel_intercepts()
 	_cancel_medic_casts("phase_changed")
@@ -1003,6 +1111,8 @@ func on_day() -> void:
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
 
 func on_night() -> void:
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("cancel_capture_orders")
 	_epoch += 1
 	_cancel_intercepts()
 	_cancel_medic_casts("phase_changed")
@@ -1056,7 +1166,7 @@ func refill_cost(squad_id: int = -1) -> int:
 	return cost
 
 func advance(delta: float, active: bool = true) -> void:
-	if not active or not _active(): return
+	if not active or not _active() or not _recall_context_current(game, _epoch): return
 	if is_instance_valid(veterancy): veterancy.observe_enemies()
 	var generation := _epoch
 	var elapsed := maxf(0.0, delta)
@@ -1073,6 +1183,9 @@ func advance(delta: float, active: bool = true) -> void:
 	_refresh_selection()
 	for squad in squads:
 		if generation != _epoch or not _active(): return
+		if squad.order == CAPTURE:
+			var expeditions := _expeditions()
+			if is_instance_valid(expeditions): expeditions.call("prepare_capture_squad", self, squad)
 		if squad.order == ESCORT and is_instance_valid(escort): escort.prepare_squad(squad, elapsed)
 		if not _owns_squad(squad, generation): return
 		var recovering_hunter := false
@@ -1376,8 +1489,14 @@ func _move_member(soldier: BattleUnit, destination: Vector3, delta: float) -> vo
 	soldier.moving = distance > .16
 	if not soldier.moving: return
 	var waypoint := destination
+	var capture_route: PackedVector3Array = soldier.path.duplicate() if bool(soldier.get_meta("capture_route", false)) else PackedVector3Array()
 	if game.has_method("day_hunter_waypoint"):
 		waypoint = game.call("day_hunter_waypoint", soldier, destination)
+		# day_hunter_waypoint clears a direct path because it can move straight to
+		# the target. Preserve the capture route marker until the order changes;
+		# the actual step still uses the returned waypoint and can_traverse check.
+		if not capture_route.is_empty() and soldier.path.is_empty() and distance > .16:
+			soldier.path = capture_route
 	var direction := waypoint - soldier.position
 	direction.y = 0
 	var previous := soldier.position
@@ -1591,6 +1710,8 @@ func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
 
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("on_capture_member_defeated", self, unit)
 	if is_instance_valid(veterancy): veterancy.forget_member(unit)
 	if is_instance_valid(escort): escort.on_member_defeated(unit)
 	if String(unit.get_meta("squad_kind","")) == "artillery" and is_instance_valid(artillery): artillery.unregister(unit)
@@ -1677,7 +1798,7 @@ func snapshot() -> Dictionary:
 		total_alive += count
 		rows.append({"id": squad.id, "kind": squad.kind, "title": String(Catalog.troop(String(squad.kind)).title), "order": squad.order,
 			"manual_recall": bool(squad.get("manual_recall", false)),
-			"order_label": "护航工队" if squad.order == ESCORT else String({HOLD: "驻守南门", RECALL: "撤回灯塔", MOVE: "移动", AMOVE: "攻击推进", ATTACK: "攻击", GUARD: "原地驻守", HAUL: "采运"}.get(squad.order, "待命")),
+			"order_label": "护航工队" if squad.order == ESCORT else String({HOLD: "驻守南门", RECALL: "撤回灯塔", MOVE: "移动", AMOVE: "攻击推进", ATTACK: "攻击", GUARD: "原地驻守", HAUL: "采运", CAPTURE: "夺取发电机"}.get(squad.order, "待命")),
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
 			"veterans": veterans, "elite": elite, "xp": experience, "members": members,
 			"position": _squad_position(squad), "selected": int(squad.id) in selected_ids})
@@ -1705,6 +1826,8 @@ func veterancy_snapshot() -> Dictionary:
 		"enemies": [], "settled_enemies": 0}
 
 func clear() -> void:
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("forget_capture_roster", self)
 	_epoch += 1
 	if is_instance_valid(veterancy): veterancy.clear()
 	_cancel_intercepts()
@@ -1727,9 +1850,12 @@ func clear() -> void:
 	_has_hero = false
 	_has_construction_blocks = false
 	_has_rally = false
+	_has_expeditions = false
 	_medic_states.clear()
 
 func _exit_tree() -> void:
+	var expeditions := _expeditions()
+	if is_instance_valid(expeditions): expeditions.call("forget_capture_roster", self)
 	_epoch += 1
 	if is_instance_valid(veterancy): veterancy.clear()
 	_cancel_intercepts()
