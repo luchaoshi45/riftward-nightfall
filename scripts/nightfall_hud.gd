@@ -365,9 +365,12 @@ func draw_context_prompt() -> void:
 	var prompt: String=game.interaction_prompt()
 	if prompt.is_empty():return
 	var rect:=context_prompt_rect()
-	draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,110.0),0),Color("c19a5f",.72),1.0)
-	CleanHud._paragraph(self,prompt,rect.position+Vector2(0,24),534,15,amber,20,2)
-	if rect.size.y<80:return
+	# The contextual hint is deliberately a single lightweight line in the
+	# default scene-priority view. The old two-line card made every nearby
+	# interaction feel like a new modal window; F3 still exposes full details.
+	draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,88.0),0),Color("c19a5f",.62),1.0)
+	label(CleanHud._compact_text(self,prompt,460,13),rect.position+Vector2(0,22),13,amber)
+	if rect.size.y<80 or minimal_display:return
 	var district_index: int=game.districts.nearest()
 	if district_index>=0:
 		for district: Dictionary in game.districts.snapshots():

@@ -106,18 +106,32 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
 	var state:=_objective_copy(game,phase)
 	var rect:=objective_rect(ui,game)
-	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color(0,0,0,0))
+	# Keep the compact logical footprint visible to the input recorder; the
+	# transparent box is intentionally not a visual card.
+	ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
 	var accent:=Color("c77c65",.82) if phase=="night" else Color("73aa92",.78)
-	# The focus layout uses a single vertical marker instead of a card edge.
-	# Detailed route and counter information stays in F3 so the world remains dominant.
-	ui.draw_line(rect.position+Vector2(4,10),rect.position+Vector2(4,rect.size.y-8),accent,1.5)
+	# The objective is a single status line. Detailed route and counter
+	# information stays in F3 so the world remains dominant.
+	ui.draw_line(rect.position+Vector2(4,13),rect.position+Vector2(4,31),accent,1.5)
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
-	var title_point:=rect.position+Vector2(18,24)
-	_paragraph(ui,String(state.title),title_point,552,17,ui.amber if phase=="night" else GREEN,20,1)
-	if not String(state.detail).is_empty():
-		_paragraph(ui,String(state.detail),rect.position+Vector2(18,48),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
+	var title:=_compact_text(ui,String(state.title),520,16)
+	ui.label(title,rect.position+Vector2(18,27),16,ui.amber if phase=="night" else GREEN)
+	var detail:=_compact_text(ui,String(state.detail),520,11)
+	if not detail.is_empty() and bool(state.urgent):
+		ui.label(detail,rect.position+Vector2(18,45),11,ui.red)
+
+static func _compact_text(ui: Control, value: String, max_width: float, size_px: int) -> String:
+	if value.is_empty():return ""
+	var actual_font: Font=ui.get("font") as Font
+	if actual_font.get_string_size(value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px).x<=max_width:return value
+	var result:=""
+	for character in value:
+		var candidate:=result+character+"…"
+		if actual_font.get_string_size(candidate,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px).x>max_width:break
+		result+=character
+	return result+"…"
 
 static func objective_rect(ui: Control, game: Node3D) -> Rect2:
 	if _phase(game)=="night" and not game.boss_snapshot().is_empty():
@@ -126,9 +140,10 @@ static func objective_rect(ui: Control, game: Node3D) -> Rect2:
 	var actual_font: Font=ui.get("font") as Font
 	var width:=actual_font.get_string_size(String(state.title),HORIZONTAL_ALIGNMENT_LEFT,-1,16).x
 	var detail:=String(state.detail)
-	if not detail.is_empty():width=maxf(width,actual_font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x)
+	var show_detail:=bool(state.urgent) and not detail.is_empty()
+	if show_detail:width=maxf(width,actual_font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,11).x)
 	# Painting and input exclusion share the same content-sized rectangle.
-	return Rect2(OBJECTIVE_RECT.position,Vector2(clampf(ceilf(width)+36.0,200.0,OBJECTIVE_RECT.size.x),60.0 if not detail.is_empty() else 44.0))
+	return Rect2(OBJECTIVE_RECT.position,Vector2(clampf(ceilf(width)+36.0,200.0,OBJECTIVE_RECT.size.x),60.0 if show_detail else 44.0))
 
 static func _objective_copy(game: Node3D, phase: String) -> Dictionary:
 	var title:="守住南门"
@@ -196,11 +211,10 @@ static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 static func _draw_resources(ui: Control, game: Node3D) -> void:
 	var threatened:=float(game.beacon_alarm_time)>0.0
 	var tint: Color=ui.red if threatened else Color(ui.amber,.92)
-	ui.box(RESOURCE_RECT,RESOURCE_FILL,Color(0,0,0,0))
-	ui.draw_line(Vector2(1080,26),Vector2(1080,58),Color(tint,.28),1.0)
+	ui.box(RESOURCE_RECT,Color(0,0,0,0),Color(0,0,0,0))
 	ui.draw_circle(Vector2(1091,37),3.0,Color(ui.amber,.88))
-	ui.label("零件 %d" % int(game.scrap),Vector2(1103,41),15,ui.ink)
-	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1214,41),13,tint)
+	ui.label("零件 %d" % int(game.scrap),Vector2(1103,41),14,ui.ink)
+	ui.label("· 灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1190,41),13,tint)
 	ui.draw_line(Vector2(1214,52),Vector2(1390,52),FOCUS_GHOST,1.0)
 	ui.draw_line(Vector2(1214,52),Vector2(1214+176.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.68),1.0)
 
@@ -210,10 +224,10 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.draw_line(Vector2(360,878),Vector2(1096,878),FOCUS_RAIL,1.0)
-	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),12,LIVE_INK)
-	ui.progress(Rect2(360,840,168,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),11,BLUE)
-	ui.progress(Rect2(360,870,168,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,836),11,LIVE_INK)
+	ui.progress(Rect2(360,842,132,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),10,BLUE)
+	ui.progress(Rect2(360,867,132,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
@@ -232,9 +246,9 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
 			ui.draw_arc(center,18.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.5)
 		ui.label(keys[index],Vector2(x+16,873),10,LIVE_QUIET,true)
-		ui.label(names[index],Vector2(x+42,837),12,LIVE_INK if ready else LIVE_MUTED)
-		ui.draw_line(Vector2(x+38,868),Vector2(x+88,868),Color(tint,.26),1.0)
-		if not ready:ui.label(status,Vector2(x+42,859),11,tint)
+		ui.label(names[index],Vector2(x+42,837),11,LIVE_INK if ready else LIVE_MUTED)
+		ui.draw_line(Vector2(x+38,868),Vector2(x+88,868),Color(tint,.22),1.0)
+		if not ready:ui.label(status,Vector2(x+42,859),10,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
