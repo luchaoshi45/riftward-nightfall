@@ -26,6 +26,8 @@ const RAIL_GHOST := Color("82978b", .10)
 const LIVE_INK := Color("e4e2d8")
 const LIVE_MUTED := Color("9da9a2")
 const LIVE_QUIET := Color("b2bcb5", .88)
+const FOCUS_RAIL := Color("9bb6a6", .24)
+const FOCUS_GHOST := Color("9bb6a6", .10)
 # Short status groups share a quiet dark backing. Reducing the number of
 # persistent sections matters more than making necessary text transparent.
 const PHASE_FILL := Color(.020,.031,.033,0.0)
@@ -58,6 +60,7 @@ static func _phase(game: Node3D) -> String:
 static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
+	var quiet_tint: Color=Color(LIVE_QUIET, .66) if bool(ui.get("minimal_display")) else LIVE_QUIET
 	# The live view uses one quiet top rail. The rectangle remains part of the
 	# logical exclusion map, but the visual layer is reduced to a dot, two short
 	# status lines and a hairline timer so the battlefield stays dominant.
@@ -70,13 +73,17 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	if clearing:
 		var elapsed:=floori(float(clearance.elapsed))
 		ui.label("清场 +%02d:%02d" % [elapsed/60,elapsed%60],Vector2(112,41),14,LIVE_INK)
-		ui.label("残敌%d · 飞弹%d" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(45,60),11,LIVE_QUIET)
+		ui.label("残敌%d · 飞弹%d" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(45,60),11,quiet_tint)
 	else:
 		ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(112,41),14,LIVE_INK)
-	if night and not clearing:
-		ui.label("第%d/%d波" % [game.wave_index,game.WAVES_PER_NIGHT],Vector2(45,60),11,LIVE_QUIET)
-	elif not night:
-		ui.label("整备窗口",Vector2(45,60),11,LIVE_QUIET)
+	# In focus mode the center objective already carries the wave/contract
+	# context, so the second phase line is reserved for the live clearing count.
+	# The full tactical drawer still exposes the same information on demand.
+	if not bool(ui.get("minimal_display")):
+		if night and not clearing:
+			ui.label("第%d/%d波" % [game.wave_index,game.WAVES_PER_NIGHT],Vector2(45,60),11,quiet_tint)
+		elif not night:
+			ui.label("整备窗口",Vector2(45,60),11,quiet_tint)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
 	ui.draw_line(Vector2(45,72),Vector2(236,72),Color(tint,.12),1.0)
 	ui.draw_line(Vector2(45,72),Vector2(45+191.0*clampf(float(game.phase_time)/length,0.0,1.0),72),Color(tint,.56),1.0)
@@ -87,15 +94,16 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var rect:=objective_rect(ui,game)
 	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color(0,0,0,0))
 	var accent:=Color("815e4b",.78) if phase=="night" else Color("587768",.72)
-	# A single short vertical marker keeps the objective legible without
-	# rebuilding the wide card used by the older HUD.
-	ui.draw_line(rect.position+Vector2(0,15),rect.position+Vector2(0,rect.size.y-14),accent,1.0)
+	# The focus layout uses one quiet marker instead of a card edge. Detailed
+	# route and counter information stays in F3 so the world remains dominant.
+	ui.draw_circle(rect.position+Vector2(4,20),2.0,accent)
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
-	_paragraph(ui,String(state.title),Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
+	var title_point:=rect.position+Vector2(18,24)
+	_paragraph(ui,String(state.title),title_point,552,16,ui.amber if phase=="night" else GREEN,19,1)
 	if not String(state.detail).is_empty():
-		_paragraph(ui,String(state.detail),Vector2(444,66),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
+		_paragraph(ui,String(state.detail),rect.position+Vector2(18,47),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
 
 static func objective_rect(ui: Control, game: Node3D) -> Rect2:
 	if _phase(game)=="night" and not game.boss_snapshot().is_empty():
@@ -177,21 +185,19 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.box(RESOURCE_RECT,RESOURCE_FILL,Color(0,0,0,0))
 	ui.draw_circle(Vector2(1089,37),3.0,Color(ui.amber,.82))
 	ui.label("零件 %d" % int(game.scrap),Vector2(1100,41),15,ui.ink)
-	ui.draw_line(Vector2(1185,30),Vector2(1185,45),RAIL_FAINT,1.0)
 	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1202,41),13,tint)
-	ui.draw_line(Vector2(1202,53),Vector2(1390,53),Color(tint,.12),1.0)
-	ui.draw_line(Vector2(1202,53),Vector2(1202+188.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),53),Color(tint,.62),1.0)
+	ui.draw_line(Vector2(1202,52),Vector2(1390,52),FOCUS_GHOST,1.0)
+	ui.draw_line(Vector2(1202,52),Vector2(1202+188.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.62),1.0)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
 	# One compact dock groups health, skills and the optional upgrade. These
 	# backings stay inside the established input areas, leaving the world free.
 	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
-	ui.draw_line(Vector2(HERO_RECT.position.x+18,HERO_RECT.position.y),Vector2(HERO_RECT.end.x-18,HERO_RECT.position.y),RAIL_FAINT,1.0)
-	ui.draw_line(Vector2(543,826),Vector2(543,870),RAIL_FAINT,1.0)
-	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),13,LIVE_INK)
+	ui.draw_line(Vector2(360,878),Vector2(1096,878),FOCUS_RAIL,1.0)
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),12,LIVE_INK)
 	ui.progress(Rect2(360,840,168,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,864),12,BLUE)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),11,BLUE)
 	ui.progress(Rect2(360,870,168,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
@@ -201,7 +207,8 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
 		var center:=Vector2(x+20,838)
-		ui.draw_circle(center,16.0,Color(tint,.09 if not ready else .13))
+		ui.draw_arc(center,15.0,0.0,TAU,24,Color(tint,.42),1.0,true)
+		ui.draw_circle(center,2.0,Color(tint,.52))
 		_draw_skill_symbol(ui,index,center,Color(tint,.76) if not ready else tint)
 		var cooldown: float=float(game.cooldowns[index])
 		if cooldown>0.0:
@@ -209,8 +216,9 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 			# cooldown ring grow backwards; the number shows exact seconds left.
 			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
 			ui.draw_arc(center,18.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.5)
-		ui.label(keys[index],Vector2(x+15,873),11,LIVE_QUIET,true)
-		ui.label(names[index],Vector2(x+42,837),13,LIVE_INK if ready else LIVE_MUTED)
+		ui.label(keys[index],Vector2(x+16,873),10,LIVE_QUIET,true)
+		ui.label(names[index],Vector2(x+42,837),12,LIVE_INK if ready else LIVE_MUTED)
+		ui.draw_line(Vector2(x+38,868),Vector2(x+88,868),Color(tint,.26),1.0)
 		if not ready:ui.label(status,Vector2(x+42,859),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
