@@ -2,6 +2,16 @@ extends SceneTree
 const Layout = preload("res://scripts/outpost_layout.gd")
 const Grid = preload("res://scripts/construction_grid.gd")
 
+# This progression fixture isolates lifecycle behavior with explicit real
+# death callbacks. Natural time, money and combat are validated separately.
+func resolve_precision_night(game: Node3D) -> void:
+	game.phase_time=.01
+	game.simulate(.03)
+	assert(game.phase=="night" and game.night_clearance_active)
+	for enemy in game.enemies.duplicate():
+		if is_instance_valid(enemy) and enemy.alive:enemy.hurt(100000.0,game.hero)
+	game.simulate(.02)
+
 func _initialize() -> void:
 	if DisplayServer.get_name()!="headless":
 		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
@@ -51,6 +61,7 @@ func verify_close_building_approach(game: Node3D) -> void:
 
 func run() -> void:
 	var game: Node3D=load("res://scenes/nightfall.tscn").instantiate()
+	game.archive.enabled=false
 	root.add_child(game)
 	current_scene=game
 	await create_timer(.5).timeout
@@ -168,14 +179,18 @@ func run() -> void:
 	assert(game.beacon_hp>before-creature.damage)
 	game.phase_time=.01
 	game.simulate(.03)
+	assert(game.phase=="night" and game.night_clearance_active,"The ordinary night deadline must retain living threats")
+	for enemy in game.enemies.duplicate():
+		if is_instance_valid(enemy) and enemy.alive:enemy.hurt(100000.0,game.hero)
+	game.simulate(.02)
 	assert(game.phase=="draft" and game.day_number==2)
 	assert(game.choose_card(0) and game.phase=="day")
 	game.start_night()
-	game.finish_night()
+	resolve_precision_night(game)
 	assert(game.day_number==3 and game.phase=="draft")
 	assert(game.choose_card(0) and game.phase=="day")
 	game.start_night()
-	game.finish_night()
+	resolve_precision_night(game)
 	assert(game.phase=="ended" and game.victory)
 	print("NIGHTFALL_LOOP_OK")
 	# Unload the real scene before quitting so the audio mix thread can release

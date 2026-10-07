@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Actual limited summoning, production input/counterplay and unchanged ledgers.
 ## Explicit parts and long nights isolate behavior, not playable difficulty.
 const Layout := preload("res://scripts/outpost_layout.gd")
@@ -707,8 +709,8 @@ func lifecycle_cleanup() -> void:
 		var token := controller.get_instance_id()
 		begin(controller)
 		match action:
-			"dawn": game.finish_night(); await press(KEY_1)
-			"victory": game.finish_night()
+			"dawn": TransitionFixture.finish_for_fixture(game); await press(KEY_1)
+			"victory": TransitionFixture.finish_for_fixture(game)
 			"defeat": game.end_defeat("召潮验证 · 实际败局清理")
 			"shutdown": await game.prepare_shutdown()
 		check(game.summoners.is_empty() and game.summoner_warning_snapshot().is_empty(), "Actual " + action + " clears unfinished summoning and every visible warning")
@@ -739,7 +741,7 @@ func real_hud_readability() -> void:
 		await press(KEY_F3)
 	for next_night in [3, 4]:
 		await fresh(next_night - 1)
-		game.finish_night(); await press(KEY_1)
+		TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 		check(game.phase == "day" and game.day_number == next_night,
 			"Actual dawn creates the saved-plan reinforcement forecast for night " + str(next_night))
 		await press(KEY_F3); await click_ui(game.hud.details_tab_rect(3))

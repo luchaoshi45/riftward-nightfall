@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Real scene/GUI/saved waves/death ledgers. Precision cases use 5000 parts,
 ## disabled unrelated offense, stationary enemies and explicit 100000-damage
 ## lifecycle boundaries. Economy separately retains original clocks and stats.
@@ -12,6 +14,8 @@ const STEP := .1
 const HOME := Vector3(0,5,3.1)
 const VIEWPORTS := [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]
 const BOUNTY_RECT := Rect2(46,352,496,30)
+const OBJECTIVE_TITLE_POINT := Vector2(444,43)
+const OBJECTIVE_DETAIL_POINT := Vector2(444,66)
 const TARGET_REWARD_ID := 7
 const HUD_OBSERVER := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_rects: Array[Rect2] = []
@@ -182,7 +186,7 @@ func fresh(precision: bool = true, mode: String = "siege") -> void:
 
 func day_fixture(mode: String = "siege", day: int = 2) -> void:
 	await fresh(true,mode)
-	game.day_number=day-1; game.finish_night(); await press(KEY_1)
+	game.day_number=day-1; TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	clear_enemies(); suspend_defense(); stand(HOME); camera_at(HOME)
 	check(game.phase=="day" and game.day_number==day and game.phase_time==90.0,"Precision setup enters the actual dawn/card/day hooks with the original90-second day")
 
@@ -255,12 +259,18 @@ func actual_hud(tag: String) -> void:
 			if not preview.is_empty():
 				var expected_title: String="下一波 · 甲壳悬赏 · %d只 · %.0f秒" % [int(preview.count),float(preview.remaining)]
 				var expected_detail: String="全清+48 · 甲壳60甲/J破甲 · 投蚀落点2米 · F3 防线"
+				var objective: Rect2=CleanHud.objective_rect(game.hud,game)
+				check(CleanHud.OBJECTIVE_RECT.encloses(objective) and game.hud.drawn_rects.has(objective)
+					and game.hud.visible_hud_rects().has(objective),"The painted bounty objective and its actual input region share the current compact rectangle in "+str(viewport))
 				var title_rows: Array[Dictionary]=[]; var detail_rows: Array[Dictionary]=[]
 				for row: Dictionary in game.hud.drawn_labels:
-					if row.point==Vector2(444,45):title_rows.append(row)
-					if row.point==Vector2(444,68):detail_rows.append(row)
-				check(title_rows.size()==1 and String(title_rows[0].text)==expected_title and title_rows[0].point==Vector2(444,45) and int(title_rows[0].size)==16 and float(title_rows[0].width)<=552.0,"Actual compact third-wave title includes the complete real population and rounded deadline within552px in "+str(viewport))
-				check(detail_rows.size()==1 and String(detail_rows[0].text)==expected_detail and detail_rows[0].point==Vector2(444,68) and int(detail_rows[0].size)==12 and float(detail_rows[0].width)<=552.0,"Actual compact third-wave detail includes the complete reward, armor counter and two-meter warning within552px in "+str(viewport))
+					if row.point==OBJECTIVE_TITLE_POINT:title_rows.append(row)
+					if row.point==OBJECTIVE_DETAIL_POINT:detail_rows.append(row)
+				check(title_rows.size()==1 and String(title_rows[0].text)==expected_title and int(title_rows[0].size)==16 and float(title_rows[0].width)<=552.0,"Actual compact third-wave title includes the complete real population and rounded deadline within552px in "+str(viewport))
+				check(detail_rows.size()==1 and String(detail_rows[0].text)==expected_detail and int(detail_rows[0].size)==12 and float(detail_rows[0].width)<=552.0,"Actual compact third-wave detail includes the complete reward, armor counter and two-meter warning within552px in "+str(viewport))
+				for row: Dictionary in title_rows+detail_rows:
+					var glyphs:=Rect2(Vector2(row.point.x,row.point.y-float(row.ascent)),Vector2(float(row.width),float(row.ascent)+float(row.descent)))
+					check(objective.encloses(glyphs),"The complete actual bounty title/detail glyph bounds fit the painted compact objective in "+str(viewport)+": "+String(row.text))
 		(evidence.hud as Array).append({"tag":tag,"viewport":viewport,"bounty_labels":bounty_labels})
 	check(snapshot()==before,"Three-viewport bounty drawing does not spend, advance clocks, roll plans or move actors")
 	root.size=previous_viewport; root.content_scale_size=previous_viewport; await redraw()
@@ -394,7 +404,7 @@ func real_births_and_ledgers() -> void:
 	last.defeated.emit(last,null)
 	check(game.scrap==paid and game.bounty_snapshot().paid==48,"An explicit repeated actual death callback cannot repay either base income or bounty")
 	(evidence.ledgers as Array).append({"wave":3,"actors":units.size(),"shellguards":shellguards,"partial":partial,"completed":completed,"base":24,"bonus":48,"actual_delta":game.scrap-balance})
-	game.phase_time=.001; await advance(.002)
+	TransitionFixture.finish_for_fixture(game)
 	check(game.bounty_snapshot().state=="won" and game.bounty_snapshot().paid==48,"The earned one-time result survives dawn without becoming another offer")
 	await press(KEY_1)
 	check(not game.select_bounty() and game.bounty_snapshot().paid==48,"A later dawn cannot repeat the already won run-local bounty")
@@ -486,13 +496,15 @@ func frozen_phases_and_retry() -> void:
 	check(game.run.seed_value==SEED and game.phase=="draft" and game.scrap==90 and game.bounty_snapshot().state=="idle" and game.bounty_snapshot().paid==0,"Real retry starts the same seed with original wallet, free opening card and no inherited bounty")
 	check(String(captured.call("snapshot").state)=="idle","Captured old bounty reference is actually cleared during production shutdown/retry")
 	captured=null
-	await fresh(); game.day_number=2; game.finish_night(); await press(KEY_1)
+	await fresh(); game.day_number=2; TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	check(game.bounty_snapshot().state=="idle" and not game.select_bounty(),"An unchosen skipped second-night offer cannot appear at a later dawn")
 	stage_returned=true
 
 func hud_and_default_coverage() -> void:
 	await day_fixture(); await close_drawer(); clear_transient_hud(); await redraw()
 	var ordinary: Array=game.hud.visible_hud_rects().duplicate(); var default_area:=0.0
+	var ordinary_objective: Rect2=CleanHud.objective_rect(game.hud,game)
+	check(ordinary.has(ordinary_objective),"The quiet daytime baseline includes its actual compact objective input region")
 	for rect: Rect2 in ordinary:default_area+=rect.get_area()
 	check(default_area/(1440.0*900.0)<.15,"Actual default bounty-day conservative HUD area retains the prior compact under15-percent budget")
 	await open_defense(); await actual_hud("offered"); await capture("bounty-offered-existing-defense")
@@ -504,7 +516,14 @@ func hud_and_default_coverage() -> void:
 	check(game.move_goal!=before.goal and game.bounty_snapshot().state=="selected","The hidden drawer bounty area releases real normal right-click world movement")
 	stand(HOME); game.start_night(); await advance(36.0); clear_transient_hud(); camera_at(HOME)
 	await actual_hud("third-wave-preview"); await capture("bounty-real-third-wave-forecast")
-	check(not game.hud.drawn_rects.has(BOUNTY_RECT) and game.hud.visible_hud_rects()==ordinary,"Actual live bounty forecast stays inside the original objective rectangle")
+	var live_areas: Array=game.hud.visible_hud_rects().duplicate()
+	var live_objective: Rect2=CleanHud.objective_rect(game.hud,game)
+	var ordinary_other: Array=ordinary.duplicate(); ordinary_other.erase(ordinary_objective)
+	var live_other: Array=live_areas.duplicate(); live_other.erase(live_objective)
+	check(not game.hud.drawn_rects.has(BOUNTY_RECT) and live_areas.has(live_objective)
+		and game.hud.drawn_rects.has(live_objective) and live_areas.size()==ordinary.size()
+		and live_other==ordinary_other and live_objective.position==ordinary_objective.position
+		and CleanHud.OBJECTIVE_RECT.encloses(live_objective),"Actual live bounty forecast only resizes the existing compact objective; every other permanent rectangle and input region stays exact")
 	await advance(4.001); var units:=target_units(); var last:=kill_all_but_last(units)
 	await open_defense(); await actual_hud("active-last-enemy"); await capture("bounty-active-last-enemy")
 	if is_instance_valid(last):last.hurt(100000.0,null)
@@ -544,10 +563,17 @@ func natural_economic_comparison() -> void:
 		await fresh(false); natural_deaths.clear(); natural_tokens.clear(); natural_damage.clear()
 		game.hero.damage_confirmed.connect(on_natural_damage)
 		camera_at(Vector3(0,5,10)); await mouse(game.camera.unproject_position(Vector3(0,5,10)),MOUSE_BUTTON_RIGHT)
-		for frame in 1100:
+		var first_night_elapsed := 0.0
+		var first_night_cutoff: Dictionary = {}
+		# Bound actual residual combat; the production assault deadline is unchanged.
+		for frame in ceili(240.0 / STEP):
 			if game.phase!="night":break
 			natural_policy_frame()
+			first_night_elapsed += STEP
+			if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+				first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 			if frame%100==99:await process_frame
+		TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 		check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0.0,"Original fixed-seed105-second first-night policy survives before natural route "+route)
 		if game.phase!="draft":return
 		var first_deaths:=natural_deaths.duplicate(true); await press(KEY_1)
@@ -566,7 +592,10 @@ func natural_economic_comparison() -> void:
 		var promised_shellguards: int=int(game.night_plan[2].shellguard_count)
 		check(promised_shellguards==(3 if route=="bounty" else 1),"Both natural routes enter their exact saved promised third-wave composition")
 		var second_births: Array[Dictionary]=[]; var second_seen: Dictionary={}; var last_ledger: Dictionary={}
-		for frame in 2200:
+		var second_night_elapsed := 0.0
+		var second_night_cutoff: Dictionary = {}
+		# Bound actual residual combat; the production assault deadline is unchanged.
+		for frame in ceili(240.0 / STEP):
 			if game.phase!="night":break
 			for value: Variant in game.enemies:
 				if not is_instance_valid(value) or value.is_queued_for_deletion():continue
@@ -575,9 +604,13 @@ func natural_economic_comparison() -> void:
 				second_seen[unit.get_instance_id()]=true
 				second_births.append({"token":unit.get_instance_id(),"wave":int(unit.get_meta("wave_reward_id",-1)),"role":String(unit.get_meta("threat","")),"max_hp":unit.max_hp,"armor":unit.armor,"speed":unit.speed,"damage":unit.damage})
 			natural_policy_frame()
+			second_night_elapsed += STEP
+			if second_night_cutoff.is_empty() and second_night_elapsed >= game.NIGHT_LENGTH:
+				second_night_cutoff = TransitionFixture.deadline_evidence(game, second_night_elapsed)
 			if not game.wave_rewards.snapshot(TARGET_REWARD_ID).is_empty():last_ledger=game.wave_rewards.snapshot(TARGET_REWARD_ID)
 			if frame%100==99:await process_frame
-		check(game.phase in ["draft","ended"],"Natural second-night route reaches real dawn or real defeat within its original clock")
+		TransitionFixture.record_natural_receipt(game, evidence, "second", second_night_elapsed, second_night_cutoff)
+		check(game.phase in ["draft","ended"],"Natural second-night route reaches real dawn or defeat through original waves and actual residual combat within240 simulated seconds")
 		var bounty: Dictionary=game.bounty_snapshot(); var actual_shellguards:=0
 		for row: Dictionary in second_births:
 			if int(row.wave)==TARGET_REWARD_ID and String(row.role)=="shellguard":

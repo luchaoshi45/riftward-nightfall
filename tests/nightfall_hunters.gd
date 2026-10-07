@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production hunters: real queue, bounded melee pursuit, damage and lifecycle.
 ## Explicit 5000 parts/long phases isolate rules; they are not difficulty proof.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -642,7 +644,7 @@ func on_reentry(_victim: BattleUnit, _source: BattleUnit, _hp: float, _shield: f
  if mode == "clear": game.squads.clear()
  elif mode == "setup": game.squads.setup(game,true)
  elif mode == "defeat": game.end_defeat("猎手回归 · 实际伤害回调")
- elif mode == "victory": game.day_number = 4; game.finish_night()
+ elif mode == "victory": game.day_number = 4; TransitionFixture.finish_for_fixture(game)
 
 func actual_economy_refill() -> void:
  await fresh(true,false)
@@ -657,7 +659,7 @@ func actual_economy_refill() -> void:
   await process_frame; game.enemies.clear()
   if wave < 4: game.spawn_night_wave()
  check(deaths == 71 and game.scrap == 210 and game.kill_chain == 0, "Seventy-one genuine first-night deaths yield120 without hero kill-chain reward")
- game.finish_night(); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
+ TransitionFixture.finish_for_fixture(game); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
  var crate: Dictionary = {}
  for item: Dictionary in game.world.salvage:
   if not item.collected and item.position.z > 26.0 and game.outpost_walkable(item.position): crate = item; break

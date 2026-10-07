@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_attack_move.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Independent repair acceptance. Precision uses5000 parts, extended phases,
 ## direct stations and real artificial building damage/casualties. Economy
 ## preserves90/105/90, native enemies/actors/stats, and actual world input.
@@ -376,7 +377,7 @@ func frozen_lifecycle() -> void:
 	await press(KEY_1); check(game.phase=="night" and not repair_row("tower",0).is_empty(),"Actual card choice retains the old repair intent")
 	var parts: int=game.scrap; step(.599); check(game.scrap==parts,"Resume consumes only the remaining original interval")
 	step(.002); check(game.scrap==parts-5,"Unfrozen partial interval pays at exactly its next complete second")
-	game.finish_night(); check(game.phase=="draft" and not repair_row("tower",0).is_empty(),"Actual dawn preserves repair intent during its real card draft")
+	TransitionFixture.finish_for_fixture(game); check(game.phase=="draft" and not repair_row("tower",0).is_empty(),"Actual dawn preserves repair intent during its real card draft")
 	before=state(); game.simulate(3.0); game.repairs.tick(3.0); check(state()==before,"Dawn draft remains frozen")
 	await press(KEY_1); check(game.phase=="day" and not repair_row("tower",0).is_empty(),"Actual daylight resumes the same bound building")
 	game.start_night(); clear_enemies(); game.phase_time=10000.0; game.wave_index=game.WAVES_PER_NIGHT
@@ -388,7 +389,7 @@ func frozen_lifecycle() -> void:
 			"clear":game.repairs.clear()
 			"setup":game.repairs.setup(game)
 			"defeat":game.hero.hurt(100000.0,null)
-			"victory":game.day_number=game.max_nights(); game.finish_night()
+			"victory":game.day_number=game.max_nights(); TransitionFixture.finish_for_fixture(game)
 			"shutdown":await game.prepare_shutdown()
 		check(game.repairs.snapshot().targets.is_empty(),"Actual "+mode+" clears orders synchronously")
 		game.repairs.tick(5.0); check(game.scrap==parts and float(pad.hp)==180.0,"Old near-due "+mode+" repair cannot charge or heal after lifecycle boundary")
@@ -438,7 +439,7 @@ func measure_repairs_hud(tag: String,tool: bool=false,help: bool=false) -> void:
 	root.size=old_size; root.content_scale_size=old_size; await redraw()
 
 func actual_hud() -> void:
-	await fresh(); game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=90.0; stand(HOME); clear_transients(); await redraw()
+	await fresh(); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=90.0; stand(HOME); clear_transients(); await redraw()
 	var baseline: Array=game.hud.live_panel_rects().duplicate(); await measure_repairs_hud("default-day"); await capture("repair-default-day")
 	var pad: Dictionary=game.world.tower_pads[0]; game.damage_tower(0,80); await begin_repair(pad.position); clear_transients()
 	await measure_repairs_hud("repair-toolbar",true); await capture("repair-toolbar")
@@ -519,7 +520,10 @@ func natural_economy() -> void:
 	await fresh(false); await right(Vector3(0,5,-6))
 	var chosen := -1; var payments: Array[Dictionary]=[]; var opened := false; var first_damage: Dictionary={}; var opening_models: Array[int]=[]; var return_order: Dictionary={}
 	for pad: Dictionary in game.world.tower_pads:opening_models.append(int(plain(pad.turret)))
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / STEP):
 		if game.phase!="night":break
 		if chosen<0:
 			for index in game.world.tower_pads.size():
@@ -537,6 +541,9 @@ func natural_economy() -> void:
 			var row: Dictionary=repair_row("tower",chosen)
 			if not row.is_empty():timer_before=float(row.elapsed)
 		natural_tick()
+		first_night_elapsed += STEP
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if chosen>=0:
 			var loss := 0.0
 			for event_index in range(damage_count,game.observed_building_damage.size()):
@@ -553,6 +560,7 @@ func natural_economy() -> void:
 					return_order={"goal":actual_goal,"hero_position":game.hero.position,"time":game.phase_time,"path":game.hero_path.duplicate()}
 					check(not game.hero_path.is_empty(),"After first genuine repair payment, actual right-click returns the natural hero to the original gate-defense route")
 		if frame%100==99:await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(opened and chosen>=0 and repair_natural_paid and not payments.is_empty(),"Original90/105 route genuinely receives enemy tower damage and pays at least one remote repair without artificial funding or damage")
 	check(game.hero.alive and game.beacon_hp>0 and game.phase=="draft","This original fixed-seed natural repair route reaches genuine first dawn")
 	if game.phase!="draft":return

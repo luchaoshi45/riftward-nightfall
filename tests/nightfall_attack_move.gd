@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Real scene/input/training/damage/navigation. Precision: 5000 parts, extended
 ## clocks, direct positions, stationary enemies and genuine lethal casualties.
 ## Economy keeps native wallet, clocks, stats and hero position. Captures use
@@ -497,7 +499,7 @@ func specialized_encounters() -> void:
 
 func support_encounter() -> void:
 	var carriers := await ready("hauler"); if carriers.is_empty():return
-	await build_gui("infirmary",INFIRMARY); game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=10000.0; suspend_defense()
+	await build_gui("infirmary",INFIRMARY); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=10000.0; suspend_defense()
 	var medics := await train("medic"); if medics.is_empty():return
 	await select_group(carriers); var heap: Vector3=game.logistics.fields[0].position
 	await right(heap); check(carriers.order=="haul","Ordinary real right heap retains designated HAUL")
@@ -559,7 +561,7 @@ func reenter(victim: BattleUnit, _source: BattleUnit, _hp: float, _shield: float
 		"clear":game.squads.clear()
 		"setup":game.squads.setup(game)
 		"defeat":game.end_defeat("Explicit synchronous lifecycle boundary")
-		"victory":game.day_number=game.max_nights(); game.finish_night()
+		"victory":game.day_number=game.max_nights(); TransitionFixture.finish_for_fixture(game)
 
 func frozen_lifecycle() -> void:
 	var group := await ready("shield",true); if group.is_empty():return
@@ -587,7 +589,7 @@ func frozen_lifecycle() -> void:
 	game.squads.command_guard(OPEN); check(source.attack_timer==cooldown,"Manual GUARD cannot reset earned cooldown")
 	await right(FAR_END,true); check(source.attack_timer==cooldown,"Replacement AMOVE cannot reset earned cooldown")
 	var endpoint: Vector3=group.destination; var stations: Array=group.attack_move_stations.duplicate()
-	game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
 	check(game.phase=="day" and group.order=="attack_move" and group.destination==endpoint and group.attack_move_stations==stations and source.attack_timer==cooldown and not source.attack_queued,"Actual dawn preserves manual endpoint and CD while clearing stale encounter preparation")
 	var old_token := source.get_instance_id(); source.hurt(100000.0,null); await process_frame
 	var balance: int=game.scrap; await press(KEY_L)
@@ -680,10 +682,17 @@ func natural_tick() -> void:
 
 func natural_economy() -> void:
 	await fresh(false); await right(Vector3(0,5,10))
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / STEP):
 		if game.phase!="night":break
 		natural_tick()
+		first_night_elapsed += STEP
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if frame%100==99:await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0,"Unmodified first night reaches genuine dawn under the fixed original skill policy")
 	if game.phase!="draft":return
 	var deaths: int=game.kills; var dawn_parts: int=game.scrap; await press(KEY_1)

@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Actual scene/actions: asymmetric south-gate return, live ETA and honest rewards.
 const Layout = preload("res://scripts/outpost_layout.gd")
 const OUTER_HERO_X := Layout.FORT_TERRAIN_EDGE + .9
@@ -55,7 +57,7 @@ func boot_day() -> bool:
 	clear_enemies()
 	game.run.seed_value=0
 	game.contracts.setup(game,0)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase=="draft" and game.day_number==2, "The first night must reach the real dawn draft")
 	check(game.choose_card(0) and game.phase=="day", "The actual dawn choice must create the production day")
 	clear_enemies()

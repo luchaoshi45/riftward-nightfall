@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production infirmary, selected paid support, real movement/damage and ledgers.
 ## Explicit 5000 parts/long phases isolate rules; they are not difficulty proof.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -753,7 +755,7 @@ func actual_damage_upgrade_refill_and_phase() -> void:
  check(game.districts.plots[barracks].level == 2 and game.scrap == balance - 80
   and is_equal_approx(patient.max_hp, 140.0) and is_equal_approx(patient.hp / patient.max_hp, ratio),
   "Actual F upgrades the live barracks for eighty parts and preserves real injured medic HP proportion with 1.4 authority")
- game.finish_night(); check(game.phase == "draft", "Actual first dawn enters its genuine free production draft")
+ TransitionFixture.finish_for_fixture(game); check(game.phase == "draft", "Actual first dawn enters its genuine free production draft")
  await press(KEY_1); check(game.phase == "day", "Actual dawn card input resumes real day before medical replacement")
  remove_enemies(); var lost: BattleUnit = group.members[0]; lost.hurt(100000.0, null)
  var survivor: BattleUnit = group.members[2]; survivor.hurt(70.0, null)
@@ -783,7 +785,7 @@ func actual_damage_upgrade_refill_and_phase() -> void:
  await toggle_gui(false); await guard_selected(STATION); await advance(5.0)
  patient.hurt(60.0, null); await toggle_gui(true); game.simulate(.001)
  check(medic_row().casting > 0, "Actual settled night medical group can prepare again after its genuine preserved cooldown")
- balance = game.scrap; game.finish_night()
+ balance = game.scrap; TransitionFixture.finish_for_fixture(game)
  check(medic_row().casting == 0 and game.scrap == balance, "Actual dawn cancels genuine active treatment before any preparation fee")
  await press(KEY_1); remove_enemies()
  game.end_defeat("医护测试 · 真实结束清理")
@@ -808,7 +810,7 @@ func actual_unseeded_economy() -> void:
   await process_frame; game.enemies.clear()
   if wave < 4: game.spawn_night_wave()
  check(game.scrap == 210 and game.kills == 71, "Real unseeded first night pays exactly one-hundred-twenty parts from seventy-one actual deaths")
- game.finish_night(); await press(KEY_1); remove_enemies()
+ TransitionFixture.finish_for_fixture(game); await press(KEY_1); remove_enemies()
  check(game.phase == "day" and game.scrap == 210, "Actual dawn and its free card leave the unique economic wallet unchanged")
  game.phase_time = 10000.0 # Explicit long-day isolation, not extra currency.
  var crates: Array[Dictionary] = []

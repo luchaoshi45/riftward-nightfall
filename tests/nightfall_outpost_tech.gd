@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production technology, six-building placement, five-troop pagination and
 ## limited wreck recovery. Advanced-content fixtures explicitly seed 5000 parts;
 ## these assertions test transactions and combat, not first-night affordability.
@@ -616,7 +618,7 @@ func heavy_actual_combat() -> void:
 	var lost: BattleUnit = group.members[0]
 	lost.hurt(100000.0, null)
 	await process_frame
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft", "The actual dawn must open its free production choice before daytime restocking")
 	await press(KEY_1)
 	check(game.phase == "day", "Actual dawn choice must resume day for paid troop recovery")
@@ -767,7 +769,7 @@ func wreck_recovery() -> void:
 		"processed_parts": 24, "stations": 2, "cap_remaining": 0}
 	await process_frame
 	game.enemies.clear()
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	await press(KEY_1)
 	check(game.phase == "day" and game.day_number == 2, "Real first-night completion must reach the second production day")
 	var day_enemy: BattleUnit = game.enemies[0]
@@ -847,7 +849,7 @@ func wreck_recovery() -> void:
 	var carry: BattleUnit = game.enemies[3]
 	kill_for_recovery(carry, station_point)
 	check(int(snapshot(recycler).pending) == 2, "Cross-day processing must start with a genuine captured second-night wreck")
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	await press(KEY_1)
 	check(game.phase == "day" and game.day_number == 3, "Actual dawn must carry already captured wreck stock into the next day")
 	check(int(snapshot(recycler).pending) == 2, "Dawn must preserve previously captured stock without generating another death")

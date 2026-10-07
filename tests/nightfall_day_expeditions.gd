@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
@@ -83,7 +85,7 @@ func run() -> void:
 	if not check(second.state=="ready" and second.progress==0 and game.generator_cells==1,"Dusk must reset unfinished work while retaining earned upgrades"):return
 	if not check(camp.state=="delivered","Rescued scouts must remain at the fortress after dark"):return
 	if not check(unfinished_camp.state=="waiting" and (unfinished_camp.npc as BattleUnit).position.distance_to(unfinished_camp.position)<3,"Unfinished escorts must withdraw to camp at dusk"):return
-	game.finish_night();game.choose_card(0)
+	TransitionFixture.finish_for_fixture(game);game.choose_card(0)
 	game.hero.position=unfinished_camp.position;game.move_goal=game.hero.position
 	if not check(game.interact() and unfinished_camp.state=="escort","A withdrawn escort must be available again the next day"):return
 	for guard in unfinished_camp.guards:guard.hurt(10000,game.hero)

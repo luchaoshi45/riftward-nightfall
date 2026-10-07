@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production scene, real seeds/actions/routes, production-only reward payout.
 ## Optional actual render: -- --render-test (hidden window + Dummy audio).
 const Contracts = preload("res://scripts/day_contracts.gd")
@@ -91,7 +93,7 @@ func start_day(wanted: String, respawn_wait: bool = false) -> bool:
 	if seed < 0: return false
 	game.run.seed_value = seed
 	game.contracts.setup(game, seed)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.day_number == 2, "First night completion must reach the real second-day draft")
 	check(game.choose_card(0) and game.phase == "day", "Dawn choice must call production begin_day")
 	clear_enemies()

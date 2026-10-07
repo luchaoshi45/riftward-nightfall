@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production test for real daytime contract risk hunters.
 const STEP := 0.05
 var game: Node3D
@@ -26,7 +28,7 @@ func boot_day() -> bool:
 	clear_enemies()
 	game.run.seed_value=0
 	game.contracts.setup(game,0)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase=="draft" and game.day_number==2, "Finishing the first night must reach the second-day draft")
 	check(game.choose_card(0) and game.phase=="day", "Dawn card must enter the production day with contracts")
 	return game.phase=="day" and game.contracts.status=="active"

@@ -1,9 +1,12 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Independent real-scene acceptance for three squad control groups. Fixtures
 ## use 5000 parts, extended clocks, direct walkable stations, stationary enemy
 ## targets and genuine lethal casualties. No human or campaign balance claim.
 
 const Catalog := preload("res://scripts/outpost_catalog.gd")
+const CleanHud := preload("res://scripts/nightfall_clean_hud.gd")
 const RunSession := preload("res://scripts/run_session.gd")
 const SEED := 20261006
 const STEP := .1
@@ -18,6 +21,8 @@ const OPEN := Vector3(0,0,33)
 const FAR_END := Vector3(0,0,59)
 const SELECTED_RECT := Rect2(24,762,300,54)
 const VIEWPORTS := [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]
+const COMPLETE_GROUP_HELP := "编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。指挥：点选/框选/Shift追加；Tab全选，O驻守。右键指挥/工队采运；Shift+右键攻击推进。Alt+右键活工队：护航往返；右键改令。"
+const FULL_HELP_SECTIONS := ["移动：","技能：","建设：","科技：","互动：","塔防：","探索：","部队：","编组：","指挥：","整备：","界面：","声音："]
 const OBSERVER := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_boxes: Array[Rect2] = []
 var drawn_labels: Array[Dictionary] = []
@@ -237,7 +242,7 @@ func fresh_day() -> void:
 	check(game.control_groups!=null,"Production root owns the independent control-group module")
 	await install_observer(); await press(KEY_1)
 	check(game.phase=="night" and game.phase_time==105.0 and game.scrap==90 and game.tower_count()==2,"Opening card retains original wallet, gifted towers and night clock")
-	clear_enemies(); game.finish_night(); await press(KEY_1)
+	clear_enemies(); TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	check(game.phase=="day" and game.phase_time==90.0 and game.run.seed_value==SEED,"Actual dawn card reaches the original first daylight")
 	clear_enemies(); game.scrap=5000; game.phase_time=10000.0; stand(HOME); suspend_defense()
 	check(groups_empty(group_snapshot()),"Actual new run starts with all three control groups empty")
@@ -532,7 +537,7 @@ func lifecycle_groups() -> void:
 	check(slot_row(1).alive_ids==[0] and int(slot_row(1).count)==1,"The original saved identity becomes selectable again after true refill")
 	var groups: Dictionary=group_snapshot(); game.start_night(); clear_enemies(); game.phase_time=10000.0; game.wave_index=game.WAVES_PER_NIGHT
 	check(group_snapshot()==groups,"Actual sunset retains the same saved groups")
-	game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
 	check(group_snapshot()==groups and game.phase=="day","Actual dawn and card choice retain group identity across day/night generation changes")
 	(evidence.lifecycle as Array).append({"mode":"casualty-refill-day-night","groups":groups,"cost":cost}); await capture("lifecycle-refilled-real-identity")
 	for reset: String in ["clear","setup"]:
@@ -555,7 +560,7 @@ func lifecycle_groups() -> void:
 		await select_group(squads[0]); await press(KEY_1,true)
 		var retired: RefCounted=game.control_groups
 		if ending=="defeat":game.end_defeat("Explicit control-group lifecycle fixture")
-		else:game.day_number=game.max_nights(); game.finish_night()
+		else:game.day_number=game.max_nights(); TransitionFixture.finish_for_fixture(game)
 		check(game.phase=="ended" and groups_empty(group_snapshot()) and not bool(retired.save(1).ok) and not bool(retired.select(1).ok),"Actual "+ending+" clears and unbinds all saved group identities")
 		reject_keys("Actual "+ending+" screen")
 		(evidence.lifecycle as Array).append({"mode":ending,"groups":group_snapshot()})
@@ -572,7 +577,7 @@ func lifecycle_groups() -> void:
 	for _frame in 5:await process_frame
 	await install_observer()
 	check(not is_instance_id_valid(old_root) and not is_instance_id_valid(old_member) and game.run.seed_value==SEED and game.phase=="draft" and game.scrap==90 and groups_empty(group_snapshot()),"Same-seed retry releases old root/member and resets wallet/draft/groups")
-	await press(KEY_1); clear_enemies(); game.finish_night(); await press(KEY_1); clear_enemies(); game.scrap=5000; game.phase_time=10000.0
+	await press(KEY_1); clear_enemies(); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.scrap=5000; game.phase_time=10000.0
 	await build_gui("barracks",BARRACKS); original=await train("shield")
 	if original.is_empty():return
 	place_group(original,OPEN); await select_group(original); result=game.control_groups.select(1)
@@ -615,11 +620,26 @@ func clear_transients() -> void:
 	game.notice_time=0.0; game.reward_toasts.clear(); game.beacon_alarm_time=0.0; game.hero_damage_flash_time=0.0; game.combat_milestone_time=0.0
 	game.combat.clear_transients()
 
+func permanent_hud_except_objective(label: String) -> Dictionary:
+	var objective: Rect2=CleanHud.objective_rect(game.hud,game)
+	var boxes: Array=game.hud.drawn_boxes.duplicate()
+	var regions: Array=game.hud.live_panel_rects().duplicate()
+	check(objective.position==CleanHud.OBJECTIVE_RECT.position and objective.size.x>=200.0
+		and objective.size.x<=CleanHud.OBJECTIVE_RECT.size.x and objective.size.y>0.0 and objective.size.y<=110.0,
+		label+" keeps the actual content-sized objective inside its established footprint")
+	check(boxes.count(objective)==1 and regions.count(objective)==1,
+		label+" paints and exposes exactly one actual content-sized objective rectangle")
+	# Remove only the exact current objective; every other painted/input region
+	# remains in its original order and must compare precisely with the baseline.
+	boxes.erase(objective); regions.erase(objective)
+	return {"boxes":boxes,"regions":regions}
+
 func measure_hud(tag: String, help: bool=false) -> void:
 	game.flush_pending_aim(); var before: Dictionary=complete_state(); var previous_viewport: Vector2i=root.size
 	for viewport: Vector2i in VIEWPORTS:
 		root.size=viewport; root.content_scale_size=viewport; await redraw()
 		var hint_seen: bool=false; var help_seen: bool=false; var bottom: float=0.0
+		var close_seen: bool=false; var toggle_seen: bool=false; var help_body: String=""
 		var group_hint: String=game.hud.control_group_hint()
 		for row: Dictionary in game.hud.drawn_labels:
 			var point: Vector2=row.point; var width: float=row.width
@@ -631,10 +651,22 @@ func measure_hud(tag: String, help: bool=false) -> void:
 				hint_seen=true; check(width<=496.0 and int(row.size)==13,"Actual control_group_hint uses complete13px text within the existing496px drawer column")
 			if help and point.x==46.0 and point.y>=183.0:
 				bottom=maxf(bottom,point.y+float(row.descent))
+				help_body+=String(row.text)
 				if String(row.text).contains("Ctrl") and String(row.text).contains("编组"):help_seen=true
+			if help and String(row.text) in ["F3 收起","返回快捷操作"]:
+				var footer: Rect2=game.hud.DETAIL_CLOSE_RECT if String(row.text)=="F3 收起" else game.hud.HELP_TOGGLE_RECT
+				var glyph: Rect2=Rect2(point-Vector2(0,float(row.ascent)),Vector2(width,float(row.ascent)+float(row.descent)))
+				check(footer in game.hud.drawn_boxes and footer.encloses(glyph),"Actual expanded-help footer paints its complete caption inside the real button: "+String(row.text))
+				if String(row.text)=="F3 收起":close_seen=true
+				else:toggle_seen=true
 		check(game.hud.detail_tab!="army" or hint_seen,"Actual army drawer draws the real control-group snapshot hint")
-		check(not help or (help_seen and bottom<=692.0),"Actual help includes group instructions and every final glyph stays above the existing close button")
-		(evidence.hud as Array).append({"tag":tag,"viewport":viewport,"groups":group_hint,"hint_seen":hint_seen,"help_bottom":bottom})
+		if help:
+			check(game.hud.detail_tab=="help" and game.hud.help_details_open,"Complete help measurements require the actually expanded help view")
+			check(help_seen and help_body.contains(COMPLETE_GROUP_HELP) and bottom<=game.hud.DETAIL_CLOSE_RECT.position.y,
+				"Actual expanded help retains the complete group/recall/union/command instructions and every final glyph above the existing close button")
+			for heading: String in FULL_HELP_SECTIONS:check(help_body.contains(heading),"Actual complete help retains Chinese section "+heading)
+			check(close_seen and toggle_seen,"Actual complete help draws both its real close button and return-to-quick toggle")
+		(evidence.hud as Array).append({"tag":tag,"viewport":viewport,"groups":group_hint,"hint_seen":hint_seen,"help_bottom":bottom,"expanded_help":help,"close_seen":close_seen,"toggle_seen":toggle_seen})
 	check(complete_state()==before,"Three-viewport actual drawing and real-font measurement preserve groups, orders, wallet, RNG and clocks")
 	root.size=previous_viewport; root.content_scale_size=previous_viewport; await redraw()
 
@@ -643,18 +675,27 @@ func actual_hud() -> void:
 	if not selected().is_empty():await press(KEY_ESCAPE)
 	check(game.phase=="day","HUD baseline begins in an active day without an unintended pause")
 	clear_transients(); await redraw()
-	var baseline: Array=game.hud.drawn_boxes.duplicate()
+	var baseline: Dictionary=permanent_hud_except_objective("Day baseline")
 	await select_group(squads[0]); await press(KEY_1,true); await select_group(squads[1],true); await press(KEY_2,true); await press(KEY_TAB); await press(KEY_3,true)
 	await press(KEY_ESCAPE); clear_transients(); await redraw()
-	check(game.hud.drawn_boxes==baseline,"Saved groups alone add no default permanent HUD rectangle")
+	check(permanent_hud_except_objective("Day saved groups")==baseline,"Saved groups alone preserve every other exact default permanent painted/input rectangle")
 	await measure_hud("default-saved-groups"); camera_at(HOME); await capture("hud-default-groups-no-new-panel")
 	await press(KEY_2); clear_transients(); await redraw()
 	check(SELECTED_RECT in game.hud.drawn_boxes,"Recalled troops use the existing selected strip")
 	await measure_hud("selected-recalled-groups"); camera_at(OPEN); await capture("hud-recalled-existing-selected-strip")
 	await open_army(); await measure_hud("army-live-group-counts"); await capture("hud-army-live-group-counts")
 	for row: Dictionary in group_snapshot().groups:check(int(row.count)==row.alive_ids.size(),"Displayed group count is actual live squads rather than member count")
-	await click_ui(game.hud.details_tab_rect(4)); await measure_hud("help-complete-shortcuts",true); await capture("hud-help-complete-shortcuts")
-	await close_drawer()
+	await click_ui(game.hud.details_tab_rect(4)); await redraw()
+	check(game.hud.detail_tab=="help" and not game.hud.help_details_open,"Actual operation-tab click opens the default quick-help view")
+	await measure_hud("help-quick-shortcuts")
+	game.flush_pending_aim(); var help_before: Dictionary=complete_state()
+	await click_ui(game.hud.HELP_TOGGLE_RECT)
+	check(game.hud.detail_tab=="help" and game.hud.help_details_open and complete_state()==help_before,
+		"Actual help-toggle GUI expands complete instructions without changing groups, orders, wallet or clocks")
+	await measure_hud("help-complete-shortcuts",true); await capture("hud-help-complete-shortcuts")
+	await click_ui(game.hud.DETAIL_CLOSE_RECT)
+	check(game.hud.detail_tab.is_empty() and not game.hud.help_details_open and complete_state()==help_before,
+		"Actual help close button retires expanded content and preserves the same real world state")
 	for member: BattleUnit in squads[0].members:member.hurt(100000.0,null)
 	for _frame in 3:await process_frame
 	await open_army(); await measure_hud("army-dead-group-counts"); await capture("hud-army-dead-group-counts")
@@ -667,7 +708,7 @@ func actual_hud() -> void:
 	if not selected().is_empty():await press(KEY_ESCAPE)
 	check(game.phase=="day" and selected().is_empty(),"Night HUD comparison resumes the actual day and clears only the remaining troop selection")
 	game.start_night(); clear_enemies(); game.phase_time=10000.0; game.wave_index=game.WAVES_PER_NIGHT; clear_transients(); await redraw()
-	check(game.hud.drawn_boxes==baseline,"Night saved groups also retain the original default permanent rectangles")
+	check(permanent_hud_except_objective("Night saved groups")==baseline,"Night saved groups preserve every other exact default permanent painted/input rectangle without adding a panel")
 	await measure_hud("night-default-saved-groups"); camera_at(HOME); await capture("hud-night-default-groups-no-new-panel")
 
 func run() -> void:

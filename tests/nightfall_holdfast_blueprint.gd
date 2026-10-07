@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## 坚守信标生产专项。精度段明确使用高余额、固定演员站位和延长阶段，
 ## 所有伤害仍经真实普通前摇、投蚀飞行落点或末波首领蓄力；不以
 ## 直接调用减伤辅助方法代替攻击验收。档案写入仅在本专项临时路径。
@@ -251,7 +253,9 @@ func archive_and_loadout() -> void:
 	game.spawn_night_wave()
 	check(bool(game.night_plan[4].boss_entry) and is_instance_valid(game.siege_boss),
 		"坚守结局解锁必须经过真实末夜末波首领生产入口")
-	game.begin_final_clearance()
+	game.phase_time = .001
+	game.simulate(.002)
+	check(game.night_clearance_active and game.final_clearance_active, "真实末夜计时跨零保留末波威胁等待清场")
 	for enemy: BattleUnit in game.enemies.duplicate():
 		if is_instance_valid(enemy) and enemy.alive: enemy.hurt(100000.0, game.hero)
 	game.simulate(.02)
@@ -667,7 +671,7 @@ func troops_and_lifecycle() -> void:
 	check(game.choose_card(0) and game.phase == "night", "非开局铭刻完成应回到原夜晚")
 	near(float(game.districts.holdfast_damage_multiplier()), multiplier, "选卡前后信标效果不能丢失")
 	game.day_number = 1
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.day_start_pending, "真实黎明应进入新白昼铭刻")
 	check(game.choose_card(0) and game.phase == "day", "真实白昼卡片应进入整备")
 	near(float(game.districts.holdfast_damage_multiplier()), multiplier, "昼夜切换不能丢失仍存活的信标")

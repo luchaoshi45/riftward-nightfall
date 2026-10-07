@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production clean-HUD regression with real viewport GUI dispatch. No hidden
 ## legacy hitboxes, automatic commands behind UI, or fixture-only train actions.
 ## --render-test records the default battlefield, details and urgent feedback.
@@ -1353,7 +1355,7 @@ func run() -> void:
 	clear_transient_hud()
 	await default_layout("default-night")
 	await capture("default-night")
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	press(KEY_1)
 	game.world._process(6.1)
 	remove_enemies()

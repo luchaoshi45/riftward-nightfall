@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production regression for the daytime forecast and one-shot countermeasures.
 
 var game: Node3D
@@ -52,7 +54,7 @@ func run() -> void:
 	check(game.countermeasure_active=="" and game.gate_barricade_hp==0.0,"An unselected opening night must not receive a hidden countermeasure")
 	# Move through the real night-to-draft transition, then let choose_card call
 	# begin_day(), which is the production point where the forecast is created.
-	game.phase_time=.01;game.simulate(.02);await process_frame
+	TransitionFixture.finish_for_fixture(game);await process_frame
 	check(game.phase=="draft" and game.day_number==2,"A survived night must open the second-night draft")
 	check(game.choose_card(0) and game.phase=="day","The second-night draft must enter daytime planning")
 	check(game.night_plan.size()==5,"Daytime must save all five waves before the next night")
@@ -89,7 +91,7 @@ func run() -> void:
 
 	# The next daytime plan is generated from the new day number, not silently
 	# reused from the previous night.
-	game.finish_night();await process_frame
+	TransitionFixture.finish_for_fixture(game);await process_frame
 	check(game.phase=="draft" and game.day_number==3,"The second night must lead to the third-night draft")
 	check(game.choose_card(0) and game.phase=="day","The third-night draft must reopen daytime planning")
 	var third_plan: Array[Dictionary]=game.night_plan.duplicate(true)
@@ -109,7 +111,7 @@ func run() -> void:
 	check(buff_damage>normal_damage*1.2,"Tower fire order must increase real tower damage")
 	clear_enemies()
 
-	game.finish_night();await process_frame
+	TransitionFixture.finish_for_fixture(game);await process_frame
 	check(game.phase=="ended" and game.victory,"The third teaching night must still end the run normally")
 	await game.prepare_shutdown();game.queue_free();await process_frame;await create_timer(.15).timeout
 
@@ -118,7 +120,7 @@ func run() -> void:
 	game=load("res://scenes/nightfall.tscn").instantiate();root.add_child(game);current_scene=game
 	await process_frame;game.set_process(false)
 	check(game.choose_card(0) and game.phase=="night","Fresh run must enter the opening night")
-	game.phase_time=.01;game.simulate(.02);await process_frame
+	TransitionFixture.finish_for_fixture(game);await process_frame
 	check(game.phase=="draft" and game.choose_card(0) and game.phase=="day","Fresh run must reach daytime forecast")
 	check(game.select_countermeasure(0),"Light guard order must be selectable")
 	game.start_night();clear_enemies()

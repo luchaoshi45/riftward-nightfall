@@ -1,4 +1,5 @@
 extends SceneTree
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## 夜采真实生产专项。精度段使用5000零件、延长阶段和英雄站位，
 ## 部队由真实GUI付费训练，装载/返程只走生产simulate和原路径。
 ## 自然段保留原90/105/90与演员/库存/属性，独立记录收入、费用与损失。
@@ -265,8 +266,10 @@ func fresh(is_precision: bool = true) -> bool:
 
 func dawn() -> void:
 	await close_drawer()
-	game.finish_night()
-	check(game.phase == "draft" and game.day_start_pending, "真实黎明进入铭刻而非直接篡改阶段")
+	# Precision alone removes hostile actors to prepare the real lifecycle.
+	# A natural route must already have cleared through actual simulation.
+	if precision: TransitionFixture.finish_for_fixture(game)
+	check(game.phase == "draft" and game.day_start_pending, "精度人工准备或自然实战清场后，生产黎明进入铭刻")
 	await press(KEY_1)
 	check(game.phase == "day" and game.phase_time == 90.0, "真实铭刻输入进入原90秒白昼")
 	if precision: game.phase_time = 10000.0
@@ -1053,13 +1056,21 @@ func natural_attempt(protected: bool) -> Dictionary:
 	var payments_start: int = (evidence.payments as Array).size()
 	check(game.scrap == 90 and game.phase_time == 105.0, "自然段不补钱、不延长首夜")
 	game.plan_hero_path(Vector3(0, 5, 10))
-	for frame in 1100:
+	var cutoff: Dictionary = {}
+	# The planned assault still ends at 105 seconds. Any surviving threat keeps
+	# its real attack/HP/reward state until actual combat clears it, bounded here.
+	for frame in ceili(240.0 / STEP):
 		if game.phase != "night": break
 		step()
+		if cutoff.is_empty() and elapsed >= 105.0:
+			cutoff = TransitionFixture.deadline_evidence(game, elapsed)
 		if frame % 100 == 99: await process_frame
+	var first_night_elapsed := elapsed
 	check(game.phase == "draft" and game.hero.alive and game.beacon_hp > 0.0,
-		"原演员/属性/技能策略真实度过105秒首夜")
-	if game.phase != "draft": return {}
+		"原演员/属性/技能策略完成105秒波次及真实残敌清场，240秒内迎来黎明")
+	if game.phase != "draft":
+		return {"seed":SEED,"opening_parts":90,"first_night_seconds":105,"first_night_elapsed":first_night_elapsed,
+			"cutoff":cutoff,"phase":String(game.phase),"parts":int(game.scrap),"status":"first_night_survival_failed"}
 	var dawn_money: int = game.scrap
 	var first_kills: int = game.kills
 	await press(KEY_1)
@@ -1090,6 +1101,7 @@ func natural_attempt(protected: bool) -> Dictionary:
 			"time_left":float(game.phase_time),"route_distance":distance})
 	var budget: int = game.scrap
 	var result: Dictionary = {"seed":SEED,"opening_parts":90,"first_night_seconds":105,"day_seconds":90,
+		"first_night_elapsed":first_night_elapsed,"clearance_seconds":maxf(0.0,first_night_elapsed-105.0),"cutoff":cutoff,
 		"hero_protected_route":protected,
 		"first_night_kills":first_kills,"dawn_parts":dawn_money,"actual_crates":gathered,"parts_before_chain":budget,
 		"required_chain_parts":500,"prepared":false,"night_paid":false,"status":"budget_or_time_shortfall",

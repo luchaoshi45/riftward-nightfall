@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -54,7 +56,7 @@ func run() -> void:
 	game.simulate(5)
 	assert(game.phase_time==clock,"Reward card selection must freeze the night clock")
 	assert(game.choose_card(0) and game.phase=="night" and game.phase_time==clock)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	assert(game.day_number==2 and game.phase=="draft")
 	assert(game.choose_card(0) and game.phase=="day" and game.phase_time==90)
 	game.phase_time=.01;game.simulate(.02)
@@ -88,9 +90,14 @@ func run() -> void:
 	assert(game.phase=="draft","The repeat-input check must actually visit a ready crystal")
 	game.choose_card(0)
 	var charging: Dictionary={}
-	for item in game.discoveries.items:
-		if item.kind=="supply_cache" and item.state=="ready":charging=item;break
-	assert(not charging.is_empty())
+	for item_index in game.discoveries.items.size():
+		var item: Dictionary=game.discoveries.items[item_index]
+		# The earlier lifecycle fixture retires actors rather than earning the
+		# daily guarded box. Exercise the channel with another original open box.
+		if item.kind=="supply_cache" and item.state=="ready" and game.outpost_walkable(item.position) and game.discoveries.cache_guards.can_open(item_index):
+			charging=item
+			break
+	assert(not charging.is_empty(), "The channel fixture must find a real ready box satisfying the actual guard prerequisite")
 	game.hero.position=charging.position;game.move_goal=game.hero.position
 	game.scrap=game.run.memory_cost()-46
 	assert(game.interact() and charging.state=="channel")

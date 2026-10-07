@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_logistics.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Shares the real scene/input/navigation/conservation fixture, never production mocks.
 ## Precision stages use 5000 parts, extended clocks and direct hero positioning.
 ## Economy stages separately retain the original wallet, actors and 90-second day.
@@ -414,7 +415,7 @@ func freeze_sunset_and_cleanup() -> void:
 	check(int(team_row().preferred_field) == 4 and route_marker(4), "Victory fixture first owns a real selected fixed route and marker")
 	var field_tokens: Array[int] = []
 	for field: Dictionary in game.logistics.fields: field_tokens.append((field.node as Node).get_instance_id())
-	game.day_number = game.max_nights(); game.finish_night(); await process_frame
+	game.day_number = game.max_nights(); TransitionFixture.finish_for_fixture(game); await process_frame
 	check(game.phase == "ended" and game.victory and game.logistics.snapshot().remaining == 0 and game.logistics.snapshot().teams.is_empty(), "Actual victory clears existing fixed intent and finite route state")
 	for token: int in field_tokens: check(not is_instance_id_valid(token), "Actual victory releases every real heap and its selected marker")
 
@@ -448,10 +449,17 @@ func natural_economic_routes() -> void:
 	for destination: int in [0, 4]:
 		await natural_scene()
 		camera_at(Vector3(0, 5, 10)); await mouse(game.camera.unproject_position(Vector3(0, 5, 10)), true, MOUSE_BUTTON_RIGHT)
-		for frame in 1100:
+		var first_night_elapsed := 0.0
+		var first_night_cutoff: Dictionary = {}
+		# Bound actual residual combat; the production assault deadline is unchanged.
+		for frame in ceili(240.0 / STEP):
 			if game.phase != "night": break
 			natural_tick()
+			first_night_elapsed += STEP
+			if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+				first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 			if frame % 100 == 99: await process_frame
+		TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 		check(game.phase == "draft" and game.hero.alive and game.beacon_hp > 0, "Unmodified first night survives the fixed actual skill policy")
 		if game.phase != "draft": return
 		var night_parts: int = game.scrap; var first_deaths: int = game.kills

@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Real finite transport production. Explicit 5000 parts/10000 seconds isolate
 ## transactions and paths; these fixtures do not claim economic balance.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -286,7 +288,7 @@ func train_gui() -> void:
 
 func dawn() -> void:
 	await close_drawer()
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.day_start_pending, "Actual surviving-night transition opens its dawn choice")
 	await press(KEY_1)
 	check(game.phase == "day", "Actual dawn input begins production daylight")
@@ -695,6 +697,9 @@ func run() -> void:
 	if failures.is_empty(): await multiple_teams_and_exhaustion()
 	if failures.is_empty(): await original_wave_ledger()
 	await close_game()
+	# Wait for the actual audio server to retire playback handles after freeing
+	# the final scene; successful assertions alone do not prove clean teardown.
+	await create_timer(.5, true, false, true).timeout
 	evidence.checks = checks; evidence.failures = failures
 	var folder := ProjectSettings.globalize_path(output_dir)
 	DirAccess.make_dir_recursive_absolute(folder)

@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 const Layout = preload("res://scripts/outpost_layout.gd")
 
 func _initialize() -> void:
@@ -33,7 +35,7 @@ func run() -> void:
 	# Production route guidance must choose a reachable next type rather than
 	# the nearest straight-line point. Put the only remaining waylight behind
 	# the raised-wall geometry and require the real A* route for P guidance.
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	await press(KEY_1)
 	assert(game.phase=="day")
 	game.exploration.reset_run()

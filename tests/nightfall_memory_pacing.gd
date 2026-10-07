@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Income stays spendable until the player explicitly buys a local upgrade.
 var game: Node3D
 var checks := 0
@@ -57,7 +59,7 @@ func run() -> void:
 		check(game.phase=="draft" and game.run.pending==1 and game.scrap==before-cost,"Each deliberate purchase opens exactly one card")
 		press(KEY_1)
 	check(game.run.memory_level==5 and game.scrap==2780 and game.phase=="night","Five deliberate fees leave the correct common balance")
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.run.memory_level==5 and game.run.pending==1 and game.scrap==2780,"Dawn gifts do not purchase another inscription")
 	press(KEY_1)
 	check(game.phase=="day" and game.phase_time==90 and game.scrap==2780,"The free dawn card resumes a fresh day without changing the balance")

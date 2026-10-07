@@ -1,10 +1,13 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## True production shellguard births, armor/shields, paid counters, movement and GUI.
 ## Precision cases isolate offense and extend phases; they are not difficulty proof.
 const RunSession := preload("res://scripts/run_session.gd")
 const Shellguard := preload("res://scripts/nightfall_shellguard.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
 const Layout := preload("res://scripts/outpost_layout.gd")
+const CleanHud := preload("res://scripts/nightfall_clean_hud.gd")
 const SEED := 20261006
 const STEP := .05
 const HOME := Vector3(0,5,3.1)
@@ -425,10 +428,10 @@ func freeze_and_lifecycle() -> void:
  for plate_token: int in plate_tokens:check(not is_instance_id_valid(plate_token),"Every attached native shell plate actually frees at corpse expiry")
  for action in ["dawn","defeat","shutdown"]:
   await fresh();enemy=spawn();native=enemy.visual.get_node_or_null("ShellguardNativeCarapace");native_token=native.get_instance_id();host_token=enemy.get_instance_id()
-  if action=="dawn":game.finish_night();await process_frame;check(game.phase in ["day","draft"],"Actual night completion enters dawn lifecycle")
+  if action=="dawn":TransitionFixture.finish_for_fixture(game);await process_frame;check(game.phase in ["day","draft"],"Artificial actor retirement prepares the genuine dawn lifecycle; it is not natural clearance proof")
   elif action=="defeat":game.end_defeat("甲壳验收");enemy.hurt(100000.0,null);game.deaths.tick(.01,"ended");await process_frame
   else:await close_game()
-  if action=="dawn" or action=="shutdown":check(not is_instance_id_valid(host_token) and not is_instance_id_valid(native_token),"Actual "+action+" frees true armored actor and native additions")
+  if action=="dawn" or action=="shutdown":check(not is_instance_id_valid(host_token) and not is_instance_id_valid(native_token),"Fixture actor retirement or actual shutdown frees the armored actor and native additions: "+action)
   else:check(not is_instance_id_valid(native_token),"Actual ended corpse cleanup releases all native armor")
  await fresh();enemy=spawn();native=enemy.visual.get_node_or_null("ShellguardNativeCarapace")
  host_token=enemy.get_instance_id();native_token=native.get_instance_id();var old_root: WeakRef=weakref(game)
@@ -458,14 +461,19 @@ func hud_layout(tag: String,kind: String) -> void:
   var relevant: Array=[];var joined:="";var lines:=0
   for row: Dictionary in game.hud.drawn_labels:
    hud_bounds(row);var value:=String(row.text)
-   if (kind=="preview" and row.point==Vector2(444,72)) or (kind=="defense" and bool(row.drawer) and row.point.x==46 and row.point.y>=286 and row.point.y<=308):
+   if (kind=="preview" and row.point==Vector2(444,66)) or (kind=="defense" and bool(row.drawer) and row.point.x==46 and row.point.y>=286 and row.point.y<=308):
     joined+=value;lines+=1;relevant.append(row)
    if kind=="world" and value.begins_with("甲60"):
     relevant.append(row)
     check(Rect2(0,0,1440,900).encloses(Rect2(row.point-Vector2(0,float(row.ascent)),Vector2(float(row.width),float(row.ascent)+float(row.descent)))),"Actual local armor label fits logical viewport")
   if kind=="preview":
-   check(lines==1 and joined.contains("甲壳卫60甲") and joined.contains("J") and joined.contains("半甲") and joined.contains("C集火"),"Actual saved-wave short preview displays60 armor,half-armor J and C without truncation")
-   for row: Dictionary in relevant:check(row.point.x>=426 and row.point.x+float(row.width)<=1014 and row.point.y+float(row.descent)<=96,"Actual armor preview fits original compact objective")
+   check(lines==1 and joined=="甲壳卫60甲 · 二级塔J破甲忽略半甲 · C集火 · F3 防线","Actual saved-wave short preview displays the complete60 armor,half-armor J and C rules without truncation")
+   var objective: Rect2=CleanHud.objective_rect(game.hud,game)
+   check(CleanHud.OBJECTIVE_RECT.encloses(objective) and game.hud.drawn_rects.has(objective)
+    and game.hud.live_panel_rects().count(objective)==1,"Actual armor preview paints and reports one existing content-sized compact objective")
+   for row: Dictionary in relevant:
+    var glyphs:=Rect2(row.point-Vector2(0,float(row.ascent)),Vector2(float(row.width),float(row.ascent)+float(row.descent)))
+    check(int(row.font_size)==12 and float(row.width)<=552.0 and objective.encloses(glyphs),"Actual complete armor preview glyph bounds fit its painted compact objective")
   elif kind=="defense":check(lines>=1 and lines<=2 and joined.contains("甲壳60甲") and joined.contains("J破甲") and joined.contains("C集火") and joined.contains("召潮2.4") and joined.contains("织壳1秒"),"Actual three-threat F3 advice keeps all counter rules in at most2 lines")
   else:check(not relevant.is_empty(),"Actual live local warning reads true armor value60")
   evidence.hud.append({"tag":tag,"viewport":viewport,"labels":relevant,"panels":game.hud.live_panel_rects()})

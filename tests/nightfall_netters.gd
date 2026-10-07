@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## 投网队真实生产专项。精度段显式使用5000零件、延长阶段、演员站位，
 ## 不把模块数值当作炮击收益；固定落点成对案例实际移动疾行体并核对实伤。
 ## 最后一段保留自然105秒首夜/90秒白昼、原钱包/演员/属性，不保证脚本整局胜利。
@@ -724,7 +726,7 @@ func lifecycle() -> void:
 	near(source.attack_windup, pending, "选卡冻结待发网")
 	near(float(game.specializations.net_remaining(target)), remaining, "选卡冻结独立网计时")
 	check(game.choose_card(0) and game.phase == "night", "真实选卡恢复原夜间")
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(not game.squads.netters.casting(source), "真实黎明取消旧前摇")
 	near(float(game.specializations.net_remaining(target)), 0.0, "真实黎明清理旧网，不跨白昼继承")
 	if game.phase == "draft": game.choose_card(0)
@@ -905,10 +907,17 @@ func natural_economy() -> void:
 	if not await fresh(false): return
 	check(game.scrap == 90 and game.phase_time == 105.0, "自然段原90零件与105秒首夜保持")
 	game.plan_hero_path(Vector3(0, 5, 10))
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / .1):
 		if game.phase != "night": break
 		natural_tick()
+		first_night_elapsed += .1
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if frame % 100 == 99: await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(game.phase == "draft" and game.hero.alive and game.beacon_hp > 0.0,
 		"原始技能策略实际度过首夜，没有补钱、摆位、删怪、改属性或延时")
 	if game.phase != "draft": return

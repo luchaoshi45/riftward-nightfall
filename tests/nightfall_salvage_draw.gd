@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Independent production-scene acceptance. Precision sections use 5000 parts,
 ## extended clocks, direct hero placement and removed unrelated enemies. They
 ## never fabricate a positive exploration counter. Economy keeps the original
@@ -196,15 +198,34 @@ func fresh(seed_value: int=SEED) -> void:
 	elapsed=0.0
 
 func precision_day() -> void:
-	await fresh(); clear_enemies(); game.finish_night(); await press(KEY_1)
+	await fresh(); clear_enemies(); TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	check(game.phase=="day" and game.day_number==2 and game.phase_time==90.0,"Real night completion and dawn card begin the actual first daylight")
 	clear_enemies(); game.scrap=5000; game.phase_time=10000.0; stand(HOME)
 	check(game.exploration.day_discoveries==0 and int(draw_snapshot().used)==0,"Isolated new daylight starts without fabricated exploration or purchases")
 
+func ready_original_cache() -> int:
+	# Removing unrelated precision actors does not earn the daily guarded box.
+	# Select another original source satisfying the production opening gate;
+	# leave the guarded source, its generation and its defeat ledger untouched.
+	for index in game.discoveries.items.size():
+		var item: Dictionary=game.discoveries.items[index]
+		var node: Variant=item.get("node")
+		if String(item.kind)!="supply_cache" or String(item.state)!="ready":continue
+		if not is_instance_valid(node) or not node is Node3D or node.is_queued_for_deletion() or not node.is_inside_tree():continue
+		if item.position!=node.position or not game.outpost_walkable(item.position):continue
+		if game.discoveries.cache_guards.can_open(index):return index
+	return -1
+
 func collect_original(index: int) -> void:
+	check(index>=0 and index<game.discoveries.items.size(),"Collection requires an existing original discovery index")
+	if index<0 or index>=game.discoveries.items.size():return
 	var item: Dictionary=game.discoveries.items[index]
 	var original: Vector3=item.position; var original_node: Vector3=item.node.position
+	var original_serial: int=item.serial
 	check(item.state=="ready" and original==original_node,"The original seeded source is ready at its unchanged true position")
+	if String(item.kind)=="supply_cache":
+		check(game.discoveries.cache_guards.can_open(index),"The original real cache satisfies the actual guard prerequisite before F")
+		if not game.discoveries.cache_guards.can_open(index):return
 	stand(original)
 	check(game.discoveries.nearest_item()==index and not game.discoveries.interaction_prompt().is_empty(),"Production nearest source and prompt select the original discovery")
 	check(game.contracts.active_target_interaction().is_empty() and game.expeditions.interaction_prompt().is_empty(),"No higher-priority contract/expedition shadows this real F source")
@@ -214,7 +235,7 @@ func collect_original(index: int) -> void:
 		check(item.state=="channel" and game.exploration_count==before_count,"Real cache F starts work without a discovery reward")
 		game.simulate(3.001)
 	check(item.state in ["cooling","active"] and game.exploration_count==before_count+1 and game.exploration.day_discoveries==before_day+1,"Only the completed real F discovery increments both genuine exploration ledgers")
-	check(item.position==original and item.node.position==original_node,"Real collection never relocates the seeded source")
+	check(item.position==original and item.node.position==original_node and int(item.serial)==original_serial,"Real collection never relocates or replaces the seeded source generation")
 	if item.state=="cooling":check(float(item.respawn)>=45.0 and float(item.respawn)<=65.0,"Real source keeps the original random45–65-second renewal")
 	var collected: int=game.exploration_count; var parts: int=game.scrap
 	await press(KEY_F)
@@ -273,20 +294,30 @@ func unlock_sources() -> void:
 	check(game.exploration_count==0 and not bool(draw_snapshot().available),"Fresh first daylight cannot unlock from a fabricated positive counter")
 	reject("home without any real exploration","exploration_required")
 	await open_exploration(true); await capture("unlock-locked"); await close_drawer()
-	var cache: Dictionary=game.discoveries.items[2]; var original: Vector3=cache.position
+	var legacy_guard: Dictionary=game.discoveries.cache_guards.snapshot(2)
+	var cache_index: int=ready_original_cache()
+	check(cache_index>=0,"Three-second unlock fixture finds an original ready box satisfying the actual guard prerequisite")
+	if cache_index<0:return
+	var cache: Dictionary=game.discoveries.items[cache_index]; var original: Vector3=cache.position
+	var original_node: Node3D=cache.node; var original_serial: int=cache.serial
+	var open_guard: Dictionary=game.discoveries.cache_guards.snapshot(cache_index)
+	check(not bool(open_guard.blocked) and original_node.position==original,"Channel unlock uses the real open source at its unchanged seeded position")
 	stand(original); await press(KEY_F)
 	check(cache.state=="channel" and game.exploration_count==0 and game.exploration.day_discoveries==0,"Starting the original three-second cache is not a discovery")
 	await open_exploration(true); await capture("unlock-real-cache-channel"); await close_drawer()
 	stand(HOME); reject("incomplete cache cannot unlock","exploration_required")
 	game.simulate(.001); check(cache.state=="ready" and float(cache.progress)==0.0,"Leaving the true cache cancels its unfinished work")
-	await collect_original(2); stand(HOME)
+	await collect_original(cache_index); stand(HOME)
+	check(cache.node==original_node and int(cache.serial)==original_serial and cache.position==original,"Cancelled and completed channel keep the same original cache identity")
 	check(bool(draw_snapshot().available) and int(draw_snapshot().remaining)==2,"Actual cache completion unlocks two purchases at home")
 	await open_exploration(true); await capture("unlock-real-day-home")
-	(evidence.unlock as Array).append({"kind":"supply_cache","position":original,"count":game.exploration_count,"day_discoveries":game.exploration.day_discoveries,"snapshot":draw_snapshot()})
+	(evidence.unlock as Array).append({"kind":"supply_cache","index":cache_index,"serial":original_serial,"position":original,
+		"guard_prerequisite":open_guard,"former_fixed_index":2,"former_guard_state":legacy_guard,
+		"count":game.exploration_count,"day_discoveries":game.exploration.day_discoveries,"snapshot":draw_snapshot()})
 	await fresh(); clear_enemies(); await collect_original(0); stand(HOME)
 	reject("night exploration cannot purchase","not_day")
 	var old_count: int=game.exploration_count
-	game.finish_night(); await press(KEY_1); clear_enemies(); game.scrap=5000; game.phase_time=10000.0; stand(HOME)
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.scrap=5000; game.phase_time=10000.0; stand(HOME)
 	check(game.exploration_count==old_count and game.exploration.day_discoveries==0,"A real dawn retains run exploration but clears this daylight's exploration")
 	reject("previous-night exploration cannot unlock today","exploration_required")
 	await collect_original(1); stand(HOME)
@@ -445,7 +476,7 @@ func lifecycle_boundaries() -> void:
 	check(String(draw_snapshot().reason)=="day_unavailable" and int(draw_snapshot().used)==int(dusk.used) and int(draw_snapshot().rng_state)==int(dusk.rng_state) and int(draw_snapshot().remaining)==0,"Explicit same-day reopen fixture cannot undo the dusk latch or replenish quota")
 	game.phase="night"
 	reject("actual dusk","not_day"); await open_exploration(true); await capture("lifecycle-night")
-	await close_drawer(); game.finish_night(); await press(KEY_1); clear_enemies(); stand(HOME)
+	await close_drawer(); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); stand(HOME)
 	check(game.phase=="day" and game.day_number==3 and game.exploration.day_discoveries==0 and int(draw_snapshot().used)==0,"Real next dawn resets quota but requires a new genuine daylight discovery")
 	var next_random: RandomNumberGenerator=oracle(SEED,3)
 	check(int(draw_snapshot().rng_state)==next_random.state,"A real later daylight gets its independent seed without depending on yesterday's draw count")
@@ -470,11 +501,11 @@ func lifecycle_boundaries() -> void:
 	for _frame in 5:await process_frame
 	check(not is_instance_id_valid(old_root) and game.run.seed_value==SEED and game.phase=="draft" and game.scrap==90 and game.exploration_count==0 and int(draw_snapshot().used)==0 and draw_snapshot().last.is_empty(),"Same-seed actual retry frees the old scene and starts with original90 parts, no exploration or receipt")
 	before=state(); check(not bool(retired.draw().ok) and state()==before,"An externally retained old RefCounted draw cannot write the new run's wallet")
-	await install_observer(); await press(KEY_1); clear_enemies(); game.finish_night(); await press(KEY_1); clear_enemies()
+	await install_observer(); await press(KEY_1); clear_enemies(); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies()
 	game.scrap=5000; game.phase_time=10000.0; await collect_original(0); stand(HOME)
 	var replay: Dictionary=game.draw_salvage_supply()
 	check(int(replay.roll)==int(first.roll) and int(replay.payout)==int(first.payout),"A genuine same-seed retry reproduces the first day's first roll after a new real exploration")
-	game.day_number=game.max_nights(); game.finish_night()
+	game.day_number=game.max_nights(); TransitionFixture.finish_for_fixture(game)
 	check(game.phase=="ended" and game.victory,"Explicit last-night boundary invokes actual production victory cleanup")
 	reject("actual victory","closed")
 	game.salvage_draw.clear(); var cleared: Dictionary=draw_snapshot(); game.salvage_draw.clear()
@@ -508,7 +539,10 @@ func measure_hud(tag: String) -> void:
 
 func actual_hud() -> void:
 	await precision_day()
-	for index in range(4):await collect_original(index)
+	var cache_index: int=ready_original_cache()
+	check(cache_index>=0,"Four-reward HUD fixture requires a real original box satisfying the actual guard prerequisite")
+	if cache_index<0:return
+	for index: int in [0,1,cache_index,3]:await collect_original(index)
 	stand(HOME); check(game.reward_toasts.size()==4,"Four actual production reward records occupy the original exploration history")
 	await open_exploration(false); await measure_hud("four-real-rewards"); await capture("hud-four-real-rewards")
 	var rewards: Array=game.reward_toasts.duplicate(true); var before: Dictionary=state()
@@ -551,10 +585,17 @@ func walk_to(point: Vector3, limit: int=850) -> bool:
 
 func natural_economy() -> void:
 	await fresh(); await right(Vector3(0,5,10))
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / STEP):
 		if game.phase!="night":break
 		natural_tick()
+		first_night_elapsed += STEP
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if frame%100==99:await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0,"Unmodified original skill policy reaches genuine dawn from the funded first night")
 	if game.phase!="draft":return
 	var dawn_parts: int=game.scrap; var deaths: int=game.kills; await press(KEY_1)

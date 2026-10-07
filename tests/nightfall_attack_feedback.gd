@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Contact, attribution and pause checks in the real playable scene.
 var game: Node3D
 var failures: Array[String] = []
@@ -200,7 +202,7 @@ func run() -> void:
 	check(game.attack_chain==0 and game.attack_chain_time==0 and game.kill_chain==0 and game.kill_chain_time==0,"A new night must reset both attack and personal-kill chains")
 	game.attack_chain=2;game.attack_chain_time=1.0
 	game.kill_chain=5;game.kill_chain_time=4.0
-	game.day_number=1;game.finish_night()
+	game.day_number=1;TransitionFixture.finish_for_fixture(game)
 	check(game.phase=="draft" and game.attack_chain==0 and game.kill_chain==0 and game.hero_attack_target==null,"Surviving the night must start its dawn draft without stale attack chains or pending contact")
 	print("NIGHTFALL_ATTACK_FEEDBACK_", "OK" if failures.is_empty() else "FAILED", " contact=140ms single_commit three_strikes miss attribution milestones draft pause ultimate_priority lifesteal movement feedback_budget")
 	await game.prepare_shutdown()

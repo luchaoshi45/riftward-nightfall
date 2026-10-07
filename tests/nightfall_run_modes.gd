@@ -60,8 +60,15 @@ func clear_enemies() -> void:
 		if is_instance_valid(creature):creature.queue_free()
 	game.enemies.clear()
 
+func defeat_precision_enemies() -> void:
+	# Explicit precision damage exercises registered deaths and wave settlement;
+	# it does not claim a naturally affordable strategy or balanced run.
+	for creature in game.enemies.duplicate():
+		if is_instance_valid(creature) and creature.alive:creature.hurt(100000.0,game.hero)
+
 func run() -> void:
 	game=load("res://scenes/nightfall.tscn").instantiate()
+	game.archive.enabled=false
 	root.add_child(game)
 	current_scene=game
 	await process_frame
@@ -96,6 +103,10 @@ func run() -> void:
 		game.phase_time=.01
 		game.simulate(.02)
 		await process_frame
+		check(game.phase=="night" and game.night_clearance_active,"A completed assault timer must enter real clearance before the next draft")
+		defeat_precision_enemies()
+		game.simulate(.02)
+		await process_frame
 		check(game.phase=="draft" and game.day_number==expected_day,"A completed night must advance to the next draft")
 		press(KEY_1)
 		check(game.phase=="day" and game.day_number==expected_day,"The standard draft must enter its daytime phase")
@@ -121,7 +132,7 @@ func run() -> void:
 	# real units before the next frame verifies the clearance-only ending.
 	game.phase_time=.01
 	game.simulate(.02)
-	clear_enemies()
+	defeat_precision_enemies()
 	game.simulate(.02)
 	await process_frame
 	check(game.phase=="ended" and game.victory and game.day_number==4,"A standard run must finish after its fourth night")

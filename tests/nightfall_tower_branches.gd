@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production-scene verification: all shots, slows and choices use controller hooks.
 const Rules = preload("res://scripts/tower_specializations.gd")
 var game: Node3D
@@ -201,7 +203,7 @@ func run() -> void:
 	await capture("control")
 	# Phase transitions and failure clear active effects through production hooks.
 	shot(selected)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.specializations.movement_multiplier(selected) == 1.0, "Dawn transition clears effects")
 	while game.phase == "draft": game.choose_card(0)
 	game.start_night()

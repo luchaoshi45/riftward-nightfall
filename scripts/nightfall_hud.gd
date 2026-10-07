@@ -790,10 +790,8 @@ func draw_boss_panel(snapshot: Dictionary) -> void:
 	if phase_name=="dead":
 		label("末夜首领 · 已击破",Vector2(477,54),19,Color("8dd4c7"))
 		if clearance:
-			var remaining: int=0
-			for enemy in game.enemies:
-				if is_instance_valid(enemy) and not enemy.is_queued_for_deletion() and enemy.alive:remaining+=1
-			label("清场中 · 残敌 %d · 清除全部威胁后结算" % remaining,Vector2(477,112),14,amber)
+			var threats: Dictionary=game.night_clearance_snapshot()
+			label("清场中 · 残敌%d · 飞弹%d · 清除全部威胁后结算" % [int(threats.remaining),int(threats.projectiles)],Vector2(477,112),14,amber)
 		else:label("首领威胁已解除",Vector2(477,94),14,muted)
 		return
 	label("末夜首领 · 灯噬巨兽",Vector2(477,53),19,Color("f0b177"))

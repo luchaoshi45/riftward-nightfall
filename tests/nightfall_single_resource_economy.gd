@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Single-wallet economics through the production scene, actual wave deaths,
 ## viewport-dispatched keyboard/mouse, city placement and training queues.
 ## Resource income is never fabricated to make either first-night route pass.
@@ -262,7 +264,7 @@ func route_hero() -> void:
 	check(game.scrap == 10 and game.run.memory_level == 1,
 		"The first-night hero route must fund 120 inscription, 60 tower and 20 repair from real 210 income, leaving ten")
 	routes.hero = {"earned": 120, "opening": 90, "inscription": 120, "tower": 60, "repair": 20, "remaining": int(game.scrap)}
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.run.pending == 1 and game.run.memory_level == 1 and game.scrap == 10,
 		"Real dawn must grant a free card while preserving the paid level and low shared balance")
 	await press(KEY_1)
@@ -323,7 +325,7 @@ func route_army() -> void:
 	check(game.scrap == 0 and game.run.memory_level == 0 and game.squads.training_queues == queue,
 		"The first-night army route must fund barracks60/shield70/tower60/repair20 from the real 210 balance, ending at zero")
 	routes.army = {"earned": 120, "opening": 90, "barracks": 60, "shield": 70, "tower": 60, "repair": 20, "remaining": int(game.scrap)}
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.run.pending == 1 and game.scrap == 0,
 		"A genuine free dawn draft must remain available even with a zero shared wallet")
 	var drafted := state()

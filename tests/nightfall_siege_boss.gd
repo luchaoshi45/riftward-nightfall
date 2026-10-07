@@ -91,9 +91,10 @@ func run() -> void:
 	clear_units(game,boss)
 	var residual: BattleUnit=game.spawn_creature(true,"runner")
 	check(game.register_active_wave_enemy(residual),"清场残敌必须登记到当前末波账本")
-	game.final_clearance_active=true
 	game.wave_index=game.WAVES_PER_NIGHT
-	game.phase_time=0.0
+	game.phase_time=.001
+	game.simulate(.002)
+	check(game.night_clearance_active and game.final_clearance_active,"真实末夜计时跨零必须进入清场而保留首领与残敌")
 	boss.hurt(100000.0,game.hero)
 	check(game.boss_snapshot().phase=="dead" and game.phase=="night","首领死亡且仍有残敌时必须保持战斗阶段")
 	game.simulate(.02)

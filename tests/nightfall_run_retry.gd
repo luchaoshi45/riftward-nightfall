@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Cross-scene production retries. Uses the real input, scene reload, exploration,
 ## expedition, construction and troop systems rather than replacing their state.
 ## --render-test captures the two endings and all three opening modes offscreen.
@@ -199,7 +201,7 @@ func reach_second_day() -> Dictionary:
 	check(game.phase == "night" and game.day_number == 1, "The real opening core key must begin night one")
 	var first_plan: Array = game.night_plan.duplicate(true)
 	remove_enemies()
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.day_number == 2, "Finishing the real first night must reach its dawn draft")
 	press(KEY_1)
 	check(game.phase == "day" and game.contracts.status == "active" and game.contracts.offers.size() == 3,
@@ -390,7 +392,7 @@ func finish_victory(expected_plans: Array) -> void:
 			check(game.night_plan == expected,
 				"Actual night %d must consume its seed-derived full plan" % game.day_number)
 			remove_enemies()
-			game.finish_night()
+			TransitionFixture.finish_for_fixture(game)
 		else:
 			check(false, "Victory fixture reached an unexpected phase")
 			return

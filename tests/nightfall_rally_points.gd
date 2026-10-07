@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_haul_routes.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Real production scene, paid queues, model generations and physical rally paths.
 ## Precision only: 5000 parts, extended clocks, direct hero positioning and lethal
 ## boundary damage. No assertion represents human economic or campaign balance.
@@ -383,7 +384,7 @@ func support_freeze_and_lifetimes() -> void:
 	await observer()
 	check(game.run.seed_value==SEED and game.phase=="draft" and game.rally.selection_id()==-1 and not game.rally.active and game.districts.plots.is_empty(),"Retry keeps the real seed and contains no inherited camp selection, points or tool")
 	await ready(); await setting_gui(barracks_index,RALLY_A); await begin_gui(barracks_index)
-	game.day_number=game.max_nights(); game.finish_night()
+	game.day_number=game.max_nights(); TransitionFixture.finish_for_fixture(game)
 	check(game.victory and game.phase=="ended" and not game.rally.active and game.rally.selection_id()==-1,"Actual victory also clears an active camp selection tool")
 
 func physical_ui_modes_and_release() -> void:

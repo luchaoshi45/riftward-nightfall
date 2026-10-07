@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_attack_move.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Independent production convoy acceptance. Shared helpers supply real GUI
 ## purchases, navigation, native combat, font observation and scene cleanup.
 ## Precision uses5000/extended clocks/direct stations/stationary or spawned
@@ -178,7 +179,7 @@ func convoy(kinds: Array=["shield"], single: bool=false) -> Array[Dictionary]:
 				if living(guard.members[slot]):guard.members[slot].hurt(100000.0,null)
 			await process_frame
 		result.append(guard)
-	game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=10000.0; suspend_defense(); stand(HOME)
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=10000.0; suspend_defense(); stand(HOME)
 	await select_group(carrier); game.squads.command_guard(OPEN); place_group(carrier,OPEN)
 	for index in range(1,result.size()):place_group(result[index],OPEN+Vector3(0,0,-5-float(index)*3))
 	check(int(escort_state().count)==0,"A real new paid roster has no inherited convoy binding")
@@ -468,7 +469,7 @@ func frozen_lifecycle() -> void:
 	check(game.phase=="draft" and not bool(rejection.ok) and state()==frozen,"Paid card choice freezes and rejects real convoy API and Alt input")
 	await press(KEY_1); var cooldown: float=source.attack_timer; game.start_night(); clear_enemies(); game.phase_time=10000.0; game.wave_index=game.WAVES_PER_NIGHT
 	check(int(escort_state().count)==1 and source.attack_timer==cooldown and not source.attack_queued,"Sunset retains the actual binding and native cooldown while clearing the old encounter preparation")
-	game.finish_night(); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies(); game.phase_time=10000.0
 	check(int(escort_state().count)==1,"Actual next dawn preserves the living convoy identity")
 	var reference: Dictionary=escort_row(int(groups[1].id)); check(int(reference.target_member_slot)==1,"Original actual carrier slot1 is the stable reference")
 	target.hurt(100000.0,null)
@@ -594,10 +595,17 @@ func natural_economy() -> void:
 	for protected: bool in [false,true]:
 		await fresh(false); crossings.clear(); watched_damage.clear(); income_book.clear(); convoy_time=0.0
 		await right(Vector3(0,5,10))
-		for frame in 1100:
+		var first_night_elapsed := 0.0
+		var first_night_cutoff: Dictionary = {}
+		# Bound actual residual combat; the production assault deadline is unchanged.
+		for frame in ceili(240.0 / STEP):
 			if game.phase!="night":break
 			natural_tick()
+			first_night_elapsed += STEP
+			if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+				first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 			if frame%100==99:await process_frame
+		TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 		check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0,"Original natural first night reaches dawn under the unchanged fixed skill policy")
 		if game.phase!="draft":return
 		var first_deaths: int=game.kills; var dawn_parts: int=game.scrap; await press(KEY_1)

@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Production artillery: true GUI technology/queue, delayed area impacts and lifecycle.
 ## Explicit 5000 parts/long phases isolate rules; they are not difficulty proof.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -698,7 +700,7 @@ func impact_reenter(victim: BattleUnit, _attacker: BattleUnit, _hp: float, _shie
    game.squads.command_guard(reserve.position)
    record.started = game.squads.artillery.begin(reserve,next_target)
  elif mode == "defeat": game.end_defeat("炮兵回归 · 真实hurt回调结算")
- elif mode == "victory": game.day_number = 4; game.finish_night()
+ elif mode == "victory": game.day_number = 4; TransitionFixture.finish_for_fixture(game)
  record.victim = victim.get_instance_id()
 
 func actual_reentry_and_released_target() -> void:
@@ -820,7 +822,7 @@ func freezing_phase_and_shutdown() -> void:
  var target := spawn(source.position + Vector3(10,0,0)); await launch(source)
  var cd := unit_cd(source)
  check(cd > 0.0, "Read-only real炮手 exposes its current launch-started cooldown")
- game.finish_night()
+ TransitionFixture.finish_for_fixture(game)
  check(game.phase == "draft" and artillery().pending == 0 and artillery().casting == 0 and is_equal_approx(unit_cd(source),cd),
   "Real dawn cancels residual shells and prelaunch shots while preserving launched cooldown")
  await press(KEY_1)
@@ -838,7 +840,9 @@ func freezing_phase_and_shutdown() -> void:
  game.squads.advance(2.0); check(target.hp == target_hp, "Ended gameplay cannot land a retired炮弹")
  prepared = await ready(); source = prepared.source; target = spawn(source.position + Vector3(10,0,0)); await launch(source)
  # Real final-clearance code resolves victory after the only living target dies.
- game.day_number = 4; game.begin_final_clearance(); target.hurt(100000.0,null)
+ game.day_number = 4; game.wave_index = game.WAVES_PER_NIGHT; game.phase_time = .001; game.simulate(.002)
+ check(game.night_clearance_active and game.final_clearance_active,"The real final deadline enters clearance while the cannon target is still alive")
+ target.hurt(100000.0,null)
  await process_frame; game.simulate(.01)
  check(game.phase == "ended" and game.victory and artillery().pending == 0 and artillery().casting == 0,
   "Real final victory retires friendly residual fire rather than keeping a fake enemy alive")
@@ -858,7 +862,7 @@ func true_damage_multiplier_refill() -> void:
   and is_equal_approx(source.hp / source.max_hp,ratio), "Actual F producer upgrade applies130 base HP multiplier while retaining wounded ratio")
  var casualty_token: int = group.members[0].get_instance_id(); group.members[0].hurt(100000.0,null); await process_frame
  check(not is_instance_id_valid(casualty_token), "Actual cannon casualty frees its real member instance")
- game.finish_night(); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
+ TransitionFixture.finish_for_fixture(game); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
  var fee: int = game.squads.refill_cost(0); balance = game.scrap
  await press(KEY_L)
  check(fee == 41 and game.scrap == balance - 41 and game.squads.refill_cost(0) == 0,
@@ -887,7 +891,7 @@ func actual_unseeded_economy_and_ledgers() -> void:
   await process_frame; game.enemies.clear()
   if wave < 4: game.spawn_night_wave()
  check(deaths == 71 and game.scrap == 210 and game.kill_chain == 0, "First true71 deaths pay120 total without fake hero連斩")
- game.finish_night(); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
+ TransitionFixture.finish_for_fixture(game); await press(KEY_1); remove_enemies(); game.phase_time = 10000.0
  var earned := 0; var picks := 0; var crate_receipts: Array[Dictionary] = []
  var crates: Array[Dictionary] = []
  for item: Dictionary in game.world.salvage:

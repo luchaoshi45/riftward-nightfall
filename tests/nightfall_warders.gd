@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Actual production scene, simulation, shield damage, finite quotas and input.
 ## Precision cases isolate unrelated offense; economy keeps natural clocks/stats.
 const RunSession := preload("res://scripts/run_session.gd")
@@ -456,7 +458,7 @@ func freeze_lifecycle_and_reentry() -> void:
  game.simulate(10.0); controller.advance(10.0); check(state() == before,"Real V card choice freezes support and does not refresh quota")
  await press(KEY_1); await advance(.701); check(target.shield == 32.0,"Unpaused actual partial windup resumes remaining time and completes once")
  var source: BattleUnit = p.source; var quota: int = int(source.get_meta("warder_casts",0)); var cooldown: float = source.get_meta("warder_cooldown",0.0)
- game.finish_night(); await press(KEY_1); check(game.phase == "day" and game.warders.is_empty(),"Actual dawn clears controllers and enters real day")
+ TransitionFixture.finish_for_fixture(game); await press(KEY_1); check(game.phase == "day" and game.warders.is_empty(),"Actual dawn clears controllers and enters real day")
  check(int(source.get_meta("warder_casts",0)) == quota and is_equal_approx(float(source.get_meta("warder_cooldown",0.0)),cooldown) if is_instance_valid(source) else true,"Dawn cannot reset successful lifetime quota or saved cooldown on a retained source")
  for action in ["clear","setup","target_release","victory","defeat","shutdown"]:
   await fresh(4); p = pack(); source = p.source; target = p.target; controller = p.controller
@@ -470,7 +472,7 @@ func freeze_lifecycle_and_reentry() -> void:
     if action == "clear": controller.clear()
     elif action == "setup": controller.setup(game,replacement)
     elif action == "target_release": target.queue_free()
-    elif action == "victory": game.finish_night()
+    elif action == "victory": TransitionFixture.finish_for_fixture(game)
     elif action == "defeat": game.end_defeat("织壳同步结算验收")
    game.hook_armed = true; game.simulate(1.001)
    check(not game.hook_armed,"Actual support-line recheck executes the armed "+action+" production callback")
@@ -530,14 +532,21 @@ func natural_budget_counterplay() -> void:
  check(game.scrap == 90 and game.phase_time == 105.0 and game.tower_count() == 2,"Natural defense starts with the untouched ninety-part opening and two original towers")
  camera_at(Vector3(0,5,10)); await mouse(game.camera.unproject_position(Vector3(0,5,10)),MOUSE_BUTTON_RIGHT)
  var first_deaths := 0
- for frame in 1100:
+ var first_night_elapsed := 0.0
+ var first_night_cutoff: Dictionary = {}
+ # Bound actual residual combat; the production assault deadline is unchanged.
+ for frame in ceili(240.0 / .1):
   if game.phase != "night": break
   game.aim = game.hero.position+Vector3(0,0,8)
   if game.gate_pressure() > 0: game.cast(0)
   if game.hero.hp < game.hero.max_hp*.6: game.cast(1); game.cast(4)
   if game.gate_pressure() >= 6: game.cast(3)
   game.simulate(.1)
+  first_night_elapsed += .1
+  if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+   first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
   if frame % 100 == 99: await process_frame
+ TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
  first_deaths = game.kills
  check(game.phase == "draft" and game.hero.alive and game.beacon_hp > 0.0,"Natural first-night defense survives using actual hero skills, two opening towers and original enemy stats")
  if game.phase != "draft": return
@@ -553,7 +562,10 @@ func natural_budget_counterplay() -> void:
  check(game.phase == "night" and game.day_number == 2,"Actual remaining ninety-second day naturally reaches the second night without extension")
  var controlled_frames := 0; var cancellation_events := 0; var windup_frames := 0; var focus_commands := 0
  var observed_cancellations := 0; var real_source_token := -1; var source_paid := 0; var saw_original_stats := false
- for frame in 2200:
+ var second_night_elapsed := 0.0
+ var second_night_cutoff: Dictionary = {}
+ # Bound actual residual combat; the production assault deadline is unchanged.
+ for frame in ceili(240.0 / STEP):
   if game.phase != "night": break
   for controller: Node3D in game.warders:
    if not is_instance_valid(controller): continue
@@ -575,7 +587,11 @@ func natural_budget_counterplay() -> void:
   if game.hero.hp < game.hero.max_hp*.6: game.cast(1); game.cast(4)
   if game.gate_pressure() >= 6: game.cast(3)
   game.simulate(STEP)
+  second_night_elapsed += STEP
+  if second_night_cutoff.is_empty() and second_night_elapsed >= game.NIGHT_LENGTH:
+   second_night_cutoff = TransitionFixture.deadline_evidence(game, second_night_elapsed)
   if frame % 100 == 99: await process_frame
+ TransitionFixture.record_natural_receipt(game, evidence, "second", second_night_elapsed, second_night_cutoff)
  check(real_source_token != -1 and saw_original_stats,"The real saved fourth wave naturally spawns its unmodified shield source")
  check(focus_commands > 0 and controlled_frames > 0 and source_paid == 0,"Naturally funded legal C/control defense really slows the moving source and prevents a successful shield")
  check(game.phase == "draft" and game.hero.alive and game.beacon_hp > 0.0,"Actual second night completes with original enemy HP/damage/speed and no wallet supplementation")

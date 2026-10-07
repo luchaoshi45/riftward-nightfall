@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_bonus_route_choices.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Independent production scene/input/combat acceptance. Precision explicitly
 ## uses5000 parts, extended phases, stationed hero/squad, paidV upgrade,
 ## one guard cooldown reset, low-health/shield hero and real100000-damage
@@ -121,7 +122,7 @@ func ready_guards(with_ranged: bool=false) -> Dictionary:
 	var group: Dictionary={}
 	if with_ranged:
 		await build_gui("barracks",BARRACKS); group=await train("ranged")
-	game.finish_night(); await press(KEY_1)
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	check(game.phase=="day" and game.day_number==2 and game.phase_time==90.0,"Actual dawn deploys guards in the original first ninety-second daylight")
 	game.phase_time=10000.0; remove_unrelated_enemies(); suspend_defense(); stand(HOME)
 	var info: Dictionary=guard_snapshot(); var item: Dictionary=guarded_item()
@@ -296,7 +297,7 @@ func identity_case() -> void:
 	stage_returned=true
 
 func lifecycle_case() -> void:
-	await fresh(); game.finish_night()
+	await fresh(); TransitionFixture.finish_for_fixture(game)
 	var first_spawn_state: int=game.spawn_rng.state
 	await press(KEY_1)
 	check(game.phase=="day" and guards().size()==2 and game.spawn_rng.state==first_spawn_state,"The first real begin_day deploys two native guard actors while restoring the existing spawn RNG stream exactly")
@@ -321,7 +322,7 @@ func lifecycle_case() -> void:
 	check(game.phase=="night" and guards().is_empty() and bool(guard_snapshot(index).blocked) and int(guard_snapshot(index).killed)==0 and not bool(guard_snapshot(index).cleared) and game.scrap==before and game.kills==kills,"Actual sunset retires living guards without paying, clearing, or unlocking the original uncompleted box")
 	stand(item.position); check(not game.discoveries.interact_index(index),"Night interaction cannot bypass the same-generation box lock left by uncompleted guards")
 	evidence.lifecycle.append({"tag":"sunset","snapshot":plain(guard_snapshot(index)),"before":before,"after":game.scrap})
-	game.finish_night(); await press(KEY_1)
+	TransitionFixture.finish_for_fixture(game); await press(KEY_1)
 	check(game.phase=="day" and guards().size()==2,"The next actual dawn may select a fresh daily guarded challenge")
 	var old_root: int=game.get_instance_id(); var tokens: Array=[]
 	for actor: BattleUnit in guards():tokens.append(actor.get_instance_id())
@@ -447,10 +448,17 @@ func natural_tick() -> void:
 
 func natural_begin() -> Dictionary:
 	await fresh(false); await right(Vector3(0,5,10)); natural_gate_crossings.clear()
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / STEP):
 		if game.phase!="night":break
 		natural_tick()
+		first_night_elapsed += STEP
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if frame%100==99:await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0,"Natural original ninety-part105-second first night survives by the unchanged real skill policy")
 	if game.phase!="draft":return {}
 	var dawn: int=game.scrap; var kills: int=game.kills; await press(KEY_1)

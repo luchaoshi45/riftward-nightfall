@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_attack_move.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Independent scene/input acceptance. Precision uses5000 parts, extended
 ## clocks, directly stationed hero, authoritative relocated discoveries and
 ## one manual speed change to inspect immutable cached HUD estimates;
@@ -165,7 +166,7 @@ func route_slot(index: int, serial: int) -> int:
 	return -1
 
 func ready_primary() -> bool:
-	await fresh(); game.finish_night(); await press(KEY_1); clear_enemies()
+	await fresh(); TransitionFixture.finish_for_fixture(game); await press(KEY_1); clear_enemies()
 	check(game.phase=="day" and game.day_number==2 and game.phase_time==90.0,"Actual dawn card starts original first daylight before precision extension")
 	game.scrap=5000; game.phase_time=10000.0
 	var found := false
@@ -507,10 +508,17 @@ func walk_natural_primary(point: Vector3) -> bool:
 
 func natural_route(longer: bool) -> void:
 	await fresh(false); await right(Vector3(0,5,10)); natural_gate_crossings.clear()
-	for frame in 1100:
+	var first_night_elapsed := 0.0
+	var first_night_cutoff: Dictionary = {}
+	# Bound actual residual combat; the production assault deadline is unchanged.
+	for frame in ceili(240.0 / STEP):
 		if game.phase!="night":break
 		natural_tick()
+		first_night_elapsed += STEP
+		if first_night_cutoff.is_empty() and first_night_elapsed >= game.NIGHT_LENGTH:
+			first_night_cutoff = TransitionFixture.deadline_evidence(game, first_night_elapsed)
 		if frame%100==99:await process_frame
+	TransitionFixture.record_natural_receipt(game, evidence, "opening", first_night_elapsed, first_night_cutoff)
 	check(game.phase=="draft" and game.hero.alive and game.beacon_hp>0,"Original90/105 skill policy reaches genuine first dawn")
 	if game.phase!="draft":return
 	var dawn_parts: int=game.scrap; var kills: int=game.kills; await press(KEY_1)

@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 const Contracts = preload("res://scripts/day_contracts.gd")
 const HOME := Vector3(0, 5, 3.1)
 var requests := 0
@@ -34,7 +36,7 @@ func run() -> void:
 	module.setup(game, 17)
 	module.on_day()
 	assert(module.status == "idle", "Opening night must not create a contract")
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	assert(game.day_number == 2 and game.phase == "draft")
 	assert(game.choose_card(0) and game.phase == "day")
 	module.on_day()
@@ -175,9 +177,13 @@ func run() -> void:
 	for item_index in game.discoveries.items.size():
 		var item: Dictionary=game.discoveries.items[item_index]
 		if item.state=="ready" and item.kind=="supply_cache" and game.outpost_walkable(item.position) and not bonus_test.in_home_area(item.position):
+			# This isolated bonus/channel fixture uses an actually openable box.
+			# The earlier nest setup removes actors, which cannot clear the
+			# separately tested daily guard lock through genuine defeats.
+			if not game.discoveries.cache_guards.can_open(item_index):continue
 			bonus_index=item_index
 			break
-	assert(bonus_index>=0, "A real ready field supply cache must exist for the optional bonus branch")
+	assert(bonus_index>=0, "A real ready unblocked field supply cache must exist for the optional bonus branch")
 	var bonus_item: Dictionary=game.discoveries.items[bonus_index]
 	var bonus_point: Vector3=bonus_item.position
 	# The random field layout can put every remaining discovery beyond 58m
@@ -196,6 +202,7 @@ func run() -> void:
 	assert(int(bonus.index)==bonus_index, "The zero-distance field cache must be the actual optional bonus candidate")
 	assert(game.outpost_walkable(bonus_point), "The actual bonus discovery must be reachable")
 	assert(not bonus_test.in_home_area(bonus_point), "The actual bonus must require a separate return journey")
+	assert(game.discoveries.cache_guards.can_open(bonus_index), "The bonus channel fixture must satisfy the actual guard prerequisite")
 	bonus_test.tick(0.0)
 	assert(bonus_test.choose_bonus(1), "The bonus branch must bind the chosen real discovery")
 	game.hero.position=bonus_point
@@ -226,14 +233,14 @@ func run() -> void:
 	assert(module.status == "expired", "Same day must not redraw after sunset")
 	game.start_night()
 	module.on_night()
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	assert(game.day_number == 3 and game.phase == "draft")
 	assert(game.choose_card(0) and game.phase == "day")
 	module.on_day()
 	assert(module.day_id == 3 and module.status in ["active", "unavailable"])
 	game.start_night()
 	module.on_night()
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	assert(game.phase == "ended" and game.victory)
 	module.tick(10.0)
 	assert(module.take_reward_request().is_empty())

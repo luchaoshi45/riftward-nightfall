@@ -1,4 +1,5 @@
 extends "res://tests/nightfall_haul_routes.gd"
+## Artificial phase setup only; natural clearance and victory use real combat.
 ## Real construction input, paid receipts, stable identities and production lifetimes.
 ## Precision stages use5000 parts/extended clocks/direct hero positioning.
 ## Economy separately keeps the original90-part opening and original actors/clocks.
@@ -418,7 +419,7 @@ func freeze_and_run_lifetimes() -> void:
 	if not is_instance_valid(game) or game.get_instance_id()==old_root:return
 	await observer()
 	check(game.run.seed_value==SEED and game.phase=="draft" and not game.construction.sell_mode and game.districts.plots.is_empty(),"Actual retry keeps seed while removing demolition mode, prior receipts and tombstones")
-	await fresh(); await build_gui("barracks",BARRACKS); await begin_sell(BARRACKS); game.day_number=game.max_nights();game.finish_night()
+	await fresh(); await build_gui("barracks",BARRACKS); await begin_sell(BARRACKS); game.day_number=game.max_nights();TransitionFixture.finish_for_fixture(game)
 	check(game.victory and game.phase=="ended" and not game.sell_structure_at(BARRACKS),"Actual victory makes an existing demolition preview inert")
 
 func untouched_opening_wallet() -> void:

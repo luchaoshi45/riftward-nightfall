@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Exercise the real escort route and its persistent, local homecoming lights.
 const STEP := .04
 var failures: Array[String] = []
@@ -133,7 +135,7 @@ func run() -> void:
 	var before_hp: float=game.beacon_hp
 	expeditions.tick(5.0)
 	check(game.beacon_hp==before_hp and game.scrap==before_scrap-17,"Returned scouts must not secretly auto-repair or pay additional rewards")
-	game.finish_night();check(game.choose_card(0) and game.phase=="day","The next dawn must restore the retryable daytime activity")
+	TransitionFixture.finish_for_fixture(game);check(game.choose_card(0) and game.phase=="day","The next dawn must restore the retryable daytime activity")
 	clear_enemies(game)
 	game.hero.position=second.position;game.move_goal=game.hero.position
 	check(game.interact() and second.state=="escort","The withdrawn scout must be available again after dawn")

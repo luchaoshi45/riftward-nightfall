@@ -134,6 +134,8 @@ var spawn_timer := 4.0
 var wave_index := 0
 var wave_warning_issued := false
 var active_wave_reward_id := -1
+var night_clearance_active := false
+var night_clearance_elapsed := 0.0
 var final_clearance_active := false
 var pulse_timer := 3.0
 var guardian_timer := 12.0
@@ -330,8 +332,9 @@ func simulate(delta: float) -> void:
 	if exploration:exploration.tick(delta)
 	cores.advance(delta)
 	specializations.advance(delta)
-	phase_time-=delta
+	phase_time=maxf(0.0,phase_time-delta)
 	if phase=="night":
+		if night_clearance_active:night_clearance_elapsed+=delta
 		if phase_time<=0.0:bounty.expire()
 		countermeasure_light_time=maxf(0.0,countermeasure_light_time-delta)
 		countermeasure_tower_time=maxf(0.0,countermeasure_tower_time-delta)
@@ -455,7 +458,7 @@ func simulate(delta: float) -> void:
 	wildlife.tick(delta)
 	update_salvage_refresh(delta)
 	if phase=="night":
-		if not final_clearance_active:
+		if not night_clearance_active:
 			if wave_index<WAVES_PER_NIGHT:
 				spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time))
 				if spawn_timer<=4.0 and not wave_warning_issued:
@@ -468,15 +471,14 @@ func simulate(delta: float) -> void:
 		if pulse_timer<=0:
 			beacon_pulse()
 			pulse_timer=beacon_pulse_interval()
-	if phase=="night" and final_clearance_active and not _has_living_night_enemies():
+	if phase=="night" and night_clearance_active and not _has_living_night_enemies():
 		finish_night()
 		return
 	if phase_time<=0 and (phase=="day" or phase=="night"):
 		if phase=="day":start_night()
-		elif day_number>=max_nights():
-			begin_final_clearance()
+		else:
+			begin_night_clearance()
 			if not _has_living_night_enemies():finish_night()
-		else:finish_night()
 
 func start_night() -> void:
 	salvage_draw.on_night()
@@ -507,6 +509,8 @@ func start_night() -> void:
 	activate_countermeasure()
 	wave_rewards.reset()
 	active_wave_reward_id=-1
+	night_clearance_active=false
+	night_clearance_elapsed=0.0
 	final_clearance_active=false
 	if is_instance_valid(siege_boss):
 		siege_boss.clear()
@@ -529,7 +533,7 @@ func start_night() -> void:
 	spawn_night_wave()
 
 func spawn_night_wave() -> void:
-	if phase!="night" or wave_index>=WAVES_PER_NIGHT:return
+	if phase!="night" or night_clearance_active or wave_index>=WAVES_PER_NIGHT:return
 	var entry: Dictionary=night_plan[wave_index]
 	var reward_id: int=(day_number-1)*WAVES_PER_NIGHT+wave_index
 	var standard_rewards: bool=run_mode!="teaching"
@@ -787,15 +791,31 @@ func spawn_summoned_reinforcement(source: BattleUnit, point: Vector3) -> BattleU
 	source.set_meta("summoner_spawned",int(source.get_meta("summoner_spawned",0))+1)
 	return reinforcement
 
-func begin_final_clearance() -> void:
-	if final_clearance_active or phase!="night":return
-	final_clearance_active=true
+func begin_night_clearance() -> void:
+	if night_clearance_active or phase!="night" or phase_time>0.0 or wave_index<WAVES_PER_NIGHT:return
+	if quitting or restart_pending or shutting_down:return
+	night_clearance_active=true
+	night_clearance_elapsed=0.0
+	final_clearance_active=day_number>=max_nights()
 	phase_time=0.0
-	wave_index=WAVES_PER_NIGHT
 	wave_warning_issued=false
 	spawn_timer=0.0
 	world.wave_warning=false
-	notify("末夜清场 · 首领与残敌仍在，清除全部威胁后才能迎来日出",5)
+	if _has_living_night_enemies():
+		notify("末夜清场 · 首领与残敌仍在，清除全部威胁后才能迎来日出" if final_clearance_active else "波次结束 · 残敌仍会攻击，清除全部威胁后迎来黎明",5)
+
+func begin_final_clearance() -> void:
+	if day_number>=max_nights():begin_night_clearance()
+
+func night_clearance_snapshot() -> Dictionary:
+	var remaining:=0
+	var projectiles:=0
+	for creature in enemies:
+		if is_instance_valid(creature) and not creature.is_queued_for_deletion() and creature.alive:remaining+=1
+	for lobber: Node3D in lobbers:
+		if is_instance_valid(lobber) and String(lobber.snapshot().get("phase",""))=="flight":projectiles+=1
+	return {"active":night_clearance_active,"final":final_clearance_active,
+		"remaining":remaining,"projectiles":projectiles,"elapsed":night_clearance_elapsed}
 
 func wave_preview() -> Dictionary:
 	return encounters.next_preview(night_plan,wave_index,NIGHT_LENGTH-phase_time)
@@ -818,7 +838,11 @@ func beacon_repair_cost() -> int:
 	return maxi(14,20-survivors_rescued*3)
 
 func finish_night() -> void:
-	if phase=="ended":return
+	# A deadline stops the planned assault; it never removes living threats.
+	# All callers, including the final victory path, use this same completion gate.
+	if phase!="night" or not night_clearance_active or phase_time>0.0 or wave_index<WAVES_PER_NIGHT:return
+	if quitting or restart_pending or shutting_down or _has_living_night_enemies():return
+	if not is_instance_valid(hero) or not hero.alive or hero.hp<=0.0 or beacon_hp<=0.0:return
 	if logistics:logistics.on_night_end()
 	var was_final_clearance: bool=final_clearance_active
 	_settle_wave_wager_loss("night_end")
@@ -834,6 +858,8 @@ func finish_night() -> void:
 	world.wave_warning=false
 	clear_gate_barricade()
 	clear_contract_hunters()
+	night_clearance_active=false
+	night_clearance_elapsed=0.0
 	final_clearance_active=false
 	if is_instance_valid(siege_boss):
 		siege_boss.clear()
@@ -1633,7 +1659,9 @@ func day_hunter_waypoint(creature: BattleUnit, destination: Vector3) -> Vector3:
 func build_day_hunter_route(creature: BattleUnit, destination: Vector3) -> void:
 	creature.path.clear();creature.path_goal=destination;creature.path_timer=.45
 	var start_cell:=nearest_navigation_cell(creature.position,true)
-	var end_cell:=nearest_navigation_cell(destination,false)
+	# Match the target reachability check: the last grid point must connect to
+	# the actual target without cutting a wall, especially at the gate corners.
+	var end_cell:=nearest_navigation_cell(destination,true)
 	if start_cell.x==999 or end_cell.x==999:return
 	var grid_path:=hero_navigation.get_point_path(start_cell,end_cell)
 	var cursor:=creature.position
@@ -2448,6 +2476,9 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	night_clearance_active=false
+	night_clearance_elapsed=0.0
+	final_clearance_active=false
 	_settle_wave_wager_loss("defeat")
 	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
@@ -3603,6 +3634,9 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	shutting_down=true
+	night_clearance_active=false
+	night_clearance_elapsed=0.0
+	final_clearance_active=false
 	set_process(false)
 	specializations.reset_effects()
 	if is_instance_valid(discoveries):discoveries.cache_guards.clear()

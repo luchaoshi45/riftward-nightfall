@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Real-scene lobber regression. Production simulate owns every attack clock;
 ## viewport-dispatched commands test dodges. Combat isolation explicitly gives
 ## 5000 parts, disables unrelated attacks and sets the hero's armour to zero.
@@ -827,10 +829,10 @@ func phase_cleanup_and_last_projectile() -> void:
 	begin(controller)
 	launch(controller)
 	var controller_id := controller.get_instance_id()
-	game.finish_night()
-	check(game.phase == "draft" and game.lobbers.is_empty(), "Real dawn must clear ongoing throws before its free choice")
+	TransitionFixture.finish_for_fixture(game)
+	check(game.phase == "draft" and game.lobbers.is_empty(), "Artificial hostile-flight retirement prepares the genuine dawn draft; it is not natural projectile-clearance proof")
 	await process_frame
-	check(not is_instance_id_valid(controller_id), "Actual dawn must release the old ranged controller instance")
+	check(not is_instance_id_valid(controller_id), "Fixture retirement and the genuine dawn transition must release the old ranged controller instance")
 	await press(KEY_1)
 	var events := damage_events.size()
 	game.simulate(1.0)
@@ -851,7 +853,10 @@ func phase_cleanup_and_last_projectile() -> void:
 	controller = spawned.controller
 	begin(controller)
 	launch(controller)
-	game.begin_final_clearance()
+	game.wave_index = game.WAVES_PER_NIGHT
+	game.phase_time = .001
+	game.simulate(.002)
+	check(game.night_clearance_active and game.final_clearance_active, "The real timer crossing must retain the committed hostile flight for clearance")
 	var source: BattleUnit = spawned.source
 	source.hurt(100000.0, game.hero)
 	await process_frame
@@ -885,6 +890,9 @@ func run() -> void:
 	check(completed == ["plan", "timing", "dodges", "targets", "area", "slope", "cancel", "freeze", "range", "cleanup"],
 		"Every full scene regression stage must finish; an aborted coroutine must not be reported as success")
 	await close_game()
+	# Let the audio server retire the final scene's playback handles before
+	# quitting; successful combat assertions do not prove clean teardown.
+	await create_timer(.5, true, false, true).timeout
 	evidence.checks = checks
 	evidence.failures = failures
 	var folder := ProjectSettings.globalize_path(output_dir)

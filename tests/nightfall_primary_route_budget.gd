@@ -1,4 +1,6 @@
 extends SceneTree
+## Artificial phase setup only; natural clearance and victory use real combat.
+const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 ## Real contracts, source dictionaries and P/F movement; no replacement ETA service.
 ## Actual 1920x1200 HUD frames: -- --render-test, hidden and Dummy audio.
 const Contracts := preload("res://scripts/day_contracts.gd")
@@ -94,7 +96,7 @@ func boot_day(wanted: String, offer_index: int = 0) -> bool:
 	if seed < 0: return false
 	game.run.seed_value = seed
 	game.contracts.setup(game, seed)
-	game.finish_night()
+	TransitionFixture.finish_for_fixture(game)
 	check(game.phase == "draft" and game.day_number == 2, "Real first-night completion must enter the dawn draft")
 	check(game.choose_card(0) and game.phase == "day", "The real dawn choice must generate the production contract")
 	press(KEY_4 + offer_index)

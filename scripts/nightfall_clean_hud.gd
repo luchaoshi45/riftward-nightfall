@@ -62,10 +62,17 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	ui.draw_circle(Vector2(33,35),3.0,Color(tint,.82))
 	ui.label("D%d %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
-	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(127,40),14,LIVE_INK)
-	if night:
-		ui.label("第%d/%d波" % [game.wave_index,game.WAVES_PER_NIGHT],Vector2(45,60),11,LIVE_QUIET)
+	var clearance: Dictionary=game.night_clearance_snapshot() if night else {}
+	var clearing:=bool(clearance.get("active",false))
+	if clearing:
+		var elapsed:=floori(float(clearance.elapsed))
+		ui.label("清场 +%02d:%02d" % [elapsed/60,elapsed%60],Vector2(113,40),14,LIVE_INK)
+		ui.label("残敌%d · 飞弹%d" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(45,60),11,LIVE_QUIET)
 	else:
+		ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(127,40),14,LIVE_INK)
+	if night and not clearing:
+		ui.label("第%d/%d波" % [game.wave_index,game.WAVES_PER_NIGHT],Vector2(45,60),11,LIVE_QUIET)
+	elif not night:
 		ui.label("整备窗口",Vector2(45,60),11,LIVE_QUIET)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
 	ui.progress(Rect2(45,70,193,2),float(game.phase_time)/length,Color(tint,.38))
@@ -111,9 +118,11 @@ static func _objective_copy(game: Node3D, phase: String) -> Dictionary:
 				# Keep real population and arrival time in the one-line budget.
 				title="下一波 · 甲壳悬赏 · %d只 · %.0f秒" % [int(preview.count),float(preview.remaining)]
 				detail="全清+48 · 甲壳60甲/J破甲 · 投蚀落点2米 · F3 防线"
-		elif bool(game.final_clearance_active):
-			title="末夜清场 · 清除剩余威胁"
-			detail="首领与残敌全部清除后结算"
+		elif bool(game.night_clearance_active):
+			var clearance: Dictionary=game.night_clearance_snapshot()
+			title="%s · 残敌%d" % ["末夜清场" if bool(clearance.final) else "夜袭清场",int(clearance.remaining)]
+			detail="清除残敌后结算" if bool(clearance.final) else "五波已抵达 · 清除残敌后迎来黎明"
+			if int(clearance.projectiles)>0:detail="飞弹%d枚仍在途中 · 落地后才可完成清场" % int(clearance.projectiles)
 		else:
 			title="最后一波已抵达 · 守住南门"
 			detail="处理主要威胁，保护灯塔与受压防线"
@@ -137,10 +146,11 @@ static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 	var state:=String(boss.get("phase","approach"))
 	if state=="dead":
 		ui.label("末夜首领 · 已击破",Vector2(444,47),18,GREEN)
-		var remaining:=0
-		for creature in game.enemies:
-			if is_instance_valid(creature) and not creature.is_queued_for_deletion() and creature.alive:remaining+=1
-		ui.label("清场中 · 残敌%d · 全部清除后结算" % remaining,Vector2(444,79),15,ui.amber)
+		var clearance: Dictionary=game.night_clearance_snapshot()
+		if bool(clearance.active):
+			ui.label("清场中 · 残敌%d · 飞弹%d · 全部清除后结算" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(444,79),15,ui.amber)
+		else:
+			ui.label("首领威胁已解除 · 守住剩余波次",Vector2(444,79),15,ui.muted)
 		return
 	var hp:=maxf(0.0,float(boss.get("hp",0.0)))
 	var maximum:=maxf(1.0,float(boss.get("max_hp",1.0)))
@@ -540,7 +550,7 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 			ui.draw_wave_wager()
 			return
 	else:
-		ui.label("守夜防线",Vector2(TEXT_X,184),18,GREEN)
+		ui.label("清场 · 清除残敌与飞弹" if bool(game.night_clearance_active) else "守夜防线",Vector2(TEXT_X,184),18,GREEN)
 		var title: String="未选择额外反制" if int(game.countermeasure_selected)<0 else game.countermeasure_title(int(game.countermeasure_selected))
 		_paragraph(ui,"本夜反制 · "+title,Vector2(TEXT_X,215),TEXT_WIDTH,16,ui.ink,23)
 		if int(game.countermeasure_selected)>=0:
