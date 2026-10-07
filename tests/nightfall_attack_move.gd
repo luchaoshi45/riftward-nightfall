@@ -639,7 +639,7 @@ func measure_hud(tag: String, help: bool = false) -> void:
 			if row.point==Vector2(38,783):check(int(row.size)==14 and float(row.width)<=272,"Actual selected title fits the original272px budget at14px")
 			if row.point==Vector2(46,494):check(int(row.size)==13 and float(row.width)<=496 and row.text==game.hud.control_group_hint(),"Complete actual shortcut-group row fits its original496px column")
 			if row.point==Vector2(46,522):
-				army_seen=true; check(int(row.size)==14 and float(row.width)<=496 and row.text=="Shift+右键攻击推进 · Alt+右键工队护航","Complete actual attack-move and escort instructions fit496px at14px")
+				army_seen=true; check(int(row.size)==13 and float(row.width)<=496 and row.text=="Shift+右键推进 · Alt+右键护航 · Alt+O撤回","Complete actual attack-move, escort and selected-recall instructions fit496px at13px")
 			if help and row.point.x==46 and row.point.y>=230:help_bottom=maxf(help_bottom,float(row.point.y)+float(row.descent))
 		check(game.squads.selected_count()==0 or hint_seen,"Actual selected strip retains the complete command hint")
 		check(game.hud.detail_tab!="army" or army_seen,"Actual existing army drawer displays the complete new instruction")
@@ -737,4 +737,11 @@ func run() -> void:
 	evidence.checks=checks; evidence.failures=failures
 	if file!=null:file.store_string(JSON.stringify(evidence,"\t")); file.close()
 	finished=true; print("AMOVE_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_ATTACK_MOVE_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_ATTACK_MOVE_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_ATTACK_MOVE_FAILED checks=",checks," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

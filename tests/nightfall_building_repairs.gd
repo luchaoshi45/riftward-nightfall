@@ -608,4 +608,12 @@ func run() -> void:
 		check(stage_returned,"Repair stage "+name+" reaches its explicit full-body completion marker")
 		print("REPAIR_STAGE_END ",name," checks=",checks," failures=",failures.size()); evidence.completed.append(name)
 		if not failures.is_empty():break
-	await finalize(); finished=true; print("REPAIR_RESULT checks=",checks," failures=",failures.size()); quit(0 if failures.is_empty() else 1)
+	await finalize(); finished=true; print("REPAIR_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_BUILDING_REPAIRS_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_BUILDING_REPAIRS_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_BUILDING_REPAIRS_FAILED checks=",checks," failures=",failures.size())
+	quit(0 if failures.is_empty() else 1)

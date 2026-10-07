@@ -462,4 +462,12 @@ func run() -> void:
 	var file:=FileAccess.open(folder.path_join("demolition.json"),FileAccess.WRITE);check(file!=null,"Demolition evidence opens only under build")
 	evidence.checks=checks;evidence.failures=failures
 	if file!=null:file.store_string(JSON.stringify(evidence,"\t"));file.close()
-	finished=true;print("DEMOLITION_RESULT checks=",checks," failures=",failures.size());quit(0 if failures.is_empty() else 1)
+	finished=true;print("DEMOLITION_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_DEMOLITION_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_DEMOLITION_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_DEMOLITION_FAILED checks=",checks," failures=",failures.size())
+	quit(0 if failures.is_empty() else 1)

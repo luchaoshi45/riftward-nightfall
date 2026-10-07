@@ -2729,6 +2729,15 @@ func toggle_squad_order() -> bool:
 	notify("全军%s" % ("驻守南门" if order=="hold" else "撤回灯塔"),2)
 	return true
 
+func recall_selected_squads() -> bool:
+	if phase not in ["day","night"] or quitting or restart_pending:return false
+	if not is_instance_valid(hero) or not hero.alive or hero.hp<=0 or beacon_hp<=0:return false
+	if not is_instance_valid(squads):return false
+	var result: Dictionary=squads.command_recall()
+	if bool(result.ok):selection_dragging=false
+	notify(String(result.reason),2)
+	return bool(result.ok)
+
 func refill_squads() -> bool:
 	if phase!="day":
 		notify("只能在白昼付费补员休整",2)
@@ -3526,7 +3535,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_N:train_troop("engineer")
 			KEY_TAB:
 				if phase in ["day","night"]:squads.select_all()
-			KEY_O:toggle_squad_order()
+			KEY_O:
+				if event.alt_pressed:recall_selected_squads()
+				else:toggle_squad_order()
 			KEY_L:refill_squads()
 			KEY_P:follow_route()
 			KEY_V:request_upgrade()

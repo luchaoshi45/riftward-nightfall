@@ -168,7 +168,7 @@ func _create_squad(kind: String, origin: Vector3) -> int:
 	var initial_order := HAUL if kind == "hauler" else (RECALL if str(game.get("phase")) == "day" else HOLD)
 	var squad := {"id": id, "kind": kind, "order": initial_order, "members": members,
 		"destination": origin, "origin": origin, "attack_target": null, "formation_index": 0,
-		"rally_pending": false, "rally_stations": [], "attack_move_stations": []}
+		"rally_pending": false, "rally_stations": [], "attack_move_stations": [], "manual_recall": false}
 	if kind == "medic":
 		squad.merge({"therapy_enabled": false, "treatments": 0, "healed_hp": 0.0, "spent": 0})
 	squads.append(squad)
@@ -657,6 +657,44 @@ func command_move(point: Vector3) -> Dictionary: return _command(MOVE, point)
 
 func command_attack_move(point: Vector3) -> Dictionary: return _command(AMOVE, point)
 
+func _recall_context_current(controller: Node3D, generation: int) -> bool:
+	if generation != _epoch or not is_same(game, controller) or not _active(): return false
+	if is_queued_for_deletion() or controller.is_queued_for_deletion(): return false
+	for property: Dictionary in controller.get_property_list():
+		var property_name := String(property.name)
+		if property_name == "squads" and not is_same(controller.get("squads"), self): return false
+		if property_name in ["quitting", "restart_pending"] and bool(controller.get(property_name)): return false
+	return true
+
+func command_recall() -> Dictionary:
+	var controller := game
+	var generation := _epoch
+	if not _recall_context_current(controller, generation): return _result(false, "当前不能撤回部队")
+	# Freeze the selected original rows. A synchronous reset or same-numbered
+	# replacement must not turn the rest of this request into a new squad order.
+	var selection: Array[int] = selected_ids.duplicate()
+	var requested: Array[Dictionary] = []
+	for squad: Dictionary in squads:
+		if int(squad.id) not in selection or String(squad.kind) == "hauler": continue
+		if _owns_squad(squad, generation) and _squad_alive(squad): requested.append(squad)
+	if requested.is_empty(): return _result(false, "请先选择存活的非工队部队")
+	var recalled := 0
+	for squad: Dictionary in requested:
+		if not _recall_context_current(controller, generation): return _result(false, "部队状态已变化，请重新选择")
+		if not _owns_squad(squad, generation) or not _squad_alive(squad): continue
+		# Repeating the same explicit recall leaves routes, treatment windups,
+		# cooldowns and already fired projectiles exactly as they are.
+		if String(squad.order) == RECALL and bool(squad.get("manual_recall", false)):
+			recalled += 1
+			continue
+		_set_squad_order(squad, RECALL)
+		if not _recall_context_current(controller, generation): return _result(false, "部队状态已变化，请重新选择")
+		if not _owns_squad(squad, generation) or not _squad_alive(squad) or String(squad.order) != RECALL: continue
+		squad.manual_recall = true
+		recalled += 1
+	if recalled == 0: return _result(false, "没有可撤回的原部队")
+	return _result(true, "所选非工队撤回灯塔，跨昼夜待命")
+
 func command_move_non_haulers(point: Vector3) -> Dictionary: return _command(MOVE, point, null, true)
 
 func command_escort(target_member: Variant) -> Dictionary:
@@ -698,6 +736,7 @@ func set_order(order: String, squad_id: int = -1) -> Dictionary:
 	return _result(true, "小队驻守南门" if order == HOLD else "小队撤回灯塔", 0, squad_id)
 
 func _set_squad_order(squad: Dictionary, order: String) -> void:
+	squad.manual_recall = false
 	if is_instance_valid(escort): escort.on_order(squad)
 	# A manual command owns the squad immediately; arriving later must never
 	# replace that command with the old barracks destination.
@@ -960,6 +999,7 @@ func on_day() -> void:
 	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
+		if squad.order == RECALL and bool(squad.get("manual_recall", false)): continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, RECALL)
 
 func on_night() -> void:
@@ -974,6 +1014,7 @@ func on_night() -> void:
 	_clear_attack_move_encounters()
 	for squad in squads:
 		if String(squad.kind) == "hauler": continue
+		if squad.order == RECALL and bool(squad.get("manual_recall", false)): continue
 		if squad.order in [HOLD, RECALL]: _set_squad_order(squad, HOLD)
 
 func _clear_attack_move_encounters() -> void:
@@ -1635,6 +1676,7 @@ func snapshot() -> Dictionary:
 			if int(growth.rank) == 2: elite += 1
 		total_alive += count
 		rows.append({"id": squad.id, "kind": squad.kind, "title": String(Catalog.troop(String(squad.kind)).title), "order": squad.order,
+			"manual_recall": bool(squad.get("manual_recall", false)),
 			"order_label": "护航工队" if squad.order == ESCORT else String({HOLD: "驻守南门", RECALL: "撤回灯塔", MOVE: "移动", AMOVE: "攻击推进", ATTACK: "攻击", GUARD: "原地驻守", HAUL: "采运"}.get(squad.order, "待命")),
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
 			"veterans": veterans, "elite": elite, "xp": experience, "members": members,

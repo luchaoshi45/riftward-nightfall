@@ -1203,7 +1203,7 @@ func draw_squads() -> void:
 	var relay_hint: String=" · 中继时长×%.1f" % duration_multiplier if duration_multiplier < .999 else ""
 	label("兵营%d · 训练%d组 · 页%d/%d%s%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint,relay_hint],Vector2(46,465),12,muted)
 	label(control_group_hint(),Vector2(46,494),13,amber)
-	label("Shift+右键攻击推进 · Alt+右键工队护航",Vector2(46,522),14,muted)
+	label("Shift+右键推进 · Alt+右键护航 · Alt+O撤回",Vector2(46,522),13,muted)
 	if troop_page==0:
 		CleanHud._paragraph(self,"成长：真击杀后结算生命贡献，300老兵 / 900精锐。",Vector2(46,553),496,14,ink,21,1)
 		CleanHud._paragraph(self,"基础攻击与生命上限 +10% / +20%；晋级不回血。",Vector2(46,580),496,14,amber,21,1)

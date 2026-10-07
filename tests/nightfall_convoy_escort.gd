@@ -694,4 +694,11 @@ func run() -> void:
 		if not failures.is_empty():break
 	await finalize(); finished=true
 	print("CONVOY_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_CONVOY_ESCORT_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_CONVOY_ESCORT_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_CONVOY_ESCORT_FAILED checks=",checks," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

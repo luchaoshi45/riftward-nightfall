@@ -21,8 +21,8 @@ const OPEN := Vector3(0,0,33)
 const FAR_END := Vector3(0,0,59)
 const SELECTED_RECT := Rect2(24,762,300,54)
 const VIEWPORTS := [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]
-const COMPLETE_GROUP_HELP := "编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。指挥：点选/框选/Shift追加；Tab全选，O驻守。右键指挥/工队采运；Shift+右键攻击推进。Alt+右键活工队：护航往返；右键改令。"
-const FULL_HELP_SECTIONS := ["移动：","技能：","建设：","科技：","互动：","塔防：","探索：","部队：","编组：","指挥：","整备：","界面：","声音："]
+const COMPLETE_GROUP_HELP := "编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。点选/框选/Shift追加；Tab全选，O驻守，Alt+O撤回。右键指挥/工队采运；Shift+右键推进；撤回不改工队。Alt+右键活工队：护航往返；右键改令。"
+const FULL_HELP_SECTIONS := ["移动：","技能：","建设：","科技：","互动：","塔防：","探索：","部队：","编组：","点选/框选/Shift追加；","整备：","界面：","声音："]
 const OBSERVER := """extends 'res://scripts/nightfall_hud.gd'
 var drawn_boxes: Array[Rect2] = []
 var drawn_labels: Array[Dictionary] = []
@@ -730,4 +730,11 @@ func run() -> void:
 	evidence.checks=checks; evidence.failures=failures
 	if file!=null:file.store_string(JSON.stringify(evidence,"\t")); file.close()
 	finished=true; print("CONTROL_GROUP_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_CONTROL_GROUPS_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_CONTROL_GROUPS_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_CONTROL_GROUPS_FAILED checks=",checks," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

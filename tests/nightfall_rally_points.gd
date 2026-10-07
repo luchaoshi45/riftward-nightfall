@@ -471,4 +471,11 @@ func run() -> void:
 	evidence.checks=checks; evidence.failures=failures
 	if file!=null: file.store_string(JSON.stringify(evidence,"\t")); file.close()
 	finished=true; print("RALLY_RESULT checks=",checks," failures=",failures.size())
+	if failures.is_empty():
+		if index < 0 and (evidence.completed as Array) == cases.keys():
+			print("NIGHTFALL_RALLY_POINTS_OK checks=",checks," failures=0 full_suite=true")
+		else:
+			print("NIGHTFALL_RALLY_POINTS_CASE_OK checks=",checks," failures=0 full_suite=false stages=",JSON.stringify(evidence.completed))
+	else:
+		print("NIGHTFALL_RALLY_POINTS_FAILED checks=",checks," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)
