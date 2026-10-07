@@ -54,17 +54,14 @@ static func draw_live(ui: Control) -> void:
 		_draw_active_tags(ui,game)
 
 static func _draw_focus_rails(ui: Control, game: Node3D) -> void:
-	# Keep the information bands visually grouped without drawing a frame around
-	# the whole battlefield. Short rail segments align with the three live
-	# status groups and leave the playfield open between them.
+	# Use one quiet upper and lower horizon line instead of six independent
+	# segments. The status groups still keep their logical rectangles, while the
+	# visual treatment reads as one frame around the battlefield rather than a
+	# collection of separate panels.
 	var phase:=_phase(game)
 	var accent: Color=Color(ui.red,.48) if phase=="night" else Color(ui.amber,.42)
-	ui.draw_line(Vector2(24,79),Vector2(262,79),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(426,79),Vector2(1014,79),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(1080,79),Vector2(1416,79),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(24,802),Vector2(336,802),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(344,802),Vector2(1096,802),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(1108,802),Vector2(1416,802),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,79),Vector2(1416,79),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,802),Vector2(1416,802),RAIL_GHOST,1.0)
 	ui.draw_line(Vector2(24,79),Vector2(24,91),Color(accent,.44),1.0)
 	ui.draw_line(Vector2(1416,79),Vector2(1416,91),RAIL_FAINT,1.0)
 	ui.draw_line(Vector2(344,802),Vector2(1096,802),Color(accent,.30),1.0)
@@ -306,12 +303,24 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.box(MAP_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.box(BUILD_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.draw_line(Vector2(24,860),Vector2(336,860),RAIL_GHOST,1.0)
+	# The bottom-left navigation is intentionally a single compact key rail.
+	# Long labels here competed with the action bar and made the default scene
+	# feel like a stack of controls. The hitboxes and keyboard shortcuts remain
+	# unchanged; detailed descriptions stay in the F3 operation page.
 	var nav_tint: Color=GREEN if open else ui.muted
-	ui.label("F3",Vector2(43,848),13,nav_tint,true)
-	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
-	ui.label("地图",Vector2(189,848),12,LIVE_MUTED)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
-	ui.label("Y 建造",Vector2(278,848),12,build_tint)
+	for separator_x in [154.0,262.0]:
+		ui.draw_line(Vector2(separator_x,838),Vector2(separator_x,854),RAIL_GHOST,1.0)
+	ui.label("F3",Vector2(43,849),13,nav_tint,true)
+	# A tiny compass glyph keeps the map affordance visual without suggesting
+	# that the music shortcut M is a map hotkey.
+	ui.draw_circle(Vector2(196,847),5.0,Color(LIVE_MUTED,.76),false,1.0)
+	ui.draw_line(Vector2(196,840),Vector2(196,854),Color(LIVE_MUTED,.62),1.0)
+	ui.draw_line(Vector2(189,847),Vector2(203,847),Color(LIVE_MUTED,.62),1.0)
+	ui.label("Y",Vector2(278,849),13,build_tint,true)
+	ui.draw_line(Vector2(43,857),Vector2(88,857),Color(nav_tint,.42),1.0)
+	ui.draw_line(Vector2(189,857),Vector2(204,857),Color(LIVE_MUTED,.30),1.0)
+	ui.draw_line(Vector2(278,857),Vector2(293,857),Color(build_tint,.42),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return

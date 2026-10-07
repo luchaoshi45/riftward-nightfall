@@ -901,6 +901,11 @@ func draw_combat_rewards() -> void:
 	var transient_priority:=_event_priority()
 	var step: int=clampi(int(game.attack_chain),0,2)
 	var charged: bool=step==2 and game.attack_chain_time>0.0
+	# An idle chain should not leave three decorative dots on the action rail.
+	# Once a real hit chain starts, the same feedback returns with its original
+	# position and timing; no input area or combat state is changed here.
+	if step==0 and not charged:
+		return
 	for index in 3:
 		var point:=Vector2(489+index*16,819)
 		draw_circle(point,3.5,amber if index<step else Color("354b4e"))

@@ -158,6 +158,10 @@ func default_layout(label: String) -> void:
 		label + ": default gameplay must show no tactical drawer or expanded map")
 	check("地图 · 点击展开" not in game.hud.all_labels,
 		label + ": the default radar must stay icon-only; map guidance belongs to the bottom shortcut rail")
+	check("F3" in game.hud.all_labels and "Y" in game.hud.all_labels,
+		label + ": the default navigation must keep compact key badges for details and build")
+	check("F3 详情" not in game.hud.all_labels and "Y 建造" not in game.hud.all_labels,
+		label + ": verbose navigation labels must stay out of the default action rail")
 	check(game.hud.CleanHud.HERO_FILL.a == 0.0,
 		label + ": the default hero dock must remain transparent so the battlefield keeps visual priority")
 	check(game.hud.minimap_rect() == MINI, label + ": the default minimap must retain the compact 164-pixel size")
