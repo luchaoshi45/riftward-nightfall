@@ -1424,6 +1424,9 @@ func _pick_enemy(soldier: BattleUnit, real_only: bool = false) -> BattleUnit:
 			# those births. Once spent it follows ordinary melee/interception.
 			if threat == "summoner" and bool(enemy.get_meta("summoner_active", false)): priority = 5
 			if threat == "warder" and bool(enemy.get_meta("warder_active", false)): priority = 5
+			# An idle burstling can still prepare its blast. A real preparation
+			# adds an urgency tier without changing range or distance scoring.
+			if threat == "burstling": priority = 6 if bool(enemy.get_meta("burstling_winding", false)) else 5
 			candidate_score += float(priority) * 10.0
 		if candidate_score > score: selected = enemy; score = candidate_score
 	return selected

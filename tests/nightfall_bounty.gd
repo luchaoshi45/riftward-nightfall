@@ -302,7 +302,7 @@ func saved_plan_matrix() -> void:
 			for row: Dictionary in historical:
 				var restored: Array=row.roles.duplicate()
 				for slot in restored.size():
-					if restored[slot] in ["summoner","warder","shellguard"]:restored[slot]="basic"
+					if restored[slot] in ["summoner","warder","shellguard","burstling"]:restored[slot]="basic"
 				restored_rows.append([restored,row.count,row.role_count,row.boss_count])
 			check(JSON.stringify(restored_rows).sha256_text()==HistoricPlans.BASELINE_ROLE_DIGESTS["%s:%d" % [mode,night]],"Original make_plan keeps the frozen pre-support role order/population for "+mode+str(night))
 			for seed_value: int in [-55,17,45,29045,2147483647]:

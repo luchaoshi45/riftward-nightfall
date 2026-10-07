@@ -71,11 +71,14 @@ func _contact(source: BattleUnit, target: Variant) -> bool:
 func bonus_target(target: Variant) -> bool:
 	if not real_enemy(target): return false
 	var role := String(target.get_meta("threat", ""))
-	return role in ["runner", "light_eater", "lobber"] or (role == "summoner" and bool(target.get_meta("summoner_active", false))) \
+	return role in ["runner", "light_eater", "lobber", "burstling"] or (role == "summoner" and bool(target.get_meta("summoner_active", false))) \
 		or (role == "warder" and bool(target.get_meta("warder_active", false)))
 
 func _priority(target: BattleUnit) -> int:
 	var role := String(target.get_meta("threat", ""))
+	# Idle burstlings remain specialist victims; a committed ground blast is
+	# the most urgent target inside the same fixed, reachable pursuit area.
+	if role == "burstling": return -1 if bool(target.get_meta("burstling_winding", false)) else 0
 	if role == "summoner" and bool(target.get_meta("summoner_active", false)): return 0
 	if role == "warder" and bool(target.get_meta("warder_active", false)): return 1
 	return int({"lobber": 2, "light_eater": 3, "runner": 4, "breaker": 6, "sapper": 6, "shellguard": 6}.get(role, 5))

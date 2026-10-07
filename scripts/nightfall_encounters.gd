@@ -2,13 +2,14 @@ extends RefCounted
 ## 保存实际敌群计划；预告读取同一份计划，不另行随机生成文案。
 
 const WAVE_TIMES: Array[float] = [0.0, 20.0, 40.0, 65.0, 85.0]
-const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber", "summoner", "warder", "shellguard"]
+const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber", "summoner", "warder", "shellguard", "burstling"]
 const MAX_NEST_REDUCTION: int = 6
 const MIN_WAVE_COUNT: int = 4
 const LOBBER_ADVICE := "移出2米落点，弩手/重弩集火；射程11.2米，蓄力1.15秒＋飞行0.75秒。"
 const SUMMONER_ADVICE := "2.4秒引导可打断；冷却10秒，最多2援军从南门外进入；集火召潮者。"
 const WARDER_ADVICE := "织壳者1秒引导，可击杀或牵制打断；32护盾持续4秒，成功后间隔6秒，每源最多3次。"
 const SHELLGUARD_ADVICE := "甲壳卫60护甲；二级塔J破甲重敌×1.65、忽略一半护甲；C集火，盾卫挡线。"
+const BURSTLING_ADVICE := "爆裂体停步蓄爆1.4秒、固定圈2.4米；分兵撤离，远程先杀，牵制/投网打断。"
 const BOUNTY_ID := "shellguard_pack"
 const BOUNTY_REWARD := 48
 const BOUNTY_WAVE_INDEX := 2
@@ -66,6 +67,14 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 				roles[ordinary_index] = "shellguard"
 				composition.title = String(composition.title) + " · 甲壳护卫"
 		var shellguard_count := roles.count("shellguard")
+		# A four-night counter to concentrated defenders replaces only one
+		# padded follower; no extra spawn, specialist removal or RNG draw.
+		if selected_mode in ["standard","siege","echo"] and ((night==2 and index==1) or (night>=3 and index in [1,3])):
+			var ordinary_index := roles.rfind("basic")
+			if ordinary_index>=0:
+				roles[ordinary_index]="burstling"
+				composition.title=String(composition.title)+" · 爆裂逼近"
+		var burstling_count := roles.count("burstling")
 		# 排列也属于保存的计划，出怪时不能再次抽取角色。
 		var order_random: RandomNumberGenerator = RandomNumberGenerator.new()
 		order_random.seed = run_seed + night * 104729 + (index + 1) * 9719
@@ -91,6 +100,7 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 			"warder_count": warder_count,
 			"shield_cast_cap": 3 * warder_count,
 			"shellguard_count": shellguard_count,
+			"burstling_count": burstling_count,
 			"night": night,
 			"mode": selected_mode,
 			"theme": theme,
@@ -105,6 +115,8 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 		if shellguard_count > 0:
 			# Append after the boss rewrite so both genuine threats stay disclosed.
 			plan[plan.size() - 1].advice = String(plan[plan.size() - 1].advice) + " " + SHELLGUARD_ADVICE
+		if burstling_count>0:
+			plan[plan.size()-1].advice=String(plan[plan.size()-1].advice)+" "+BURSTLING_ADVICE
 	return plan
 
 ## Apply the optional choice to the actual saved order, without another shuffle.

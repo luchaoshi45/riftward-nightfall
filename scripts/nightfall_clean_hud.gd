@@ -114,6 +114,7 @@ static func _objective_copy(game: Node3D, phase: String) -> Dictionary:
 			detail=String(preview.advice) if urgent else ""
 			if int(preview.get("warder_count",0))>0:detail="织壳1秒 · 32盾/4秒 · 最多3次 · 击杀或牵制打断 · F3 防线"
 			if int(preview.get("shellguard_count",0))>0:detail="甲壳卫60甲 · 二级塔J破甲忽略半甲 · C集火 · F3 防线"
+			if int(preview.get("burstling_count",0))>0:detail="爆裂1.4秒 · 固定圈2.4米 · 分兵撤离 / 击杀 / 牵制或投网打断"
 			if String(preview.get("bounty_id",""))=="shellguard_pack":
 				# Keep real population and arrival time in the one-line budget.
 				title="下一波 · 甲壳悬赏 · %d只 · %.0f秒" % [int(preview.count),float(preview.remaining)]
@@ -558,10 +559,12 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 		var reinforcement_cap:=0
 		var shield_cast_cap:=0
 		var shellguard_count:=0
+		var burstling_count:=0
 		for entry: Dictionary in game.night_plan:
 			reinforcement_cap+=int(entry.get("reinforcement_cap",0))
 			shield_cast_cap+=int(entry.get("shield_cast_cap",0))
 			shellguard_count+=int(entry.get("shellguard_count",0))
+			burstling_count+=int(entry.get("burstling_count",0))
 		var advice:="反制在白昼按7/8/9选择，天黑前可更换。"
 		if reinforcement_cap>0:advice="召潮者引导2.4秒，单源最多2援军；击杀或牵制可打断。"
 		if shield_cast_cap>0:
@@ -571,6 +574,13 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 			var armor_advice:="甲壳60甲，J破甲忽略半甲/C集火。"
 			if reinforcement_cap==0 and shield_cast_cap==0:advice="甲壳卫60护甲；二级塔J破甲重敌×1.65、忽略半甲；C集火/盾卫挡线。"
 			else:advice+=armor_advice
+		if burstling_count>0:
+			advice="爆裂1.4秒/2.4米：撤离、击杀或牵制/投网打断。"
+			var support: Array[String]=[]
+			if reinforcement_cap>0:support.append("召潮2.4秒/2援")
+			if shield_cast_cap>0:support.append("织壳1秒/32盾4秒/最多3次")
+			if shellguard_count>0:support.append("甲壳60甲/J破甲/C集火")
+			if not support.is_empty():advice+="\n"+"；".join(support)+"。"
 		_paragraph(ui,advice,Vector2(TEXT_X,286),TEXT_WIDTH,15,ui.muted,22,2)
 		var gate:="路障%d耐久" % ceili(float(game.gate_barricade_hp)) if float(game.gate_barricade_hp)>0.0 else "路障未部署"
 		_paragraph(ui,"%s · 机关%d/%d · C集火%s" % [gate,game.gate_trap_charges,game.GATE_TRAP_MAX,"冷却%.0f秒" % ceilf(float(game.focus_cooldown)) if float(game.focus_cooldown)>0.0 else "就绪"],Vector2(TEXT_X,336),TEXT_WIDTH,15,ui.ink,22)

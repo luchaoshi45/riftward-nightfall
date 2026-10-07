@@ -9,6 +9,7 @@ var game: Node3D
 var checks := 0
 var failures: Array[String] = []
 var lobber_deaths := 0
+var burstling_deaths := 0
 
 func _initialize() -> void:
 	if DisplayServer.get_name() != "headless":
@@ -56,9 +57,11 @@ func verify_plan_rules() -> void:
 					check(int(actual_counts.get("summoner", 0)) == summoner_count and int(entry.get("reinforcement_cap",0)) == summoner_count * 2, "Only later third waves may advertise one source and two finite potential reinforcements")
 					var warder_count := 1 if (night == 2 and wave == 3) or (night >= 3 and wave in [1,3]) else 0
 					var shellguard_count := 1 if (night == 2 and wave == 2) or (night >= 3 and wave in [0,4]) else 0
+					var burstling_count := 1 if mode != "teaching" and ((night == 2 and wave == 1) or (night >= 3 and wave in [1,3])) else 0
 					check(int(actual_counts.get("warder",0)) == warder_count and int(entry.get("warder_count",0)) == warder_count and int(entry.get("shield_cast_cap",0)) == warder_count*3, "Saved finite shielding remains in its declared waves")
 					check(int(actual_counts.get("shellguard",0)) == shellguard_count and int(entry.get("shellguard_count",0)) == shellguard_count, "One armored ordinary replacement appears only in its declared waves")
-					check(int(actual_counts.get("basic", 0)) == population - original.roles.size() - summoner_count - warder_count - shellguard_count, "Finite sources and armored actors replace ordinary population while preserving every original specialist")
+					check(int(actual_counts.get("burstling",0)) == burstling_count and int(entry.get("burstling_count",0)) == burstling_count, "Only declared four-night-mode waves replace exactly one ordinary follower with a burstling")
+					check(int(actual_counts.get("basic", 0)) == population - original.roles.size() - summoner_count - warder_count - shellguard_count - burstling_count, "Finite sources, armored actors and burstlings replace ordinary population while preserving every original specialist")
 					for role in original_counts:
 						check(int(actual_counts.get(role, 0)) >= 1 and int(actual_counts[role]) <= int(original_counts[role]), "Every original specialist identity must retain at least one member")
 					for role in entry.roles: check(Encounters.KNOWN_ROLES.has(String(role)), "Every saved role must have a known production identity")
@@ -71,6 +74,10 @@ func verify_plan_rules() -> void:
 						check(entry.threat == "lobber" and String(entry.advice).contains("2米") and String(entry.advice).contains("集火") and String(entry.advice).contains("11.2") and String(entry.advice).contains("1.15") and String(entry.advice).contains("0.75"), "Lobber preview must expose actionable real timing, range and dodge guidance")
 					if summoner_count > 0:
 						check(entry.threat == "summoner" and String(entry.advice).contains("2.4") and String(entry.advice).contains("10") and String(entry.advice).contains("2") and String(entry.advice).contains("南门") and String(entry.advice).contains("集火"), "Finite-summoner preview must describe genuine limits, timing, entry and counterplay")
+					if burstling_count > 0:
+						check(String(entry.title).ends_with(" · 爆裂逼近") and String(entry.advice).ends_with(" " + Encounters.BURSTLING_ADVICE), "Actual burstling waves append their exact preparation, fixed-circle and interruption counterplay")
+					else:
+						check(not String(entry.title).contains("爆裂逼近") and not String(entry.advice).contains("爆裂体"), "Teaching, first night and all unselected waves cannot advertise absent burstlings")
 					var boss_expected := night == (3 if mode == "teaching" else 4) and wave == 4
 					check(bool(entry.boss_entry) == boss_expected and int(entry.boss_count) == (1 if boss_expected else 0) and int(entry.count) == population + (1 if boss_expected else 0), "Replacement must preserve original boss and total counts")
 					for nest_count in [1, 2, 3]:
@@ -103,15 +110,18 @@ func defeat_wave(entry: Dictionary) -> void:
 	var victims: Array = game.enemies.duplicate()
 	for enemy: BattleUnit in victims:
 		var lobber := String(enemy.get_meta("threat", "")) == "lobber"
+		var burstling := String(enemy.get_meta("threat", "")) == "burstling"
 		if lobber and standard: check(int(enemy.get_meta("wave_reward_id", -1)) == reward_id, "A real born lobber must belong to its actual wave ledger")
+		if burstling and standard: check(int(enemy.get_meta("wave_reward_id", -1)) == reward_id, "A real born burstling must belong to the unchanged original wave ledger")
 		enemy.hurt(100000.0, game.hero)
 		check(not enemy.alive, "Wave accounting must receive a real production death")
-		if lobber:
-			lobber_deaths += 1
+		if lobber: lobber_deaths += 1
+		if burstling: burstling_deaths += 1
+		if lobber or burstling:
 			var paid := int(game.scrap)
 			var kills := int(game.kills)
 			enemy.hurt(100000.0, game.hero)
-			check(game.wave_rewards.defeat(enemy) == 0 and game.scrap == paid and game.kills == kills, "Duplicate lobber deaths must not pay again or increase kill totals")
+			check(game.wave_rewards.defeat(enemy) == 0 and game.scrap == paid and game.kills == kills, "Duplicate lobber or burstling deaths must not pay again or increase kill totals")
 	if standard:
 		var complete: Dictionary = game.wave_rewards.snapshot(reward_id)
 		check(bool(complete.cleared) and int(complete.paid) == 24 and int(complete.kills) == int(entry.count) and game.scrap == before + 24, "Lobber-containing deaths must preserve exactly 24 parts per standard wave")
@@ -120,7 +130,7 @@ func defeat_wave(entry: Dictionary) -> void:
 	game.enemies.clear()
 
 func verify_actual_later_nights() -> void:
-	for mode in ["teaching", "siege", "echo"]:
+	for mode in ["teaching", "standard", "siege", "echo"]:
 		for night in range(2, 4 if mode == "teaching" else 5):
 			clear_enemies(); await process_frame
 			# Isolate modes/nights through real plan/start/spawn APIs without
@@ -144,7 +154,8 @@ func verify_actual_later_nights() -> void:
 				for role in original_counts:
 					if role != "basic": check(reduced_counts.get(role, 0) == original_counts[role], "Production nest-plan refresh must keep all non-basic roles")
 			game.wave_index = 0; game.spawn_night_wave(); verify_wave(game.night_plan[0])
-	check(lobber_deaths > 0, "All three modes must create and actually defeat planned lobbers")
+	check(lobber_deaths > 0, "All four modes must create and actually defeat planned lobbers")
+	check(burstling_deaths == 15, "Explicit standard/siege/echo fixtures must each create and really defeat the exact one/two/two planned burstlings across nights two through four")
 
 func verify_same_challenge_retry() -> void:
 	clear_enemies(); await process_frame
@@ -205,5 +216,5 @@ func run() -> void:
 	await verify_same_challenge_retry()
 	await game.prepare_shutdown(); game.queue_free()
 	for frame in 4: await process_frame
-	print("NIGHTFALL_PLANNED_WAVES_", "OK" if failures.is_empty() else "FAILED", " checks=", checks, " lobber_deaths=", lobber_deaths)
+	print("NIGHTFALL_PLANNED_WAVES_", "OK" if failures.is_empty() else "FAILED", " checks=", checks, " lobber_deaths=", lobber_deaths, " burstling_deaths=", burstling_deaths)
 	quit(0 if failures.is_empty() else 1)

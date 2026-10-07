@@ -4,7 +4,7 @@ const Encounters = preload("res://scripts/nightfall_encounters.gd")
 var encounters: RefCounted = Encounters.new()
 
 # Frozen from actual production plans at main e83a414 before summoner changes.
-# Restoring summoner, warder and shellguard to basic must reproduce the same
+# Restoring summoner, warder, shellguard and burstling to basic must reproduce the same
 # frozen original order/counts; adding a role must not replace the baselines.
 const BASELINE_ROLE_DIGESTS := {
 	"echo:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
@@ -38,6 +38,7 @@ const MODES := ["teaching", "standard", "siege", "echo"]
 const LOBBERS := {1: [0,0,0,0,0], 2: [0,0,1,0,1], 3: [0,1,2,1,2], 4: [0,2,3,2,3]}
 const WARDERS := {1: [0,0,0,0,0], 2: [0,0,0,1,0], 3: [0,1,0,1,0], 4: [0,1,0,1,0]}
 const SHELLGUARDS := {1: [0,0,0,0,0], 2: [0,0,1,0,0], 3: [1,0,0,0,1], 4: [1,0,0,0,1]}
+const BURSTLINGS := {1: [0,0,0,0,0], 2: [0,1,0,0,0], 3: [0,1,0,1,0], 4: [0,1,0,1,0]}
 
 # Synthetic no-follower composition checks only the defensive replacement
 # branch. It is not evidence that natural production waves use this roster.
@@ -134,14 +135,14 @@ func frozen_baselines() -> void:
 			for wave: Dictionary in plan:
 				var restored: Array = wave.roles.duplicate()
 				for index in restored.size():
-					if restored[index] in ["summoner", "warder", "shellguard"]: restored[index] = "basic"
+					if restored[index] in ["summoner", "warder", "shellguard", "burstling"]: restored[index] = "basic"
 				role_rows.append([restored, wave.count, wave.role_count, wave.boss_count])
-				var restored_title := String(wave.title).trim_suffix(" · 甲壳护卫").trim_suffix(" · 织壳护卫")
-				var restored_advice := String(wave.advice).trim_suffix(" " + Encounters.SHELLGUARD_ADVICE).trim_suffix(" " + Encounters.WARDER_ADVICE)
+				var restored_title := String(wave.title).trim_suffix(" · 爆裂逼近").trim_suffix(" · 甲壳护卫").trim_suffix(" · 织壳护卫")
+				var restored_advice := String(wave.advice).trim_suffix(" " + Encounters.BURSTLING_ADVICE).trim_suffix(" " + Encounters.SHELLGUARD_ADVICE).trim_suffix(" " + Encounters.WARDER_ADVICE)
 				early_rows.append([restored_title, wave.threat, restored_advice, restored, wave.count, wave.role_count, wave.boss_count, wave.theme])
 			check(JSON.stringify(role_rows).sha256_text() == BASELINE_ROLE_DIGESTS[key], key + ": restoring the replaced basic must reproduce exact original role order and initial population")
 			if night <= 2:
-				check(JSON.stringify(early_rows).sha256_text() == EARLY_METADATA_DIGESTS[key], key + ": removing only shield-source and shellguard additions must preserve exact first/second-night labels, guidance, roles, counts and random theme")
+				check(JSON.stringify(early_rows).sha256_text() == EARLY_METADATA_DIGESTS[key], key + ": removing only shield-source, shellguard and burstling additions must preserve exact first/second-night labels, guidance, roles, counts and random theme")
 
 func finite_source_matrix() -> void:
 	for mode: String in MODES:
@@ -154,15 +155,21 @@ func finite_source_matrix() -> void:
 				var sources := 0
 				var shield_sources := 0
 				var shellguards := 0
+				var burstlings := 0
 				for index in plan.size():
 					var wave: Dictionary = plan[index]
 					var less: Dictionary = reduced[index]
 					var count: int = wave.roles.count("summoner")
 					var warder_count: int = wave.roles.count("warder")
 					var shellguard_count: int = wave.roles.count("shellguard")
+					var burstling_count: int = wave.roles.count("burstling")
+					var burstling_expected: int = int(BURSTLINGS[night][index]) if mode != "teaching" else 0
+					var before_burst_title := String(wave.title).trim_suffix(" · 爆裂逼近")
+					var before_burst_advice := String(wave.advice).trim_suffix(" " + Encounters.BURSTLING_ADVICE)
 					sources += count
 					shield_sources += warder_count
 					shellguards += shellguard_count
+					burstlings += burstling_count
 					check(count == (1 if night >= 3 and index == 2 else 0), context + ": only later-night wave three may contain one source")
 					check(int(wave.reinforcement_cap) == count * 2 and int(less.reinforcement_cap) == count * 2, context + ": source lifetime cap must stay separate from initial population")
 					check(int(wave.count) == wave.roles.size() + int(wave.boss_count) and int(wave.role_count) == wave.roles.size(), context + ": unborn reinforcements must not inflate initial counts")
@@ -176,6 +183,9 @@ func finite_source_matrix() -> void:
 					check(int(wave.shellguard_count) == shellguard_count and int(less.shellguard_count) == shellguard_count,
 						context + ": stored armored counts match actual saved roles before and after nest clearing")
 					check(shellguard_count == 0 or (count == 0 and warder_count == 0), context + ": armor does not replace either finite support source")
+					check(burstling_count == burstling_expected and int(wave.burstling_count) == burstling_expected
+						and int(less.burstling_count) == burstling_expected,
+						context + ": exactly one ordinary follower becomes a burstling only in the declared four-night-mode waves")
 					check(int(wave.count) - int(less.count) == 6 and wave.title == less.title and wave.advice == less.advice and wave.threat == less.threat, context + ": nest clearing must only reduce ordinary followers")
 					for role: String in Encounters.KNOWN_ROLES:
 						if role != "basic": check(wave.roles.count(role) == less.roles.count(role), context + ": nest clearing must retain every specialist and source")
@@ -187,9 +197,9 @@ func finite_source_matrix() -> void:
 						check(wave.threat == "lobber" and String(wave.advice).contains("2米") and String(wave.advice).contains("1.15秒"), context + ": second-night lobber guidance must stay unchanged")
 					if warder_count > 0:
 						var original_threat := "breaker" if index == 1 and String(wave.theme) == "siege" else ("runner" if index == 1 else "sapper")
-						check(wave.threat == original_threat and String(wave.title).ends_with(" · 织壳护卫"), context + ": shield warning supplements the original wave identity rather than replacing its primary threat")
-						check(String(wave.advice).ends_with(" " + Encounters.WARDER_ADVICE)
-							and String(wave.advice).length() > Encounters.WARDER_ADVICE.length() + 1,
+						check(wave.threat == original_threat and before_burst_title.ends_with(" · 织壳护卫"), context + ": shield warning supplements the original wave identity rather than replacing its primary threat")
+						check(before_burst_advice.ends_with(" " + Encounters.WARDER_ADVICE)
+							and before_burst_advice.length() > Encounters.WARDER_ADVICE.length() + 1,
 							context + ": shield guidance retains the original advice before its appended disclosure")
 						for text: String in ["1秒引导", "击杀", "牵制打断", "32护盾", "4秒", "间隔6秒", "每源最多3次"]:
 							check(String(wave.advice).contains(text), context + ": finite shield counterplay discloses " + text)
@@ -205,6 +215,14 @@ func finite_source_matrix() -> void:
 							check(String(wave.advice).contains(text), context + ": armor counterplay discloses " + text)
 					else:
 						check(not String(wave.title).contains("甲壳护卫") and not String(wave.advice).contains("甲壳卫"), context + ": waves without armor must not advertise it")
+					if burstling_count > 0:
+						var original_threat := "breaker" if index == 1 and String(wave.theme) == "siege" else ("runner" if index == 1 else "sapper")
+						check(wave.threat == original_threat and String(wave.title) == before_burst_title + " · 爆裂逼近"
+							and String(wave.advice) == before_burst_advice + " " + Encounters.BURSTLING_ADVICE
+							and before_burst_advice.length() > 0,
+							context + ": burst warning appends exact counterplay without replacing the primary identity or original guidance")
+					else:
+						check(not String(wave.title).contains("爆裂逼近") and not String(wave.advice).contains("爆裂体"), context + ": waves without burstlings must not advertise their danger")
 					if bool(wave.boss_entry):
 						check(shellguard_count == 1 and int(wave.boss_count) == 1 and wave.boss_role == "breaker", context + ": the final armor follower leaves the unique original boss intact")
 						check(String(wave.title).begins_with("末夜首领 · 灯噬巨兽 · "), context + ": boss keeps its primary public identity")
@@ -212,6 +230,7 @@ func finite_source_matrix() -> void:
 				check(sources == (1 if night >= 3 else 0), context + ": one whole night may have at most one finite source")
 				check(shield_sources == (0 if night == 1 else (1 if night == 2 else 2)), context + ": whole-night shield-source count stays zero/one/two across all seeds and modes")
 				check(shellguards == (0 if night == 1 else (1 if night == 2 else 2)), context + ": whole-night armored count stays zero/one/two across all seeds and modes")
+				check(burstlings == ((0 if night == 1 else (1 if night == 2 else 2)) if mode != "teaching" else 0), context + ": only four-night modes gain the declared zero/one/two burstling replacements")
 				check(not plan[4].roles.has("summoner") and int(plan[4].reinforcement_cap) == 0, context + ": original last-wave boss must not gain a summoner ceiling")
 				check(not plan[4].roles.has("warder") and int(plan[4].shield_cast_cap) == 0, context + ": original last-wave boss and specialists are not replaced by a shield source")
 	var stored: Array[Dictionary] = encounters.make_plan("siege", 3, 17, 0)
@@ -226,7 +245,8 @@ func finite_source_matrix() -> void:
 		"Preview separately exposes one initial shield source and its three finite casts while preserving the actual primary threat")
 	shield_preview.roles.clear(); shield_preview.warder_count = 99; shield_preview.shield_cast_cap = 99; shield_preview.advice = "测试修改"
 	check(stored[1].roles.count("warder") == 1 and stored[1].warder_count == 1 and stored[1].shield_cast_cap == 3
-		and stored[1].reinforcement_cap == 0 and String(stored[1].advice).ends_with(Encounters.WARDER_ADVICE),
+		and stored[1].reinforcement_cap == 0
+		and String(stored[1].advice).trim_suffix(" " + Encounters.BURSTLING_ADVICE).ends_with(Encounters.WARDER_ADVICE),
 		"Preview edits must not mutate saved shield source, finite cast ceiling, original births or appended guidance")
 
 func shellguard_previews_and_nests() -> void:
@@ -269,3 +289,5 @@ func shellguard_without_followers() -> void:
 					check(not entry.roles.has("basic") and int(entry.role_count) == 24, "Synthetic all-specialist fixture has no padded ordinary follower to replace")
 					check(int(entry.shellguard_count) == 0 and not entry.roles.has("shellguard"), "Without a real basic slot armor cannot displace an original specialist")
 					check(not String(entry.title).contains("甲壳护卫") and not String(entry.advice).contains("甲壳卫"), "Skipped armor replacement cannot add false public guidance")
+					check(int(entry.burstling_count) == 0 and not entry.roles.has("burstling"), "Without a real basic slot a burstling cannot displace an original specialist")
+					check(not String(entry.title).contains("爆裂逼近") and not String(entry.advice).contains("爆裂体"), "Skipped burstling replacement cannot add false public guidance")

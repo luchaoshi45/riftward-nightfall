@@ -311,6 +311,9 @@ func _has_event_warning() -> bool:
 	if game.has_method("lobber_warning_snapshot") and not game.lobber_warning_snapshot().is_empty():return true
 	if game.has_method("summoner_warning_snapshot") and not game.summoner_warning_snapshot().is_empty():return true
 	if game.has_method("warder_warning_snapshot") and not game.warder_warning_snapshot().is_empty():return true
+	for warning: Dictionary in game.burstling_warning_snapshot():
+		var screen: Variant=_world_screen((warning.position as Vector3)+Vector3.UP*2.1)
+		if screen!=null and Rect2(0,0,1440,900).has_point(screen as Vector2):return true
 	return false
 
 func _has_event_prompt() -> bool:
@@ -398,6 +401,7 @@ func _draw() -> void:
 	draw_lobber_warnings()
 	draw_summoner_warnings()
 	draw_warder_warnings()
+	draw_burstling_warnings()
 	draw_shellguard_armor()
 	draw_building_repairs()
 	if game.phase=="paused":
@@ -747,6 +751,17 @@ func draw_shellguard_armor() -> void:
 		_draw_shell_label(value.position+Vector3.UP*2.1,"甲%d" % ceili(float(value.armor)),Color("d8cda3"),occupied)
 		rendered_labels += 1
 
+func draw_burstling_warnings() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	var rendered_labels:=0
+	for warning: Dictionary in game.burstling_warning_snapshot():
+		if rendered_labels>=MAX_RENDERED_WORLD_LABELS:break
+		var text_value:="爆裂 %.1f秒 · 撤出圈" % maxf(0.0,float(warning.remaining))
+		_draw_shell_label((warning.position as Vector3)+Vector3.UP*2.1,text_value,Color("f1bf91"),occupied)
+		rendered_labels+=1
+
 func _draw_shell_label(point: Vector3, text_value: String, tint: Color, occupied: Array[Rect2]) -> void:
 	var screen: Variant=_world_screen(point)
 	if screen==null:return
@@ -816,11 +831,16 @@ func draw_day_forecast() -> void:
 	var first: Dictionary=game.night_plan[0]
 	label("下一夜 · 第%d夜" % game.day_number,Vector2(46,184),18,Color("a3d7bd"))
 	var reinforcement_cap:=0
-	for entry: Dictionary in game.night_plan:reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+	var burstling_count:=0
+	for entry: Dictionary in game.night_plan:
+		reinforcement_cap+=int(entry.get("reinforcement_cap",0))
+		burstling_count+=int(entry.get("burstling_count",0))
 	var composition: String="主威胁 %s · %d波 · 特殊约%d只" % [game.forecast_primary_threat(),game.night_plan.size(),game.forecast_specialist_count()]
 	if reinforcement_cap>0:composition+=" · 潜在增援%d" % reinforcement_cap
 	label(composition,Vector2(46,212),15,ink)
-	CleanHud._paragraph(self,"首波 "+String(first.title)+" · "+String(first.advice),Vector2(46,240),496,14,muted,20,2)
+	var opening_advice:="首波 "+String(first.title)+" · "+String(first.advice)
+	if burstling_count>0:opening_advice="首波 "+String(first.title)+"；爆裂%d只：1.4秒/2.4米，分兵撤离，击杀或牵制/投网打断。" % burstling_count
+	CleanHud._paragraph(self,opening_advice,Vector2(46,240),496,14,muted,20,2)
 	for index in game.countermeasure_count():
 		var rect:=countermeasure_rect(index)
 		var selected: bool=game.countermeasure_selected==index
@@ -1011,6 +1031,9 @@ func draw_minimap() -> void:
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(-2,-3.5),enemy_marker+Vector2(2,-3.5),enemy_marker+Vector2(4,0),enemy_marker+Vector2(2,3.5),enemy_marker+Vector2(-2,3.5),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(-2,-3.5)]),Color("d8cda3"),1.7)
 		elif threat=="lobber":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-3.5),enemy_marker+Vector2(3.5,3),enemy_marker+Vector2(-3.5,3),enemy_marker+Vector2(0,-3.5)]),Color("ced78b"),1.8)
+		elif threat=="burstling":
+			draw_arc(enemy_marker,4.0,0,TAU,16,Color("f1bf91"),1.7)
+			draw_circle(enemy_marker,1.3,Color("f1bf91"))
 		else:
 			draw_circle(enemy_marker,3.5 if threat=="breaker" else 2.3,Color("ed945b") if threat=="breaker" else (Color("83d8d9") if threat=="runner" else (Color("a794eb") if threat=="light_eater" else red)))
 	draw_circle(center,5.0,amber)

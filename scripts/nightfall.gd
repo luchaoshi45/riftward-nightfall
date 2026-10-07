@@ -22,6 +22,7 @@ const LobberScript = preload("res://scripts/nightfall_lobber.gd")
 const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
 const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
+const BurstlingScript = preload("res://scripts/nightfall_burstling.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const RunArchiveScript = preload("res://scripts/run_archive.gd")
 const DAY_LENGTH := 90.0
@@ -121,6 +122,7 @@ var siege_boss: Node
 var lobbers: Array[Node3D] = []
 var summoners: Array[Node3D] = []
 var warders: Array[Node3D] = []
+var burstlings: Array[Node3D] = []
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -375,6 +377,7 @@ func simulate(delta: float) -> void:
 	if phase=="day" and not lobbers.is_empty():clear_lobbers()
 	if phase=="day" and not summoners.is_empty():clear_summoners()
 	if phase=="day" and not warders.is_empty():clear_warders()
+	if phase=="day" and not burstlings.is_empty():clear_burstlings()
 	# A committed projectile outlives a defeated thrower. Advance controllers
 	# once even when that host has already left the living enemy list.
 	var lobber_actions: Dictionary={}
@@ -412,6 +415,8 @@ func simulate(delta: float) -> void:
 		summoner_actions[source.get_instance_id()]=summoner.advance(delta)
 		if phase not in ["day","night"]:return
 	var warder_actions:=pending_warder_actions()
+	var burstling_actions:=advance_burstlings(delta)
+	if phase not in ["day","night"]:return
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
 	for i in range(enemies.size()-1,-1,-1):
 		var creature:=enemies[i]
@@ -428,6 +433,11 @@ func simulate(delta: float) -> void:
 			continue
 		if bool(summoner_actions.get(creature.get_instance_id(),false)):continue
 		if bool(warder_actions.get(creature.get_instance_id(),false)):continue
+		if creature.get_meta("threat","")=="burstling":
+			# This enemy owns one fixed-area attack. Shield interception and the
+			# ordinary melee windup must never submit a second single-target hit.
+			if not bool(burstling_actions.get(creature.get_instance_id(),false)):update_creature(creature,delta)
+			continue
 		if squads and squads.intercept_enemy(creature,delta):
 			continue
 		update_creature(creature,delta)
@@ -483,6 +493,7 @@ func simulate(delta: float) -> void:
 func start_night() -> void:
 	salvage_draw.on_night()
 	clear_lobbers()
+	clear_burstlings()
 	clear_summoners()
 	clear_warders()
 	cores.clear()
@@ -762,6 +773,43 @@ func clear_warders() -> void:
 		if not value.is_queued_for_deletion():value.queue_free()
 	warders.clear()
 
+func burstling_warning_snapshot() -> Array[Dictionary]:
+	var warnings: Array[Dictionary]=[]
+	for value: Variant in burstlings.duplicate():
+		if not is_instance_valid(value) or value.is_queued_for_deletion() or value not in burstlings:continue
+		var warning: Dictionary=value.snapshot()
+		var source: Variant=warning.get("source")
+		if is_instance_valid(source) and not source.is_queued_for_deletion() and source.alive and source in enemies and String(warning.get("phase",""))=="windup":warnings.append(warning)
+	return warnings
+
+func advance_burstlings(delta: float) -> Dictionary:
+	var handled: Dictionary={}
+	for value: Variant in burstlings.duplicate():
+		if not is_instance_valid(value):
+			burstlings.erase(value)
+			continue
+		if value.is_queued_for_deletion() or value not in burstlings:continue
+		var source: Variant=value.get("host")
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:
+			value.clear();value.queue_free();burstlings.erase(value)
+			continue
+		var token: int=source.get_instance_id()
+		handled[token]=value.advance(delta)
+		# Reflection and damage callbacks may clear the entire run synchronously.
+		# Retire a dead source only after its already-committed event returns.
+		if phase not in ["day","night"]:return handled
+		if not is_instance_valid(value) or value.is_queued_for_deletion() or value not in burstlings:continue
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:
+			value.clear();value.queue_free();burstlings.erase(value)
+	return handled
+
+func clear_burstlings() -> void:
+	for value: Variant in burstlings.duplicate():
+		if not is_instance_valid(value):continue
+		value.clear()
+		if not value.is_queued_for_deletion():value.queue_free()
+	burstlings.clear()
+
 func spawn_summoned_reinforcement(source: BattleUnit, point: Vector3) -> BattleUnit:
 	# The cast controller owns timing; the original source instance owns its
 	# lifetime budget. Recreating a controller cannot replenish that budget.
@@ -848,6 +896,7 @@ func finish_night() -> void:
 	_settle_wave_wager_loss("night_end")
 	bounty.expire()
 	clear_lobbers()
+	clear_burstlings()
 	clear_summoners()
 	clear_warders()
 	clear_exploration_marker()
@@ -1010,14 +1059,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["summoner","warder","light_eater","lobber","sapper","breaker","shellguard","runner"]:
+	for role in ["summoner","warder","burstling","light_eater","lobber","sapper","breaker","shellguard","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"summoner":"召潮者", "warder":"织壳者", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "shellguard":"甲壳卫", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"summoner":"召潮者", "warder":"织壳者", "burstling":"爆裂体", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "shellguard":"甲壳卫", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -1037,7 +1086,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper","lobber","summoner","warder","shellguard":recommended_index=2
+		"sapper","lobber","summoner","warder","shellguard","burstling":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -1253,6 +1302,7 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	var is_summoner: bool=night and role=="summoner"
 	var is_warder: bool=night and role=="warder"
 	var is_shellguard: bool=night and role=="shellguard"
+	var is_burstling: bool=night and role=="burstling"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
@@ -1282,7 +1332,22 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 	creature.attack_range=1.6
 	creature.attack_interval=1.1
 	if night:
-		if is_shellguard:
+		if is_burstling:
+			creature.set_meta("threat","burstling")
+			creature.title="爆裂体"
+			creature.max_hp*=.72
+			creature.hp=creature.max_hp
+			creature.armor=0.0
+			creature.damage=42.0
+			creature.speed=3.4
+			creature.attack_range=BurstlingScript.ARM_RANGE
+			creature.visual.scale=Vector3.ONE*1.02
+			var burstling: Node3D=BurstlingScript.new()
+			burstling.name="BurstlingController"
+			add_child(burstling)
+			burstling.setup(self,creature)
+			burstlings.append(burstling)
+		elif is_shellguard:
 			ShellguardScript.configure(creature)
 		elif is_warder:
 			creature.set_meta("threat","warder")
@@ -1417,6 +1482,9 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 	var attacking_unit: bool=target_kind=="squad" and final_target
 	var hero_attackable: bool=pursuing_hero and final_target
 	var reach:=creature.attack_range if hero_attackable or attacking_tower or attacking_district or attacking_barricade or attacking_unit or (target_kind=="beacon" and final_target) else (0.05 if pursuing_hero else .2)
+	# The module starts from the actual footprint surface. Its contact range
+	# cannot also stop movement relative to an approach point 0.35m outside it.
+	if threat=="burstling":reach=.05
 	var unreachable_target:=not final_target or not can_attack_line(creature.position,selected_position)
 	if threat=="lobber" and final_target:
 		# Stop relative to the target centre, not its nearer approach surface.
@@ -1441,7 +1509,7 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 		creature.moving=false
 		creature.face(target,delta)
 		# Cooldown/cancelled casts must never fall through to instant melee.
-		if threat=="lobber":return
+		if threat in ["lobber","burstling"]:return
 		if creature.attack_queued and creature.attack_windup<=0:
 			creature.attack_queued=false
 			creature.attack_timer=creature.attack_interval
@@ -1595,7 +1663,7 @@ func target_warning_snapshot() -> Array[Dictionary]:
 		var source: Variant=cast.get("source")
 		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
 	for creature: BattleUnit in enemies:
-		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","")=="lobber" or casting_sources.has(creature.get_instance_id()):continue
+		if not is_instance_valid(creature) or not creature.alive or creature.get_meta("siege_boss",false) or creature.get_meta("threat","") in ["lobber","burstling"] or casting_sources.has(creature.get_instance_id()):continue
 		if not creature.attack_queued or creature.attack_windup<=0.0:continue
 		var target:=attack_target_node(creature)
 		var target_kind:=String(creature.get_meta("attack_target_kind",""))
@@ -2232,6 +2300,8 @@ func update_towers(delta: float) -> void:
 		if is_instance_valid(summoner):summoner.revalidate_cast()
 	for value: Variant in warders.duplicate():
 		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in warders:value.revalidate_cast()
+	for value: Variant in burstlings.duplicate():
+		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in burstlings:value.revalidate_cast()
 
 func update_focus(delta: float) -> void:
 	focus_cooldown=maxf(0.0,focus_cooldown-delta)
@@ -2486,6 +2556,7 @@ func end_defeat(message: String) -> void:
 	repairs.clear()
 	bounty.expire()
 	clear_lobbers()
+	clear_burstlings()
 	clear_summoners()
 	clear_warders()
 	cores.clear()
@@ -2564,7 +2635,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"summoner":0,"warder":1,"light_eater":2,"lobber":3,"sapper":4,"breaker":5,"shellguard":6}.get(threat,99)
+	return {"burstling":0,"summoner":1,"warder":2,"light_eater":3,"lobber":4,"sapper":5,"breaker":6,"shellguard":7}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
@@ -3601,6 +3672,7 @@ func _exit_tree() -> void:
 	bounty.reset()
 	wave_wager.reset()
 	clear_lobbers()
+	clear_burstlings()
 	clear_summoners()
 	clear_warders()
 	if is_instance_valid(effects):
@@ -3646,6 +3718,7 @@ func prepare_shutdown() -> void:
 	bounty.reset()
 	wave_wager.reset()
 	clear_lobbers()
+	clear_burstlings()
 	clear_summoners()
 	clear_warders()
 	cores.clear()
