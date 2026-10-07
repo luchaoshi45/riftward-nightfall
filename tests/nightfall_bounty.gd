@@ -645,6 +645,9 @@ func run() -> void:
 		if not failures.is_empty():break
 	if index<0:check((evidence.completed as Array)==cases.keys(),"The complete bounty suite finishes every expected stage")
 	await close_game()
+	# Dummy audio retires playback on its own thread after the scene is released.
+	await create_timer(.5,true,false,true).timeout
+	evidence.shutdown_audio_drain_seconds=.5
 	check(not is_instance_valid(game) and current_scene==null,"Final bounty scene cleanup completes before the suite result")
 	var folder:=ProjectSettings.globalize_path(output_dir); DirAccess.make_dir_recursive_absolute(folder)
 	var file:=FileAccess.open(folder.path_join("nightfall-bounty.json"),FileAccess.WRITE)

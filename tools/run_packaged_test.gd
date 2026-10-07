@@ -2,7 +2,7 @@ extends SceneTree
 
 # No game/test preloads: validate and mount the test-only pack first.
 func _initialize() -> void:
-	call_deferred("_run_test")
+	_run_test()
 
 func _matches(value: String, pattern: String) -> bool:
 	var expression := RegEx.new()
@@ -141,5 +141,8 @@ func _run_test() -> void:
 		return
 	print("PACKAGED_TEST_READY name=" + name + " entry=" + entry_path + " closure=" + JSON.stringify(hashes.keys()))
 	# Attach to this tree; constructing a second SceneTree leaves the wrong main loop.
-	set_script(test_script)
-	call_deferred("_initialize")
+	# Preserve direct --script initialization before the native main window is shown.
+	# A deferred handoff makes an otherwise valid root.hide() fail in GPU tests.
+	var tree: SceneTree = self
+	tree.set_script(test_script)
+	tree.call("_initialize")
