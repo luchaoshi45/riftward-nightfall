@@ -254,6 +254,10 @@ func _ready() -> void:
 	var layer:=CanvasLayer.new();add_child(layer)
 	hud=HudScript.new();hud.game=self;layer.add_child(hud)
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Production always starts in the scene-priority HUD. The observing test
+	# harness may opt into the full tactical surface explicitly, but an old
+	# reused scene instance must never bring the stacked card layout back.
+	hud.minimal_display=true
 	expeditions=DayExpeditions.new();add_child(expeditions);expeditions.setup(self)
 	squads=SquadScript.new();add_child(squads);squads.setup(self,true)
 	discoveries=load("res://scripts/wild_discoveries.gd").new();add_child(discoveries);discoveries.setup(self,run.seed_value)
@@ -1571,11 +1575,18 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			creature.attack_pose=1.0
 			if threat=="breaker":BattleVisuals.breaker_slam(effects,creature.position)
 			if attacking_tower:
+				var tower_hp_before:=float(world.tower_pads[target_pad].hp)
 				damage_tower(target_pad,creature.damage)
+				var tower_dealt:=maxf(0.0,tower_hp_before-float(world.tower_pads[target_pad].hp))
+				_hit_feedback(selected_position+Vector3.UP*1.35,tower_dealt,Color("e47f6f"),4)
 			elif attacking_district:
-				districts.damage(target_pad,creature.damage)
+				var district_result: Dictionary=districts.damage(target_pad,creature.damage)
+				var district_dealt:=float(district_result.get("damage",0.0))
+				_hit_feedback(selected_position+Vector3.UP*1.25,district_dealt,Color("e47f6f"),4)
 			elif attacking_barricade:
+				var barricade_hp_before:=gate_barricade_hp
 				damage_gate_barricade(creature.damage)
+				_hit_feedback(selected_position+Vector3.UP*1.0,maxf(0.0,barricade_hp_before-gate_barricade_hp),Color("e5ad73"),4)
 			elif attacking_unit:
 				var victim:=selected.get("unit") as BattleUnit
 				if is_instance_valid(victim) and victim.alive:
@@ -1584,8 +1595,10 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 						var raided_amount:=int(raid.get("amount",0))
 						if raided_amount>0:
 							notify("劫运体掠走 %d 零件 · 载货工队受袭" % raided_amount,3)
+					var victim_hp_before:=victim.hp
+					var victim_shield_before:=victim.shield
 					victim.hurt(creature.damage,creature)
-					BattleVisuals.sparks(effects,victim.position+Vector3.UP,Color("ef9d76"),5)
+					_hit_feedback(victim.position+Vector3.UP,maxf(0.0,victim_hp_before-victim.hp)+maxf(0.0,victim_shield_before-victim.shield),Color("ef9d76"),4)
 					BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
 			elif target_kind=="beacon" and final_target:
 				apply_beacon_damage(creature.damage)
@@ -2255,6 +2268,11 @@ func can_traverse(start: Vector3, end: Vector3) -> bool:
 		if segment_crosses_wall(origin,direction,block):return false
 	return true
 
+func _hit_feedback(point: Vector3, amount: float, tint: Color = Color("e9a567"), sparks_count: int = 4) -> void:
+	if amount<=0.0 or not is_instance_valid(combat):return
+	if combat.has_method("hit_confirmed"):
+		combat.hit_confirmed(point,amount,tint,sparks_count)
+
 func can_attack_line(start: Vector3, end: Vector3) -> bool:
 	# Projectiles and repair tools reach the target's surface. Its own building
 	# footprint blocks movement, but must not prevent attacks or repairs.
@@ -2367,7 +2385,12 @@ func update_towers(delta: float) -> void:
 		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
 		if countermeasure_tower_time>0.0:damage*=COUNTERMEASURE_TOWER_MULTIPLIER
 		BattleVisuals.tower_shot(effects,pad.position+Vector3(0,2.1,0),impact+Vector3(0,1,0),pad.level)
-		specializations.resolve_shot(pad,selected,enemies,damage,hero)
+		var hits: Array[Dictionary]=specializations.resolve_shot(pad,selected,enemies,damage,hero)
+		for hit: Dictionary in hits:
+			var hit_target:=hit.get("target") as BattleUnit
+			if not is_instance_valid(hit_target):continue
+			var hit_amount:=float(hit.get("raw_damage",0.0))
+			_hit_feedback(hit_target.position+Vector3.UP,hit_amount,Color("f5b271"),3)
 		if specializations.branch(pad)=="control":BattleVisuals.burst(effects,impact,3.2,Color("8bbfcf"),.25)
 		elif specializations.branch(pad)=="piercing":BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f5b271"),8)
 	# A real control shot must cancel preparation before this frame is drawn.

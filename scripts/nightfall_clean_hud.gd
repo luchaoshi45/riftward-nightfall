@@ -215,6 +215,11 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.box(RESOURCE_RECT,Color(0,0,0,0),Color(0,0,0,0))
 	ui.draw_circle(Vector2(1091,37),3.0,Color(ui.amber,.88))
 	ui.label("零件 %d" % int(game.scrap),Vector2(1103,41),14,ui.ink)
+	# In the player-facing layout a full-health beacon is background context,
+	# not a second resource card. Keep the beacon line reserved for damage or
+	# an active alarm; F3 still exposes the exact durability at all times.
+	if bool(ui.get("minimal_display")) and not threatened and is_equal_approx(float(game.beacon_hp),float(game.BEACON_MAX)):
+		return
 	ui.label("· 灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1190,41),13,tint)
 	ui.draw_line(Vector2(1214,52),Vector2(1390,52),FOCUS_GHOST,1.0)
 	ui.draw_line(Vector2(1214,52),Vector2(1214+176.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.68),1.0)
@@ -233,6 +238,7 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.progress(Rect2(360,867,132,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
+	var minimal:=bool(ui.get("minimal_display"))
 	for index in 5:
 		var x:=558.0+index*105.0
 		var status: String=game.skill_status(index)
@@ -249,7 +255,12 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
 			ui.draw_arc(center,16.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.25)
 		ui.label(keys[index],Vector2(x+16,873),11,LIVE_QUIET,true)
-		ui.label(names[index],Vector2(x+42,837),12,LIVE_INK if ready else LIVE_MUTED)
+		# Ready skills are represented by the native glyph and key alone in the
+		# production rail. The action name returns only while cooling down or
+		# unavailable, when the extra context prevents guesswork without keeping
+		# five text labels permanently over the battlefield.
+		if not minimal or not ready:
+			ui.label(names[index],Vector2(x+42,837),12,LIVE_INK if ready else LIVE_MUTED)
 		if not ready:ui.label(status,Vector2(x+42,859),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
@@ -410,6 +421,10 @@ static func _active_tags_text(game: Node3D) -> String:
 
 static func active_tags_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return Rect2()
+	# Exploration streak/resonance is useful while reading the F3 drawer, but
+	# it is low priority during live play. Hiding it in minimal mode releases
+	# the upper-left battlefield edge and its input area at the same time.
+	if bool(ui.get("minimal_display")):return Rect2()
 	if game.music_credits_open or game.construction.active or ui.rally_setting() or not String(ui.get("detail_tab")).is_empty():return Rect2()
 	var text:=_active_tags_text(game)
 	if text.is_empty():return Rect2()

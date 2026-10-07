@@ -1561,7 +1561,10 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 		var generation := _epoch
 		soldier.attack_queued = false; soldier.attack_timer = soldier.attack_interval
 		soldier.attack_pose = 1.0
+		var victim_hp:=victim.hp
+		var victim_shield:=victim.shield
 		victim.hurt(soldier.damage, soldier) # Never source hero or mark a player attack.
+		_hit_feedback(impact,maxf(0.0,victim_hp-victim.hp)+maxf(0.0,victim_shield-victim.shield),Color("f0b26f"),4)
 		if not _owns_member(soldier, generation): return
 		if str(soldier.get_meta("squad_kind")) == "ballista":
 			_beam(soldier.position + Vector3.UP, impact, Color("efb774"), .065, .24, .95)
@@ -1664,7 +1667,11 @@ func intercept_enemy(enemy: Variant, delta: float) -> bool:
 	elif enemy.attack_queued and enemy.attack_windup <= 0.0:
 		enemy.moving = false; enemy.attack_queued = false
 		enemy.attack_timer = enemy.attack_interval; enemy.attack_pose = 1.0
+		var blocker_point:=blocker.position+Vector3.UP
+		var blocker_hp:=blocker.hp
+		var blocker_shield:=blocker.shield
 		blocker.hurt(enemy.damage, enemy)
+		_hit_feedback(blocker_point,maxf(0.0,blocker_hp-blocker.hp)+maxf(0.0,blocker_shield-blocker.shield),Color("e47f6f"),4)
 	elif not enemy.attack_queued and enemy.attack_timer <= 0.0:
 		enemy.moving = false; enemy.attack_queued = true
 		enemy.windup_duration = .22 if str(enemy.get_meta("threat", "")) == "runner" else (.55 if str(enemy.get_meta("threat", "")) == "breaker" else .34)
@@ -1747,6 +1754,12 @@ func _animate_member(soldier: BattleUnit) -> void:
 	var arm := soldier.visual.find_child("ArmR", true, false) as Node3D
 	if arm:
 		arm.rotation.x = -soldier.attack_pose * .7 - (.25 if bool(soldier.get_meta("medic_casting", false)) else (.2 if soldier.attack_queued else 0.0))
+
+func _hit_feedback(point: Vector3, amount: float, tint: Color, sparks_count: int) -> void:
+	if amount<=0.0 or not is_instance_valid(game):return
+	var combat: Variant=game.get("combat")
+	if is_instance_valid(combat) and combat.has_method("hit_confirmed"):
+		combat.call("hit_confirmed",point,amount,tint,sparks_count)
 
 func _beam(from: Vector3, to: Vector3, tint: Color = Color("efcf86"), width: float = .035, lifetime: float = .18, emission: float = 1.2) -> void:
 	var offset := to - from

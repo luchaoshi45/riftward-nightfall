@@ -499,36 +499,42 @@ func draw_construction() -> void:
 	if not bool(placement.valid) and bool(placement.space_valid):tint=amber if bool(placement.tech_valid) else Color("aca0e8")
 	if selling:tint=red if bool(placement.valid) else muted
 	if repairing:tint=Color("85d5a5") if bool(placement.valid) else muted
-	box(CONSTRUCTION_PANEL_RECT,Color(.025,.052,.046,.95),tint)
+	# Construction is an action rail, not a second information drawer. Keep the
+	# existing hit rectangles and shortcuts, but give the panel one quiet surface
+	# and reserve strong contrast for the selected building or an invalid site.
+	box(CONSTRUCTION_PANEL_RECT,Color(.018,.038,.038,.82),Color(tint,.72))
 	var kinds:=visible_construction_kinds()
 	for index in kinds.size():
 		var kind: String=kinds[index]
 		var rect:=construction_kind_rect(index)
 		var selected: bool=not selling and not repairing and kind==String(game.construction.kind)
-		box(rect,Color(.06,.15,.12,.95) if selected else panel,tint if selected else muted)
+		var card_fill:=Color(.07,.16,.13,.88) if selected else Color(.015,.03,.033,.34)
+		box(rect,card_fill,Color(tint,.9) if selected else Color(muted,.38))
 		label("%d %s" % [index+1,String(Catalog.building(kind).title)],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
 	if repairing:
 		if bool(placement.valid):
-			label("%s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止维修" if bool(placement.repairing) else "点击维修"],Vector2(457,714),18,ink)
-		else:label("维修模式 · 指向受损建筑",Vector2(457,714),18,ink)
+			label("维修  %s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止" if bool(placement.repairing) else "点击确认"],Vector2(457,714),17,ink)
+		else:label("维修 · 指向受损建筑",Vector2(457,714),17,muted)
 	elif selling:
-		label("%s%s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖模式 · 指向建筑查看退款",Vector2(457,714),18,red if bool(placement.valid) else ink)
+		label("%s  %s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖 · 指向建筑查看退款",Vector2(457,714),17,red if bool(placement.valid) else muted)
 	else:
-		label("%s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),18,ink)
+		label("%s  ·  %d×%d格  ·  %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),17,ink)
 	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
 	var pages:=ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))
-	label("%d/%d" % [page+1,pages],Vector2(877,716),13,muted,true)
+	label("%d/%d" % [page+1,pages],Vector2(877,716),12,muted,true)
 	for direction in [-1,1]:
 		var rect:=construction_page_rect(direction)
 		var available: bool=page+direction>=0 and page+direction<pages
-		box(rect,panel,muted)
+		box(rect,Color(.015,.03,.033,.42),Color(muted,.48))
 		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber if available else muted)
-	label(String(placement.reason),Vector2(457,740),15,tint)
-	label("左键/F确认 · 右键/Esc/Y退出",Vector2(457,766),13,amber)
-	box(REPAIR_BUTTON_RECT,Color(.045,.13,.09,.95) if repairing else panel,Color("85d5a5") if repairing else muted)
+	var reason:=String(placement.reason)
+	if reason.is_empty() and not repairing and not selling:reason="移动鼠标选址"
+	label(reason,Vector2(457,740),14,tint if not bool(placement.valid) else muted)
+	label("左键/F 确认  ·  右键/Esc/Y 退出",Vector2(457,766),13,amber)
+	box(REPAIR_BUTTON_RECT,Color(.045,.13,.09,.82) if repairing else Color(.015,.03,.033,.38),Color("85d5a5") if repairing else Color(muted,.5))
 	label("H 建造" if repairing else "H 维修",REPAIR_BUTTON_RECT.position+Vector2(17,18),13,Color("85d5a5") if repairing else ink)
-	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.95) if selling else panel,red if selling else muted)
+	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.84) if selling else Color(.015,.03,.033,.38),red if selling else Color(muted,.5))
 	label("Del 建造" if selling else "Del 拆卖",DEMOLITION_BUTTON_RECT.position+Vector2(17,18),13,red if selling else ink)
 
 func draw_building_repairs() -> void:

@@ -1,5 +1,11 @@
 # 《余烬守望》项目规则、双机派工与交接
 
+## 2026-10-08普通攻击受击反馈与建造面板收敛（主机A）
+
+针对“攻击没有受击效果、建筑太复杂”的反馈，增加独立的通用命中反馈：非英雄攻击命中会显示短闪光、环形冲击、少量火花和 `-N` 浮字，不复用英雄连斩/镜头震动；已接入部队攻击敌人、盾卫拦截、敌人攻击部队、防御塔命中敌人、敌人攻击塔/城区/路障。真实伤害与死亡规则不变，暂停、结束和减弱特效仍由原战斗反馈生命周期清理。建造面板保留格子选择、分页、1/2/3、F/左键、H维修、Del拆卖和退出快捷键，视觉改为一层低对比度操作轨道，选址状态只保留必要摘要和错误原因。
+
+`nightfall_clean_hud` 4000/0、`nightfall_rts_construction_troops` 2011/0、`nightfall_tower_targeting` 365/0、`nightfall_demolition` 14720/0、`nightfall_target_warning_hit_confirm` 通过，`nightfall_loop` 通过；`git diff --check` 通过。修改的 `scripts/combat_feedback.gd`、`scripts/nightfall.gd`、`scripts/outpost_squads.gd`、`scripts/nightfall_hud.gd` 已完成 sec-code 安全扫描并上报风险情况。源码版本与正式计数仍以 `optimization-progress.json` 为准（0.8.37、47/100），本轮为反馈与界面维护，不增加正式完成计数。
+
 ## 2026-10-08生产默认HUD截图与地图入口修正（主机A）
 
 针对旧截图中多面板堆叠的问题，确认生产入口 `scripts/nightfall_hud.gd` 默认启用 `minimal_display`；补充清爽模式的实际 Metal 截图回归，避免完整观察替身的旧卡片画面冒充玩家默认界面。底部地图入口保留指南针 glyph，并增加短标签“地图”，不恢复旧的长说明卡；F3 详情、Y 建造、鼠标命中区和 M 配乐快捷键保持不变。`nightfall_clean_hud` 无头 `4000 checks / 0 failures`，Metal Forward+ `4071 checks / 0 failures`，新增生产默认日/夜截图；本轮为界面维护，不增加正式完成计数，源码 `0.8.37`、正式 `47/100`、Windows 成品 `0.8.25` 保持。完成 sec-code 安全扫描并上报风险情况。

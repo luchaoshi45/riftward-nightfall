@@ -158,6 +158,33 @@ func impact(point: Vector3, direction: Vector3, amount: float, critical: bool, f
 	play_sound("finisher" if finisher else ("critical" if critical else "hit"),0.0,rng.randf_range(.965,1.035))
 	duck_music(.22 if not strong else .36)
 
+func hit_confirmed(point: Vector3, amount: float, tint: Color = Color("e9a567"), sparks_count: int = 4) -> void:
+	# Shared feedback for non-hero attacks. It deliberately omits sword arcs,
+	# kill-chain state and camera trauma so squad, tower and structure hits stay
+	# readable without borrowing player-only combat semantics.
+	if not active() or not point.is_finite():return
+	var value:=maxi(1,roundi(maxf(0.0,amount)))
+	var root:=Node3D.new()
+	root.name="GenericHitConfirmed"
+	add_child(root)
+	root.global_position=point+Vector3(0,.72,0)
+	var mat:=glow_material(Color(tint.r,tint.g,tint.b,.86),1.35)
+	var ring:=BattleVisuals.ring(root,Vector3.ZERO,.42,tint,.055)
+	ring.material_override=mat
+	ring.scale=Vector3(.22,1,.22)
+	var light:=OmniLight3D.new()
+	light.name="GenericHitLight"
+	light.light_color=tint
+	light.omni_range=1.7
+	light.shadow_enabled=false
+	light.light_energy=0.0 if reduced_effects else .30*light_envelope(0.0)
+	root.add_child(light)
+	add_effect({"node":root,"kind":"generic_hit","time":0.0,"duration":.24,"materials":[mat],"parts":[],"ring":ring,"light":light,"energy":.30})
+	add_float(point+Vector3(0,1.72,0),"-%d" % value,tint,.56,.72)
+	if not reduced_effects and sparks_count>0:
+		BattleVisuals.sparks(game.effects,point+Vector3.UP*.58,tint,sparks_count)
+	play_sound("hit",-2.0,rng.randf_range(.94,1.06))
+
 func damage_confirmed(point: Vector3, hp_loss: float, shield_loss: float, source_title: String = "") -> void:
 	if not active():return
 	var parts: Array[String]=[]
