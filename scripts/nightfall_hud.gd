@@ -13,6 +13,7 @@ const RALLY_RESET_RECT := Rect2(392,422,140,27)
 const RALLY_PROMPT_RECT := Rect2(435,674,570,84)
 const RALLY_CANCEL_RECT := Rect2(870,726,119,26)
 const SALVAGE_NAV_RECT := Rect2(46,692,190,30)
+const HELP_TOGGLE_RECT := Rect2(46,692,190,30)
 const SALVAGE_DRAW_RECT := Rect2(46,418,496,38)
 const SALVAGE_SAFE_MODE_RECT := Rect2(46,464,250,34)
 const SALVAGE_JACKPOT_MODE_RECT := Rect2(302,464,240,34)
@@ -59,6 +60,7 @@ const MAX_RENDERED_COMBAT_FLOATS := 6
 const MAX_RENDERED_WORLD_LABELS := 3
 var detail_tab := ""
 var salvage_draw_open := false
+var help_details_open := false
 var map_expanded := false
 var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
@@ -146,6 +148,7 @@ func bonus_route_rect(slot: int) -> Rect2:
 func dismiss_details() -> void:
 	detail_tab=""
 	salvage_draw_open=false
+	help_details_open=false
 	map_expanded=false
 	training_cancel_buttons.clear()
 	queue_redraw()
@@ -160,6 +163,7 @@ func toggle_details(tab: String = "") -> void:
 		return
 	detail_tab=target
 	salvage_draw_open=false
+	help_details_open=false
 	map_expanded=false
 	training_cancel_buttons.clear()
 	game.selection_dragging=false
@@ -173,6 +177,7 @@ func toggle_map() -> void:
 	map_expanded=not map_expanded
 	detail_tab=""
 	salvage_draw_open=false
+	help_details_open=false
 	training_cancel_buttons.clear()
 	game.selection_dragging=false
 	queue_redraw()
@@ -263,8 +268,7 @@ func draw_rally_setting() -> void:
 func live_panel_rects() -> Array[Rect2]:
 	var areas: Array[Rect2]=[]
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return areas
-	var objective:=CleanHud.OBJECTIVE_RECT
-	if not game.boss_snapshot().is_empty() and (game.phase=="night" or (game.phase=="paused" and game.paused_from=="night")):objective.size.y=110
+	var objective:=CleanHud.objective_rect(self,game)
 	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
 		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT,minimap_rect()])
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
@@ -1399,6 +1403,8 @@ func _gui_input(event: InputEvent) -> void:
 				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
 				for index in CleanHud.TAB_IDS.size():
 					if details_tab_rect(index).has_point(point):toggle_details(CleanHud.TAB_IDS[index]);accept_event();return
+				if detail_tab=="help" and HELP_TOGGLE_RECT.has_point(point):
+					help_details_open=not help_details_open;queue_redraw();accept_event();return
 				if detail_tab=="exploration":
 					if SALVAGE_NAV_RECT.has_point(point):
 						salvage_draw_open=not salvage_draw_open;queue_redraw();accept_event();return

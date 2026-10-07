@@ -10,6 +10,7 @@ const TACTICS := Rect2(24, 824, 126, 36)
 const MAP := Rect2(164, 824, 96, 36)
 const MEMORY := Rect2(1108, 800, 104, 80)
 const CLOSE := Rect2(428, 692, 112, 30)
+const HELP_TOGGLE := Rect2(46, 692, 190, 30)
 const MINI := Rect2(1252, 106, 164, 164)
 const CONSTRUCTION := Rect2(435, 642, 570, 140)
 const RunSession = preload("res://scripts/run_session.gd")
@@ -191,9 +192,9 @@ func api_ready() -> bool:
 
 func assert_interface() -> void:
 	var constants: Dictionary = load("res://scripts/nightfall_hud.gd").get_script_constant_map()
-	for name in {"DETAIL_CLOSE_RECT": CLOSE, "TACTICS_BUTTON_RECT": TACTICS,
+	for name in {"DETAIL_CLOSE_RECT": CLOSE, "HELP_TOGGLE_RECT": HELP_TOGGLE, "TACTICS_BUTTON_RECT": TACTICS,
 		"MAP_BUTTON_RECT": MAP, "MEMORY_BUTTON_RECT": MEMORY, "CONSTRUCTION_PANEL_RECT": CONSTRUCTION}:
-		var expected: Rect2 = {"DETAIL_CLOSE_RECT": CLOSE, "TACTICS_BUTTON_RECT": TACTICS,
+		var expected: Rect2 = {"DETAIL_CLOSE_RECT": CLOSE, "HELP_TOGGLE_RECT": HELP_TOGGLE, "TACTICS_BUTTON_RECT": TACTICS,
 			"MAP_BUTTON_RECT": MAP, "MEMORY_BUTTON_RECT": MEMORY, "CONSTRUCTION_PANEL_RECT": CONSTRUCTION}[name]
 		check(constants.get(name, Rect2()) == expected, "Production HUD must expose the clickable " + name)
 	for index in 5:
@@ -308,6 +309,210 @@ func pause_notice_priority() -> void:
 	check(game.phase=="day" and message in game.hud.all_labels and finances()==before,
 		"Real Esc resumption must restore the preserved notice without spending or issuing orders")
 	game.notice_time=0.0
+
+func help_mode_bounds(label: String, full: bool) -> void:
+	# Keep the original production-body recorder and close-button bounds. The
+	# separate footer is observed through all_drawn_labels, just like exploration.
+	await detail_text_bounds(label)
+	var body: Array[Dictionary] = []
+	var shortcuts: Array[Dictionary] = []
+	var text := ""
+	for row: Dictionary in game.hud.drawn_labels:
+		if row.point.y < 160.0: continue
+		body.append(row)
+		text += String(row.text) + "\n"
+		if row.point.y >= 254.0: shortcuts.append(row)
+		for character: String in String(row.text):
+			var code := character.unicode_at(0)
+			if code >= 0x4e00 and code <= 0x9fff:
+				check(game.hud.font.has_char(code),label + ": actual help font must resolve Chinese glyph " + character)
+	if full:
+		check(body.size() > 12,label + ": expanded help must actually restore the longer production explanations")
+		for required in ["科技", "研究所", "医护默认停疗", "每次2零件", "集结", "PgUp"]:
+			check(required in text,label + ": detailed help must preserve the real rule " + required)
+	else:
+		check(body.size() == 12 and shortcuts.size() == 10,
+			label + ": default help must render one heading, one introduction and exactly ten quick-operation lines")
+		check("常用操作" in text and "科技：" not in text and "每次2零件" not in text,
+			label + ": the quick view must defer the long technology and treatment rules to explicit expansion")
+		var repair_seen := false
+		var advance_seen := false
+		var escort_seen := false
+		for index in shortcuts.size():
+			var row: Dictionary = shortcuts[index]
+			check(row.point == Vector2(46,254 + index*36) and int(row.font_size) == 15,
+				label + ": each complete quick-operation line must retain its readable production row")
+			var line := String(row.text)
+			repair_seen = repair_seen or ("H" in line and "维修" in line)
+			advance_seen = advance_seen or ("Shift" in line and "推进" in line)
+			escort_seen = escort_seen or ("Alt" in line and "护航" in line)
+		check(repair_seen and advance_seen and escort_seen,
+			label + ": quick help must retain H repair, Shift attack-move and Alt convoy guidance")
+	var footer := recorded_text_in(HELP_TOGGLE)
+	var caption := "返回快捷操作" if full else "查看详细说明"
+	check(game.hud.drawn_boxes.has(HELP_TOGGLE) and footer.size() == 1,
+		label + ": the actual help toggle must paint its existing drawer-footer rectangle and one caption")
+	for row: Dictionary in footer:
+		check(String(row.text) == caption,label + ": the footer must describe the next actual help view")
+		check_text_inside(HELP_TOGGLE,row,label + " footer")
+		for character: String in caption:
+			check(game.hud.font.has_char(character.unicode_at(0)),label + ": footer font must resolve Chinese glyph " + character)
+	evidence["help-mode-" + label] = {"full":full, "lines":body.size(), "toggle":rect_data(HELP_TOGGLE),
+		"viewport":[game.hud.get_viewport_rect().size.x,game.hud.get_viewport_rect().size.y]}
+
+func help_toggle_click(button: int, label: String) -> void:
+	var before_finances := finances()
+	var before_orders := orders()
+	var before_selection := tag_selection_state()
+	var was_full := bool(game.hud.help_details_open)
+	await click(HELP_TOGGLE,button)
+	check(game.hud.detail_tab == "help" and bool(game.hud.help_details_open) == (not was_full if button == MOUSE_BUTTON_LEFT else was_full),
+		label + ": only the actual left click may switch help content inside the same drawer")
+	check(finances() == before_finances,label + ": a help toggle must not spend parts, alter training or change the live phase")
+	check(orders() == before_orders and tag_selection_state() == before_selection,
+		label + ": press/release on the visible help toggle must never order the hero, issue troop commands or change world selection")
+
+func help_folding_gui() -> void:
+	var original_size: Vector2i = root.size
+	var original_content: Vector2i = root.content_scale_size
+	var saved := tag_command_snapshot()
+	var before_finances := finances()
+	check(game.phase == "day" and game.hud.detail_tab == "" and not game.hud.map_expanded
+		and not game.hud.help_details_open,
+		"Actual help-folding coverage must begin in the closed, quick-default live game")
+	press(KEY_TAB)
+	check(game.squads.selected_count() > 0,"Help input coverage must use the actual GUI-trained squad selection")
+	var selected := tag_selection_state()
+	var commands := orders()
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		var label := "Help folding %dx%d" % [size.x,size.y]
+		await click(TACTICS)
+		await click(game.hud.details_tab_rect(4))
+		check(Vector2i(game.hud.get_viewport_rect().size) == size,
+			label + ": the actual help GUI must use the requested content viewport")
+		check(game.hud.detail_tab == "help" and not game.hud.help_details_open,
+			label + ": a real operation-tab click must open quick help by default")
+		await help_mode_bounds(label + " quick",false)
+		var suffix := "" if size == Vector2i(1920,1200) else "-%dx%d" % [size.x,size.y]
+		await capture("help-quick" + suffix)
+		await help_toggle_click(MOUSE_BUTTON_RIGHT,label + " quick right click with selected troops")
+		await help_toggle_click(MOUSE_BUTTON_LEFT,label + " actual expansion")
+		await help_mode_bounds(label + " full",true)
+		await capture("help-full" + suffix)
+		await help_toggle_click(MOUSE_BUTTON_RIGHT,label + " full right click with selected troops")
+		await help_toggle_click(MOUSE_BUTTON_LEFT,label + " actual folding")
+		await help_mode_bounds(label + " folded",false)
+		# Cover hero routing too, without replacing the trained troops or their
+		# production commands. Tab restores the same real selection afterwards.
+		game.squads.cancel_selection()
+		await help_toggle_click(MOUSE_BUTTON_RIGHT,label + " quick right click without selected troops")
+		await help_toggle_click(MOUSE_BUTTON_LEFT,label + " hero-view expansion")
+		await help_toggle_click(MOUSE_BUTTON_RIGHT,label + " full right click without selected troops")
+		press(KEY_TAB)
+		check(tag_selection_state() == selected,label + ": actual Tab must restore the original trained-squad selection")
+		await click(game.hud.details_tab_rect(0))
+		check(game.hud.detail_tab == "contract" and not game.hud.help_details_open,
+			label + ": real navigation to another tab must retire the expanded help state")
+		check(recorded_text_in(HELP_TOGGLE).is_empty() or not game.hud.drawn_boxes.has(HELP_TOGGLE),
+			label + ": help-only footer must not remain visibly drawn on a different tab")
+		var other_finances := finances()
+		var other_orders := orders()
+		await click(HELP_TOGGLE)
+		check(game.hud.detail_tab == "contract" and not game.hud.help_details_open
+			and finances() == other_finances and orders() == other_orders,
+			label + ": the old help-toggle location must not retain its help action on another tab")
+		await click(game.hud.details_tab_rect(4))
+		await help_toggle_click(MOUSE_BUTTON_LEFT,label + " expansion before map")
+		await click(MAP)
+		check(game.hud.map_expanded and game.hud.detail_tab == "" and not game.hud.help_details_open,
+			label + ": actual map navigation must reset help expansion and dismiss its drawer")
+		await click(TACTICS)
+		await click(game.hud.details_tab_rect(4))
+		check(not game.hud.help_details_open,label + ": reopening help after the map must return to quick operations")
+		await help_toggle_click(MOUSE_BUTTON_LEFT,label + " expansion before Esc")
+		press(KEY_ESCAPE)
+		check(game.hud.detail_tab == "" and not game.hud.help_details_open and game.phase == "day"
+			and tag_selection_state() == selected,
+			label + ": actual Esc must close expanded help before pausing or deselecting troops")
+		await click(TACTICS)
+		await click(game.hud.details_tab_rect(4))
+		check(game.hud.detail_tab == "help" and not game.hud.help_details_open,
+			label + ": reopening after Esc must restore the quick help default")
+		await help_mode_bounds(label + " reopened quick",false)
+		await click(CLOSE)
+		check(game.hud.detail_tab == "" and not game.hud.help_details_open,
+			label + ": the actual drawer-close button must also retire any help expansion")
+		check(finances() == before_finances and orders() == commands and tag_selection_state() == selected,
+			label + ": the complete real help-navigation sequence must leave economy and production orders unchanged")
+	root.size = original_size
+	root.content_scale_size = original_content
+	restore_tag_commands(saved)
+	await redraw()
+	check(game.hud.detail_tab == "" and not game.hud.map_expanded and not game.hud.help_details_open
+		and finances() == before_finances and orders() == saved.orders,
+		"Help-folding fixtures must restore the prior live viewport, hero orders and trained-squad selection")
+
+func compact_objective_day_inputs() -> void:
+	var saved := tag_command_snapshot()
+	var before_finances := finances()
+	var old_rect := Rect2(426,20,588,76)
+	var free_point := Vector2(1002,90)
+	check(game.phase == "day" and game.hud.detail_tab == "" and not game.hud.map_expanded
+		and not game.construction.active and not game.hud._has_event_warning(),
+		"Dynamic objective input coverage must use the actual warning-free, closed-details day state")
+	await redraw()
+	var actual_rect := Rect2()
+	for rect: Rect2 in game.hud.drawn_boxes:
+		if rect.position == old_rect.position:
+			actual_rect = rect
+			break
+	check(actual_rect.has_area() and actual_rect.get_area() < old_rect.get_area(),
+		"The actually painted day objective must shrink below its former 588-by-76 rectangle")
+	check(game.hud.visible_hud_rects().has(actual_rect) and not game.hud.visible_hud_rects().has(old_rect),
+		"Dynamic objective painting and current input exclusion must report the same smaller actual rectangle")
+	press(KEY_TAB)
+	check(game.squads.selected_count() > 0,
+		"Objective-card non-penetration must include the actual GUI-trained squad selection")
+	await assert_tag_buttons(actual_rect,"The content-sized day objective card")
+	check(finances() == before_finances,
+		"Actual left/right clicks inside the smaller objective card must not spend parts or alter production")
+	var uncovered := old_rect.has_point(free_point)
+	for rect: Rect2 in game.hud.visible_hud_rects():
+		uncovered = uncovered and not rect.has_point(free_point)
+	check(uncovered,
+		"The former objective's lower-right corner must become uncovered battlefield input space")
+	# Use the real viewport press, drag and release path. No replacement hitbox
+	# or width calculation is used to imitate the production objective layout.
+	await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,true)
+	var pixel_start: Vector2 = free_point * game.hud.get_viewport_rect().size / Vector2(1440,900)
+	var selection_started: bool = game.selection_dragging and game.selection_start == pixel_start
+	check(selection_started,
+		"Actual left press on the released former-objective corner must begin battlefield box selection")
+	var drag_end := free_point + Vector2(20,20)
+	var pixel_end: Vector2 = drag_end * game.hud.get_viewport_rect().size / Vector2(1440,900)
+	var motion := InputEventMouseMotion.new()
+	motion.position = pixel_end
+	motion.global_position = pixel_end
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	root.push_input(motion,true)
+	await process_frame
+	var selection_dragged: bool = game.selection_dragging and game.selection_end == pixel_end
+	check(selection_dragged,
+		"Actual world motion from the released corner must advance the live box-selection rectangle")
+	await tag_mouse_button(drag_end,MOUSE_BUTTON_LEFT,false)
+	var selection_finished: bool = not game.selection_dragging and finances() == before_finances
+	check(selection_finished,
+		"Actual box-selection release must finish without spending parts or changing production")
+	evidence["compact-objective-day"] = {"painted":rect_data(actual_rect), "former":rect_data(old_rect),
+		"released_point":[free_point.x,free_point.y], "actual_box_selection":selection_started and selection_dragged and selection_finished}
+	restore_tag_commands(saved)
+	await redraw()
+	check(orders() == saved.orders and tag_selection_state() == saved.selection and game.aim == saved.aim
+		and game.pending_aim_screen == saved.pending_aim_screen and game.aim_sample_pending == saved.aim_sample_pending
+		and finances() == before_finances,
+		"Dynamic-objective fixtures must restore original hero/troop orders, selection and pending aim")
 
 func rich_exploration_page() -> void:
 	var point := Vector3(45,0,45)
@@ -1163,6 +1368,8 @@ func run() -> void:
 	await rich_exploration_page()
 	await build_barracks()
 	await army_gui()
+	await help_folding_gui()
+	await compact_objective_day_inputs()
 	await compact_notice_inputs()
 	await compact_skill_readability()
 	await active_exploration_tag_inputs()

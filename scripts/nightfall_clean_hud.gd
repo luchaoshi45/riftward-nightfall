@@ -25,16 +25,15 @@ const RAIL_FAINT := Color("82978b", .19)
 const RAIL_GHOST := Color("82978b", .10)
 const LIVE_INK := Color("e4e2d8")
 const LIVE_MUTED := Color("9da9a2")
-const LIVE_QUIET := Color("9da9a2", .62)
-# Keep the default battlefield quiet: the live layer is an information rail,
-# not a stack of opaque cards. Urgent states still supply stronger tints at the
-# call site, while routine data stays legible without competing with the map.
-const PHASE_FILL := Color(.028,.045,.046,.09)
-const OBJECTIVE_DAY_FILL := Color(.026,.060,.048,.10)
-const OBJECTIVE_NIGHT_FILL := Color(.075,.050,.046,.14)
-const RESOURCE_FILL := Color(.030,.046,.049,.09)
-const HERO_FILL := Color(.022,.038,.044,.07)
-const DRAWER_FILL := Color(.021,.037,.040,.92)
+const LIVE_QUIET := Color("b2bcb5", .88)
+# Short status groups share a quiet dark backing. Reducing the number of
+# persistent sections matters more than making necessary text transparent.
+const PHASE_FILL := Color(.020,.031,.033,.48)
+const OBJECTIVE_DAY_FILL := Color(.020,.035,.031,.48)
+const OBJECTIVE_NIGHT_FILL := Color(.045,.027,.026,.52)
+const RESOURCE_FILL := Color(.020,.031,.033,.48)
+const HERO_FILL := Color(.015,.026,.029,.62)
+const DRAWER_FILL := Color(.021,.037,.040,.96)
 
 static func draw_live(ui: Control) -> void:
 	var game: Node3D=ui.get("game") as Node3D
@@ -59,9 +58,7 @@ static func _phase(game: Node3D) -> String:
 static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
-	# The live layer is deliberately cardless. Keep the phase rail to one short
-	# line and a timer; the mode name belongs in F3 details and should not compete
-	# with the battlefield every frame.
+	ui.box(PHASE_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.draw_circle(Vector2(33,35),3.0,Color(tint,.82))
 	ui.label("D%d %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
@@ -75,15 +72,30 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
-	var rect:=OBJECTIVE_RECT
-	if not boss.is_empty():rect.size.y=110
-	# Objective text sits on a single quiet rail. The accent line is retained
-	# only to make urgent night content scannable without another panel.
+	var state:=_objective_copy(game,phase)
+	var rect:=objective_rect(ui,game)
+	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color(0,0,0,0))
 	var accent:=Color("815e4b",.78) if phase=="night" else Color("587768",.72)
 	ui.draw_line(Vector2(rect.position.x,rect.position.y+15),Vector2(rect.position.x,rect.position.y+rect.size.y-14),accent,2.0)
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
+	_paragraph(ui,String(state.title),Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
+	if not String(state.detail).is_empty():
+		_paragraph(ui,String(state.detail),Vector2(444,66),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
+
+static func objective_rect(ui: Control, game: Node3D) -> Rect2:
+	if _phase(game)=="night" and not game.boss_snapshot().is_empty():
+		return Rect2(OBJECTIVE_RECT.position,Vector2(OBJECTIVE_RECT.size.x,110))
+	var state:=_objective_copy(game,_phase(game))
+	var actual_font: Font=ui.get("font") as Font
+	var width:=actual_font.get_string_size(String(state.title),HORIZONTAL_ALIGNMENT_LEFT,-1,16).x
+	var detail:=String(state.detail)
+	if not detail.is_empty():width=maxf(width,actual_font.get_string_size(detail,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x)
+	# Painting and input exclusion share the same content-sized rectangle.
+	return Rect2(OBJECTIVE_RECT.position,Vector2(clampf(ceilf(width)+36.0,200.0,OBJECTIVE_RECT.size.x),60.0 if not detail.is_empty() else 44.0))
+
+static func _objective_copy(game: Node3D, phase: String) -> Dictionary:
 	var title:="守住南门"
 	var detail:=""
 	var urgent:=false
@@ -119,11 +131,7 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	if float(game.beacon_alarm_time)>0.0:
 		detail="灯塔受到攻击 -%d · 立即回防" % ceili(float(game.beacon_alarm_damage))
 		urgent=true
-	# One title and one supporting line are enough for the live layer. The F3
-	# drawer owns the longer plan, route and countermeasure explanations.
-	_paragraph(ui,title,Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
-	if not detail.is_empty():
-		_paragraph(ui,detail,Vector2(444,66),552,12,ui.red if urgent else LIVE_MUTED,17,1)
+	return {"title":title,"detail":detail,"urgent":urgent}
 
 static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 	var state:=String(boss.get("phase","approach"))
@@ -149,9 +157,7 @@ static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 static func _draw_resources(ui: Control, game: Node3D) -> void:
 	var threatened:=float(game.beacon_alarm_time)>0.0
 	var tint: Color=ui.red if threatened else Color(ui.amber,.92)
-	# Keep the logical/input footprint stable for GUI routing and accessibility
-	# tests, while making the visual treatment completely cardless.
-	ui.box(RESOURCE_RECT,Color(0,0,0,0),Color(0,0,0,0))
+	ui.box(RESOURCE_RECT,RESOURCE_FILL,Color(0,0,0,0))
 	ui.draw_circle(Vector2(1089,35),3.0,Color(ui.amber,.82))
 	ui.label("零件 %d" % int(game.scrap),Vector2(1100,40),15,ui.ink)
 	ui.draw_line(Vector2(1183,29),Vector2(1183,45),RAIL_FAINT,1.0)
@@ -159,26 +165,34 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.progress(Rect2(1100,53,288,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.56))
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
-	# Skills are the only persistent bottom controls. They use small key markers
-	# and one label each; the old full-width shelf is intentionally gone.
-	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),12,LIVE_INK)
+	# One compact dock groups health, skills and the optional upgrade. These
+	# backings stay inside the established input areas, leaving the world free.
+	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
+	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
+	ui.draw_line(Vector2(543,826),Vector2(543,870),RAIL_FAINT,1.0)
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),13,LIVE_INK)
 	ui.progress(Rect2(360,840,168,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,864),11,BLUE)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,864),12,BLUE)
 	ui.progress(Rect2(360,870,168,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
-		# Keep the established 105px input/readability cells. The redesign
-		# changes their visual weight, not their keyboard and recorder geometry.
 		var x:=558.0+index*105.0
 		var status: String=game.skill_status(index)
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
-		ui.draw_circle(Vector2(x+20,827),7.0,Color(tint,.08 if not ready else .14))
-		ui.draw_arc(Vector2(x+20,827),7.0,0,TAU,16,Color(tint,.62),1.0)
-		ui.label(keys[index],Vector2(x+14,831),11,tint,true)
-		ui.label(names[index],Vector2(x+39,831),12,LIVE_INK if ready else LIVE_MUTED)
-		if not ready:ui.label(status,Vector2(x+11,856),11,tint)
+		var center:=Vector2(x+20,838)
+		ui.draw_circle(center,16.0,Color(tint,.09 if not ready else .13))
+		_draw_skill_symbol(ui,index,center,Color(tint,.76) if not ready else tint)
+		var cooldown: float=float(game.cooldowns[index])
+		if cooldown>0.0:
+			# A stable scale prevents later haste upgrades from making a running
+			# cooldown ring grow backwards; the number shows exact seconds left.
+			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
+			ui.draw_arc(center,18.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.5)
+		ui.label(keys[index],Vector2(x+15,873),11,LIVE_QUIET,true)
+		ui.label(names[index],Vector2(x+42,837),13,LIVE_INK if ready else LIVE_MUTED)
+		if not ready:ui.label(status,Vector2(x+42,859),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
@@ -193,19 +207,44 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	else:
 		ui.label("F3 查看",Vector2(1147,859),10,Color(ui.muted,.76))
 
+static func _draw_skill_symbol(ui: Control, index: int, center: Vector2, tint: Color) -> void:
+	# Native geometry stays crisp at Retina scale and needs no imported font
+	# glyphs or animated textures. Each skill has a distinct silhouette.
+	match index:
+		0:
+			ui.draw_line(center+Vector2(-7,7),center+Vector2(7,-7),tint,2.0,true)
+			ui.draw_line(center+Vector2(-7,0),center+Vector2(0,7),tint,2.0,true)
+			ui.draw_line(center+Vector2(3,-7),center+Vector2(7,-7),tint,1.5,true)
+			ui.draw_line(center+Vector2(7,-7),center+Vector2(7,-3),tint,1.5,true)
+		1:
+			var shield:=PackedVector2Array([Vector2(-7,-7),Vector2(7,-7),Vector2(6,2),Vector2(0,9),Vector2(-6,2),Vector2(-7,-7)])
+			for point in shield.size():shield[point]+=center
+			ui.draw_polyline(shield,tint,1.7,true)
+			ui.draw_line(center+Vector2(0,-4),center+Vector2(0,5),Color(tint,.48),1.0,true)
+		2:
+			for offset in [-6.0,2.0]:
+				ui.draw_polyline(PackedVector2Array([center+Vector2(offset-3,-6),center+Vector2(offset+3,0),center+Vector2(offset-3,6)]),tint,2.0,true)
+		3:
+			var flame:=PackedVector2Array([Vector2(0,-9),Vector2(-2,-3),Vector2(-6,0),Vector2(-5,6),Vector2(0,9),Vector2(5,5),Vector2(6,0),Vector2(2,-4),Vector2(2,2)])
+			for point in flame.size():flame[point]+=center
+			ui.draw_colored_polygon(flame,Color(tint,.18))
+			flame.append(flame[0])
+			ui.draw_polyline(flame,tint,1.5,true)
+		4:
+			ui.draw_line(center+Vector2(-7,0),center+Vector2(7,0),tint,3.0,true)
+			ui.draw_line(center+Vector2(0,-7),center+Vector2(0,7),tint,3.0,true)
+
 static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var open:=String(ui.get("detail_tab")) in TAB_IDS
-	# Preserve the exact input footprints for keyboard, mouse and accessibility
-	# routing; the fills are transparent so these controls do not become cards.
-	ui.box(TACTICS_RECT,Color(0,0,0,0),Color(0,0,0,0))
-	ui.box(MAP_BUTTON_RECT,Color(0,0,0,0),Color(0,0,0,0))
-	ui.box(BUILD_BUTTON_RECT,Color(0,0,0,0),Color(0,0,0,0))
+	ui.box(TACTICS_RECT,PHASE_FILL,Color(0,0,0,0))
+	ui.box(MAP_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
+	ui.box(BUILD_BUTTON_RECT,PHASE_FILL,Color(0,0,0,0))
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
 	ui.label("地图",Vector2(189,848),12,LIVE_MUTED)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
-	ui.label("Y 建造",Vector2(268,848),12,build_tint)
+	ui.label("Y 建造",Vector2(278,848),12,build_tint)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
@@ -216,10 +255,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
 	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
-	# Keep this conditional strip quiet, but paint its logical footprint so the
-	# visible interception area and the actual feedback stay in sync.
-	ui.box(SELECTED_SQUAD_RECT,Color(0,0,0,0),Color(0,0,0,0))
-	ui.draw_line(Vector2(32,779),Vector2(286,779),Color("6f927f",.24),1.0)
+	ui.box(SELECTED_SQUAD_RECT,PHASE_FILL,Color(0,0,0,0))
 	ui.label(title,Vector2(38,783),14,GREEN)
 	ui.label(selected_command_hint(ui,game),Vector2(38,808),13,ui.muted)
 
@@ -286,12 +322,11 @@ static func _draw_active_tags(ui: Control, game: Node3D) -> void:
 
 static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 	ui.box(DRAWER_RECT,DRAWER_FILL,Color("62776a"))
+	ui.draw_line(Vector2(46,166),Vector2(542,166),RAIL_FAINT,1.0)
 	for index in TAB_IDS.size():
 		var rect: Rect2=ui.details_tab_rect(index)
 		var selected: bool=tab==TAB_IDS[index]
-		# Drawer tabs are navigation, not five extra cards. Keep their hitboxes
-		# and labels, but use one selected underline to reduce visual noise.
-		ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
+		ui.box(rect,Color(GREEN,.09) if selected else Color(0,0,0,0),Color(0,0,0,0))
 		ui.draw_line(rect.position+Vector2(8,31),rect.position+Vector2(92,31),Color(GREEN if selected else Color("3e5148"),.72 if selected else .22),2.0 if selected else 1.0)
 		ui.label(TAB_TITLES[index],rect.position+Vector2(32,23),16,GREEN if selected else ui.muted)
 	match tab:
@@ -308,6 +343,10 @@ static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 		ui.box(nav,Color(0,0,0,0),Color(0,0,0,0))
 		ui.draw_line(nav.position+Vector2(10,29),nav.end-Vector2(10,1),Color("52695c",.34),1.0)
 		ui.label("探索记录" if bool(ui.get("salvage_draw_open")) else "补给抽取",nav.position+Vector2(58,21),14,GREEN)
+	elif tab=="help":
+		var toggle: Rect2=ui.HELP_TOGGLE_RECT
+		ui.box(toggle,Color(GREEN,.08),Color(0,0,0,0))
+		ui.label("返回快捷操作" if bool(ui.get("help_details_open")) else "查看详细说明",toggle.position+Vector2(51,21),14,GREEN)
 
 static func _contract_objective(contract: Node) -> String:
 	var status:=String(contract.status)
@@ -544,6 +583,26 @@ static func _draw_defense(ui: Control, game: Node3D) -> void:
 	_paragraph(ui,"灯下同伴%d/2 · 修灯%d零件 · 南门机关%d/%d" % [game.survivors_rescued,game.beacon_repair_cost(),game.gate_trap_charges,game.GATE_TRAP_MAX],Vector2(TEXT_X,y+3),TEXT_WIDTH,14,ui.muted,20)
 
 static func _draw_help(ui: Control) -> void:
+	if not bool(ui.get("help_details_open")):
+		ui.label("常用操作",Vector2(TEXT_X,184),18,GREEN)
+		ui.label("先玩起来 · 科技与规则需要时再查看",Vector2(TEXT_X,216),14,ui.muted)
+		var shortcuts: Array[String]=[
+			"移动   ZASD / 方向键 · 未选部队时右键寻路",
+			"探索   P 指路 · F 互动 · 4/5/6 委托",
+			"建造   Y 选址 · 1/2/3 切建筑 · H 维修",
+			"英雄   Q / W / E / R / X 技能 · V 强化",
+			"生产   U 盾卫 · I 弩手 · N 工程员 · F3 更多",
+			"编队   Ctrl+1/2/3 保存 · 数字召回 · Tab 全选",
+			"指挥   右键下令 · Shift+右键攻击推进",
+			"护航   Alt+右键活工队：护航往返",
+			"撤销   Esc 收起 / 取消建造 / 取消选队 / 暂停",
+			"声音   M 配乐 · F2 减弱震动和闪光",
+		]
+		for index in shortcuts.size():
+			var y:=254.0+index*36.0
+			ui.label(shortcuts[index],Vector2(TEXT_X,y),15,ui.ink)
+			if index in [1,4,7]:ui.draw_line(Vector2(TEXT_X,y+14),Vector2(TEXT_X+TEXT_WIDTH,y+14),RAIL_GHOST,1.0)
+		return
 	var y:=183.0
 	var groups: Array[String]=[
 		"移动：ZASD / 方向键；未选部队时右键寻路。W 用于屏障。",
