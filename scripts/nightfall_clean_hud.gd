@@ -54,13 +54,17 @@ static func draw_live(ui: Control) -> void:
 		_draw_active_tags(ui,game)
 
 static func _draw_focus_rails(ui: Control, game: Node3D) -> void:
-	# One quiet frame replaces the old stack of independent cards. It separates
-	# the playable world from the two intentional information bands without
-	# adding another panel or intercepting any input.
+	# Keep the information bands visually grouped without drawing a frame around
+	# the whole battlefield. Short rail segments align with the three live
+	# status groups and leave the playfield open between them.
 	var phase:=_phase(game)
 	var accent: Color=Color(ui.red,.48) if phase=="night" else Color(ui.amber,.42)
-	ui.draw_line(Vector2(24,79),Vector2(1416,79),RAIL_GHOST,1.0)
-	ui.draw_line(Vector2(24,802),Vector2(1416,802),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,79),Vector2(262,79),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(426,79),Vector2(1014,79),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(1080,79),Vector2(1416,79),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,802),Vector2(336,802),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(344,802),Vector2(1096,802),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(1108,802),Vector2(1416,802),RAIL_GHOST,1.0)
 	ui.draw_line(Vector2(24,79),Vector2(24,91),Color(accent,.44),1.0)
 	ui.draw_line(Vector2(1416,79),Vector2(1416,91),RAIL_FAINT,1.0)
 	ui.draw_line(Vector2(344,802),Vector2(1096,802),Color(accent,.30),1.0)
@@ -219,15 +223,17 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.draw_line(Vector2(1214,52),Vector2(1214+176.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.68),1.0)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
-	# One compact dock groups health, skills and the optional upgrade. These
-	# backings stay inside the established input areas, leaving the world free.
+	# The default view is a quiet action rail: the world owns the visual weight,
+	# while health, skills and the optional upgrade remain readable at a glance.
+	# The old repeated rectangular skill cards are intentionally replaced by
+	# small native glyphs and one shared baseline.
 	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
-	ui.draw_line(Vector2(360,878),Vector2(1096,878),FOCUS_RAIL,1.0)
-	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,836),11,LIVE_INK)
-	ui.progress(Rect2(360,842,132,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),10,BLUE)
-	ui.progress(Rect2(360,867,132,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
+	ui.draw_line(Vector2(360,878),Vector2(1096,878),Color(FOCUS_RAIL,.60),1.0)
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,836),10,LIVE_INK)
+	ui.progress(Rect2(360,842,132,2),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),9,BLUE)
+	ui.progress(Rect2(360,867,132,1),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
@@ -236,19 +242,18 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
 		var center:=Vector2(x+20,838)
-		ui.draw_arc(center,15.0,0.0,TAU,24,Color(tint,.42),1.0,true)
-		ui.draw_circle(center,2.0,Color(tint,.52))
+		ui.draw_arc(center,13.0,0.0,TAU,24,Color(tint,.42),1.0,true)
+		ui.draw_circle(center,1.5,Color(tint,.52))
 		_draw_skill_symbol(ui,index,center,Color(tint,.76) if not ready else tint)
 		var cooldown: float=float(game.cooldowns[index])
 		if cooldown>0.0:
 			# A stable scale prevents later haste upgrades from making a running
 			# cooldown ring grow backwards; the number shows exact seconds left.
 			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
-			ui.draw_arc(center,18.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.5)
-		ui.label(keys[index],Vector2(x+16,873),10,LIVE_QUIET,true)
-		ui.label(names[index],Vector2(x+42,837),11,LIVE_INK if ready else LIVE_MUTED)
-		ui.draw_line(Vector2(x+38,868),Vector2(x+88,868),Color(tint,.22),1.0)
-		if not ready:ui.label(status,Vector2(x+42,859),10,tint)
+			ui.draw_arc(center,16.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.25)
+		ui.label(keys[index],Vector2(x+16,873),9,LIVE_QUIET,true)
+		ui.label(names[index],Vector2(x+42,837),10,LIVE_INK if ready else LIVE_MUTED)
+		if not ready:ui.label(status,Vector2(x+42,859),9,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()

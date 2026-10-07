@@ -42,15 +42,22 @@ func _victory(ending_key: String, seed: int = 20261007, day: int = 3) -> Diction
 		"survivors_rescued": 1,
 	}
 
+func _challenge_victory(ending_key: String, seed: int, day: int, completed: bool) -> Dictionary:
+	var result := _victory(ending_key,seed,day)
+	result["contract_id"]="homecoming_pair"
+	result["contract_completed"]=completed
+	return result
+
 func _round_trip_and_idempotence() -> void:
 	_cleanup()
 	var archive = RunArchive.new(test_path, true)
-	check(archive.snapshot().schema_version == 1, "New profiles use the current schema")
+	check(archive.snapshot().schema_version == 2, "New profiles use the current schema")
 	var first: Dictionary = archive.record_victory(_victory("signal"))
 	check(bool(first.ok) and first.reason == "recorded", "A real victory is written")
 	check(archive.has_blueprint("signal_beacon"), "Signal victory unlocks its blueprint")
 	check(archive.completed_objectives().has("victory_signal"), "Signal victory records its objective")
 	check(archive.snapshot().run_history.size() == 1, "A victory creates one history entry")
+	check(archive.snapshot().completed_challenges.is_empty(), "Ordinary victories do not unlock a challenge")
 	var loaded = RunArchive.new(test_path, true)
 	check(loaded.has_blueprint("signal_beacon"), "Profile round-trips through disk")
 	check(loaded.snapshot().run_history.size() == 1, "History round-trips through disk")
@@ -79,11 +86,12 @@ func _schema_migration_and_whitelist() -> void:
 		"scrap": 99999,
 	}))
 	var migrated = RunArchive.new(test_path, true)
-	check(migrated.snapshot().schema_version == 1, "Legacy profiles migrate to schema 1")
+	check(migrated.snapshot().schema_version == 2, "Legacy profiles migrate to schema 2")
 	check(migrated.unlocked_blueprints().size() == 1 and migrated.has_blueprint("signal_beacon"), "Legacy blueprints are unique and allowlisted")
 	check(migrated.completed_objectives().size() == 1 and migrated.completed_objectives().has("victory_hold"), "Legacy objectives are allowlisted")
 	check(migrated.snapshot().run_history.size() == 1, "Legacy history drops malformed entries")
 	check(not migrated.snapshot().has("scrap"), "Run-local economy is never imported into the profile")
+	check(migrated.completed_challenges().is_empty(), "Legacy profiles migrate with no fabricated challenges")
 	_write(test_path, JSON.stringify({"schema_version": 999, "unlocked_blueprints": ["holdfast_beacon"]}))
 	var future = RunArchive.new(test_path, true)
 	check(future.unlocked_blueprints().is_empty(), "Unknown future schemas fail closed")
@@ -96,6 +104,8 @@ func _rejection_and_no_inheritance() -> void:
 	check(not FileAccess.file_exists(test_path), "Failed runs do not create a profile")
 	var unknown: Dictionary = archive.record_victory({"victory": true, "ending_key": "other"})
 	check(not bool(unknown.ok) and unknown.reason == "unknown_ending", "Unknown endings are rejected")
+	var unknown_challenge: Dictionary = archive.record_victory({"victory": true, "ending_key": "signal", "contract_id": "not_allowed"})
+	check(not bool(unknown_challenge.ok) and unknown_challenge.reason == "unknown_challenge", "Unknown challenge ids are rejected")
 	var disabled = RunArchive.new(test_path, false)
 	var blocked: Dictionary = disabled.record_victory(_victory("signal"))
 	check(not bool(blocked.ok) and blocked.reason == "disabled", "Disabled persistence never writes")
@@ -103,6 +113,14 @@ func _rejection_and_no_inheritance() -> void:
 	var fresh = RunArchive.new(test_path, true)
 	check(fresh.snapshot().run_history.is_empty() and fresh.unlocked_blueprints().is_empty(), "A new run reads only unlocks and no run-local state")
 	check(not fresh.snapshot().has("cards") and not fresh.snapshot().has("buildings") and not fresh.snapshot().has("squads"), "Profile excludes cards, buildings and squads")
+	var challenge := RunArchive.new(test_path, true)
+	var completed: Dictionary = challenge.record_victory(_challenge_victory("signal",20261009,3,true))
+	check(bool(completed.ok) and challenge.has_challenge("homecoming_pair"), "A completed allowed challenge is persisted")
+	var challenge_duplicate: Dictionary = challenge.record_victory(_challenge_victory("signal",20261009,3,true))
+	check(challenge_duplicate.reason == "already_recorded" and challenge.completed_challenges().size() == 1, "Challenge victory history is idempotent")
+	var incomplete := RunArchive.new(test_path + ".incomplete", true)
+	var incomplete_result: Dictionary = incomplete.record_victory(_challenge_victory("hold",20261010,4,false))
+	check(bool(incomplete_result.ok) and incomplete.completed_challenges().is_empty(), "An incomplete challenge does not unlock the archive")
 
 func _initialize() -> void:
 	_round_trip_and_idempotence()

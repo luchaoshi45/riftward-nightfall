@@ -22,6 +22,7 @@ const BONUS_CONFIRM_RECT := Rect2(46,568,496,34)
 const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
+const OPENING_CONTRACT_RECT := Rect2(205,700,1025,38)
 var game: Node3D
 var font: SystemFont
 var display_font: SystemFont
@@ -1401,7 +1402,14 @@ func draw_draft() -> void:
 		var lines:=String(card.desc).split("\n")
 		for j in range(lines.size()):label(lines[j],rect.position+Vector2(23,150+j*25),15,muted)
 		label("按 %d / 点击 铭刻" % (i+1),rect.position+Vector2(22,252),16,amber)
-	label("世界已暂停 · 开局/黎明赠卡，V 消耗零件铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
+	if game.opening_night_pending:
+		var contract: Dictionary=game.opening_contract_summary()
+		var selected: bool=bool(contract.selected)
+		draw_line(OPENING_CONTRACT_RECT.position+Vector2(0,4),OPENING_CONTRACT_RECT.position+Vector2(24,4),Color(CleanHud.GREEN,.5) if selected else Color(muted,.24),1.0)
+		label("C · 双灯同行 %s" % ("已选" if selected else "可选"),Vector2(205,722),14,CleanHud.GREEN if selected else muted)
+		label("救回两名哨兵并完成末夜清场 · %s · F 重抽 %d 次" % ["已完成过" if game.archive.has_challenge("homecoming_pair") else "挑战记录",game.run.rerolls],Vector2(438,722),12,muted)
+	else:
+		label("世界已暂停 · 开局/黎明赠卡，V 消耗零件铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
 
 func draw_result() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.005,.012,.020,.71))
@@ -1444,6 +1452,9 @@ func draw_result() -> void:
 				if not item.is_empty():titles.append(String(item.get("title", blueprint_id)))
 			if not titles.is_empty():archive_text = "新解锁 · " + "、".join(titles)
 	label(archive_text,Vector2(715,634),12,Color("a3c7b7") if "新解锁" in archive_text else muted)
+	if not game.opening_contract_id.is_empty():
+		var contract: Dictionary=game.opening_contract_summary()
+		label("双灯同行 · %d/2 · %s" % [int(contract.progress),String(contract.status)],Vector2(425,723),12,CleanHud.GREEN if bool(contract.completed) else muted)
 	box(RESULT_RETRY_RECT,Color(.080,.112,.103,.97),Color("82bbae"))
 	box(RESULT_NEW_RECT,Color(.046,.066,.075,.97),Color("66766c"))
 	label("Enter · 同一守望再挑战",RESULT_RETRY_RECT.position+Vector2(37,32),16,Color("bce2d3"))
@@ -1473,6 +1484,8 @@ func _gui_input(event: InputEvent) -> void:
 	if game.phase=="draft":
 		if event is InputEventMouseButton:
 			if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+				if game.opening_night_pending and OPENING_CONTRACT_RECT.has_point(point):
+					game.toggle_opening_contract();accept_event();return
 				for index in blueprint_rects.size():
 					if blueprint_rects[index].has_point(point):
 						var options: Array[Dictionary] = game.available_blueprints() if game.has_method("available_blueprints") else []

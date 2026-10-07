@@ -101,6 +101,9 @@ var day_start_pending: bool=false
 var run_mode: String="teaching"
 var run_mode_locked := false
 var selected_blueprint := ""
+var opening_contract_id := ""
+var opening_contract_locked := false
+var opening_contract_completed := false
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
 var countermeasure_selected := -1
@@ -220,6 +223,7 @@ func _ready() -> void:
 	if not next_run.is_empty():
 		run=RunBuild.new(int(next_run.seed))
 		run_mode=String(next_run.mode)
+		opening_contract_id=String(next_run.get("contract_id", ""))
 	rng.seed=RunSessionScript.stream_seed(run.seed_value,"combat")
 	spawn_rng.seed=RunSessionScript.stream_seed(run.seed_value,"spawns")
 	world=NightfallWorld.new();add_child(world);world.build()
@@ -941,6 +945,7 @@ func finish_night() -> void:
 		enemies.clear()
 		victory=true;phase="ended";world.set_night(false)
 		ending_key="signal" if remaining_nests()==0 else "hold"
+		opening_contract_completed=opening_contract_id=="homecoming_pair" and survivors_rescued>=2 and was_final_clearance
 		if was_final_clearance:
 			archive_result=archive.record_victory({
 				"victory": true,
@@ -951,6 +956,8 @@ func finish_night() -> void:
 				"kills": kills,
 				"cleansed_nests": cleansed_nests(),
 				"survivors_rescued": survivors_rescued,
+				"contract_id": opening_contract_id,
+				"contract_completed": opening_contract_completed,
 			})
 		if ending_key=="signal":
 			world.beacon_light.light_color=Color("96d9d6")
@@ -1154,6 +1161,21 @@ func select_run_mode(index: int) -> bool:
 	run_mode=options[index]
 	notify("本局模式：%s · 选择核心后锁定" % run_mode_title(),3)
 	return true
+
+func toggle_opening_contract() -> bool:
+	if phase!="draft" or not opening_night_pending or opening_contract_locked or run_mode_locked:return false
+	opening_contract_id="" if opening_contract_id=="homecoming_pair" else "homecoming_pair"
+	notify("双灯同行 · 救回两名哨兵并赢得末夜清场" if not opening_contract_id.is_empty() else "已取消守望契约",3)
+	if is_instance_valid(hud):hud.queue_redraw()
+	return true
+
+func opening_contract_summary() -> Dictionary:
+	var selected:=opening_contract_id=="homecoming_pair"
+	var status:="未选择"
+	if selected:
+		status="已完成" if opening_contract_completed else ("未完成" if phase=="ended" else "已锁定" if opening_contract_locked else "可选")
+	return {"id":opening_contract_id,"selected":selected,"title":"双灯同行","status":status,
+		"progress":clampi(survivors_rescued,0,2),"target":2,"completed":opening_contract_completed}
 
 func available_blueprints() -> Array[Dictionary]:
 	var options: Array[Dictionary] = [{"id": "", "title": "无蓝图", "detail": "基础开局 · 不解锁额外建筑许可"}]
@@ -2625,6 +2647,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	opening_contract_completed=false
 	if haul_raider:haul_raider.clear()
 	night_clearance_active=false
 	night_clearance_elapsed=0.0
@@ -2666,7 +2689,9 @@ func choose_card(index: int) -> bool:
 	if phase!="draft":return false
 	var card:=run.choose(index)
 	if card.is_empty():return false
-	if opening_night_pending:run_mode_locked=true
+	if opening_night_pending:
+		run_mode_locked=true
+		opening_contract_locked=true
 	var old_max:=hero.max_hp
 	hero.max_hp=850+float(run.stats.health)
 	hero.hp=minf(hero.max_hp,hero.hp+maxf(0,hero.max_hp-old_max))
@@ -3559,6 +3584,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if phase=="draft":
 			if opening_night_pending and event.keycode in [KEY_7,KEY_8,KEY_9]:
 				select_run_mode(event.keycode-KEY_7)
+			elif opening_night_pending and event.keycode==KEY_C:toggle_opening_contract()
 			elif event.keycode in [KEY_1,KEY_2,KEY_3]:choose_card(event.keycode-KEY_1)
 			elif event.keycode==KEY_F and float(Time.get_ticks_msec())*.001>=draft_reroll_ready_at and run.redraw():notify("重新搜索战斗记忆",2)
 			return
@@ -3776,7 +3802,7 @@ func _exit_tree() -> void:
 func request_run_restart(same_seed: bool) -> void:
 	if phase!="ended" or restart_pending or quitting:return
 	var next_seed: int=run.seed_value if same_seed else RunSessionScript.fresh_seed(run.seed_value)
-	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode):return
+	if not RunSessionScript.queue_request(get_tree(),next_seed,run_mode,opening_contract_id if same_seed else ""):return
 	restart_pending=true
 	_settle_wave_wager_loss("retry")
 	wave_wager.reset()
