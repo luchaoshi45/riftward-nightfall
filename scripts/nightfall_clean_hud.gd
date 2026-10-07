@@ -216,6 +216,10 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
 	var ready: bool=pending>0 or affordable
+	# In the scene-priority layout the upgrade affordance is only painted when
+	# it can be acted on. The F3 drawer still exposes the same upgrade details,
+	# while an unavailable hint no longer competes with the skill strip.
+	if bool(ui.get("minimal_display")) and not ready:return
 	ui.draw_circle(Vector2(1120,833),3.0,Color(ui.amber,.85) if ready else RAIL)
 	ui.label("V",Vector2(1130,837),13,ui.amber if ready else ui.muted,true)
 	ui.label("强化",Vector2(1147,837),12,ui.amber if ready else ui.muted)
@@ -263,7 +267,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
-	ui.label("M 地图",Vector2(184,848),12,LIVE_MUTED)
+	ui.label("地图",Vector2(189,848),12,LIVE_MUTED)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
 	ui.label("Y 建造",Vector2(278,848),12,build_tint)
 	if not is_instance_valid(game.squads):return
@@ -278,6 +282,11 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 		if bool(row.selected) and int(row.alive)>0 and bool(row.get("manual_recall",false)):recalling+=1
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="capture":capturing+=1
+	var command_active:=advancing+escorting+recalling+capturing>0
+	if is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0:command_active=true
+	# Idle selection is useful for control groups but should not create a
+	# permanent status card in the default battlefield view.
+	if bool(ui.get("minimal_display")) and not command_active:return
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
 	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
 	if recalling>0:title="已选%d队 · 撤回%d队" % [int(snapshot.selected),recalling]
@@ -301,6 +310,14 @@ static func selected_command_hint(ui: Control, game: Node3D) -> String:
 				return "护航中 · 右键改令 · Alt+右键工队"
 	var hauling: bool=is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
 	return "工队右键采运 · Shift+右键推进" if hauling else "右键指挥 · Shift+右键推进"
+
+static func selected_command_active(game: Node3D) -> bool:
+	if not is_instance_valid(game) or not is_instance_valid(game.squads):return false
+	for squad: Dictionary in game.squads.squads:
+		if not bool(squad.selected) or int(squad.alive)<=0:continue
+		if String(squad.order) in ["attack_move","escort","capture"] or bool(squad.get("manual_recall",false)):
+			return true
+	return is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
 
 static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()

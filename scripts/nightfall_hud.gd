@@ -63,6 +63,9 @@ var detail_tab := ""
 var salvage_draw_open := false
 var help_details_open := false
 var map_expanded := false
+# The default battlefield keeps only actionable status. F3 and the expanded
+# map remain the deliberate places for dense tactical information.
+var minimal_display := true
 var contract_primary_budget: Dictionary = {}
 var contract_return_budget: Dictionary = {}
 var bonus_route_budgets: Array[Dictionary] = []
@@ -271,13 +274,17 @@ func live_panel_rects() -> Array[Rect2]:
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return areas
 	var objective:=CleanHud.objective_rect(self,game)
 	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
-		MEMORY_BUTTON_RECT,TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT,minimap_rect()])
+		TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT])
+	var pending:=int(game.run.pending) if is_instance_valid(game.run) else 0
+	var upgrade_ready: bool=is_instance_valid(game.run) and (pending>0 or (game.run.has_available_upgrade() and int(game.scrap)>=game.run.memory_cost()))
+	if not minimal_display or upgrade_ready:areas.append(MEMORY_BUTTON_RECT)
+	if not minimal_display or map_expanded:areas.append(minimap_rect())
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
 	elif rally_setting() and game.phase in ["day","night"]:areas.append(RALLY_PROMPT_RECT)
 	elif not detail_tab.is_empty():areas.append(CleanHud.DRAWER_RECT)
 	var active_tags:=CleanHud.active_tags_rect(self,game)
 	if active_tags.has_area():areas.append(active_tags)
-	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
+	if game.squads.selected_count()>0 and (not minimal_display or CleanHud.selected_command_active(game)):areas.append(SELECTED_SQUAD_RECT)
 	var event_priority:=_event_priority()
 	var notice_area:=CleanHud.notice_rect(self,game)
 	# Conditional event copy is painted through the same priority rail as its
@@ -390,7 +397,7 @@ func _draw() -> void:
 		return
 	draw_combat_floats()
 	_draw_live_with_event_priority()
-	draw_minimap()
+	if not minimal_display or map_expanded:draw_minimap()
 	draw_context_prompt()
 	draw_construction()
 	draw_rally_setting()
@@ -1479,7 +1486,8 @@ func _gui_input(event: InputEvent) -> void:
 			if rally_setting() and RALLY_CANCEL_RECT.has_point(point):
 				game.rally.cancel_setting();queue_redraw();accept_event();return
 			if TACTICS_BUTTON_RECT.has_point(point):toggle_details();accept_event();return
-			if MAP_BUTTON_RECT.has_point(point) or minimap_rect().has_point(point):toggle_map();accept_event();return
+			if MAP_BUTTON_RECT.has_point(point) or ((not minimal_display or map_expanded) and minimap_rect().has_point(point)):
+				toggle_map();accept_event();return
 			if BUILD_BUTTON_RECT.has_point(point):
 				if game.phase in ["day","night"]:game.toggle_tower_construction()
 				accept_event();return
@@ -1512,7 +1520,9 @@ func _gui_input(event: InputEvent) -> void:
 						if troop_page_rect(direction).has_point(point):change_troop_page(direction);accept_event();return
 						if training_page_rect(direction).has_point(point):training_page=maxi(0,training_page+direction);queue_redraw();accept_event();return
 			if game.phase in ["day","night"]:
-				if MEMORY_BUTTON_RECT.has_point(point):
+				var pending:=int(game.run.pending) if is_instance_valid(game.run) else 0
+				var upgrade_ready: bool=is_instance_valid(game.run) and (pending>0 or (game.run.has_available_upgrade() and int(game.scrap)>=game.run.memory_cost()))
+				if (not minimal_display or upgrade_ready) and MEMORY_BUTTON_RECT.has_point(point):
 					if not rally_setting():game.request_upgrade()
 					accept_event();return
 				if game.construction.active:

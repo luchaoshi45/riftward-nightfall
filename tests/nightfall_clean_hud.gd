@@ -14,6 +14,7 @@ const MEMORY := Rect2(1108, 800, 104, 80)
 const CLOSE := Rect2(428, 692, 112, 30)
 const HELP_TOGGLE := Rect2(46, 692, 190, 30)
 const MINI := Rect2(1252, 106, 164, 164)
+const SELECTED_SQUAD := Rect2(24, 762, 300, 54)
 const CONSTRUCTION := Rect2(435, 642, 570, 140)
 const RunSession = preload("res://scripts/run_session.gd")
 const RECORDING_HUD := """extends 'res://scripts/nightfall_hud.gd'
@@ -177,6 +178,19 @@ func default_layout(label: String) -> void:
 		check(not visible.has(obsolete), label + ": old exploration, army and growth panels must not remain visible")
 	evidence[label] = {"area_fraction_upper_bound": area / VIEW.get_area(), "rects": rects,
 		"viewport": [game.hud.get_viewport_rect().size.x, game.hud.get_viewport_rect().size.y]}
+
+func scene_priority_default() -> void:
+	var previous: bool = game.hud.minimal_display
+	game.hud.minimal_display=true
+	game.squads.cancel_selection()
+	clear_transient_hud()
+	await redraw()
+	var visible: Array = game.hud.visible_hud_rects()
+	check(not visible.has(MINI), "Scene-priority HUD must keep the compact radar hidden until the map is requested")
+	check(not visible.has(SELECTED_SQUAD), "Scene-priority HUD must not reserve a card for an idle selection")
+	check(game.hud.minimal_display, "Scene-priority HUD flag must remain enabled during the live default layout")
+	game.hud.minimal_display=previous
+	await redraw()
 
 func capture(label: String) -> void:
 	if not render_test: return
@@ -1339,6 +1353,10 @@ func run() -> void:
 	old_hud.queue_free()
 	var replacement: Control = recorder.new()
 	replacement.game = game
+	# The recorder keeps the previous full-observation surface so this
+	# regression suite can continue exercising every legacy hitbox. Production
+	# HUD instances default to the new scene-priority layout.
+	replacement.minimal_display = false
 	game.hud = replacement
 	layer.add_child(replacement)
 	replacement.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1368,6 +1386,7 @@ func run() -> void:
 	check(game.phase == "day" and game.day_number == 2, "The actual first dawn must generate the HUD's real day state")
 	await default_layout("default-day")
 	await capture("default-day")
+	await scene_priority_default()
 	check_live_data()
 	await detail_navigation()
 	await pause_notice_priority()
