@@ -4,6 +4,7 @@ extends SceneTree
 const RunSession := preload("res://scripts/run_session.gd")
 const UnitScript := preload("res://scripts/unit.gd")
 const Catalog := preload("res://scripts/outpost_catalog.gd")
+const CleanHud := preload("res://scripts/nightfall_clean_hud.gd")
 const SEED := 20261006
 const STEP := .05
 const HOME := Vector3(0, 5, 3.1)
@@ -611,7 +612,7 @@ func hud_layout(tag: String,kind: String,baseline_panels: Array = []) -> void:
   for row: Dictionary in game.hud.drawn_labels:
    hud_chinese_bounds(row,tag)
    var value := String(row.text)
-   if kind == "preview" and row.point == Vector2(444,72): advice.append(row)
+   if kind == "preview" and row.point == Vector2(444,66): advice.append(row)
    if kind == "defense" and bool(row.drawer) and row.point.x == 46.0 and row.point.y >= 286 and row.point.y <= 308: advice.append(row)
    if kind == "hunter" and value.begins_with("未耗尽召潮/织壳"): advice.append(row)
    if kind == "mixed" and (value.begins_with("投蚀 ") or value.begins_with("召援 ") or value.begins_with("织壳 ")): warnings.append(row)
@@ -677,6 +678,10 @@ func hud_clarity_and_input() -> void:
  await capture("warder-hud-real-selected-hunter-third-page")
  await fresh(3); stand(Vector3(2,0,35.5)); camera_at(Vector3(0,0,33.5))
  await redraw_hud(); var baseline_panels: Array = game.hud.live_panel_rects().duplicate()
+ # Urgent warnings suppress ordinary copy and release its transient hitboxes.
+ # Preserve exact equality for every persistent HUD area, including input.
+ baseline_panels.erase(CleanHud.notice_rect(game.hud,game))
+ baseline_panels.erase(game.hud.context_prompt_rect())
  var p := pack(FIELD)
  var summon_source := spawn(Vector3(.6,0,32.1),"summoner")
  var throw_source := spawn(Vector3(3.5,0,32.1),"lobber")

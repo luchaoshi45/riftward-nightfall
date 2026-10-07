@@ -15,6 +15,12 @@ const SLOW_DURATION := 1.2
 const SLOW := .30
 const HEAVY_SLOW := .15
 var _slows: Dictionary = {}
+# Nets share the same movement readers but keep their own expiry. Refreshing
+# one control source must never extend the other source's stronger effect.
+const NET_DURATION := 2.0
+const NET_SLOW := .45
+const NET_HEAVY_SLOW := .20
+var _nets: Dictionary = {}
 
 func branch(pad: Dictionary) -> String:
 	return str(pad.get("specialization", STANDARD))
@@ -41,7 +47,19 @@ func heavy(enemy: BattleUnit) -> bool:
 	return str(enemy.get_meta("threat", "")) in ["breaker", "sapper", "shellguard"]
 
 func eligible(enemy: Variant) -> bool:
-	return is_instance_valid(enemy) and enemy is BattleUnit and enemy.alive and enemy.kind == "monster" and enemy.team == 2
+	return is_instance_valid(enemy) and enemy is BattleUnit and not enemy.is_queued_for_deletion() and enemy.alive and enemy.hp > 0.0 and enemy.kind == "monster" and enemy.team == 2
+
+func apply_net(enemy: BattleUnit) -> bool:
+	if not eligible(enemy): return false
+	if not enemy.defeated.is_connected(_on_defeated): enemy.defeated.connect(_on_defeated)
+	var strength := NET_HEAVY_SLOW if heavy(enemy) or bool(enemy.get_meta("siege_boss", false)) else NET_SLOW
+	_nets[enemy.get_instance_id()] = {"unit": weakref(enemy), "remaining": NET_DURATION, "strength": strength}
+	return true
+
+func net_remaining(enemy: BattleUnit) -> float:
+	if not eligible(enemy): return 0.0
+	var effect: Dictionary = _nets.get(enemy.get_instance_id(), {})
+	return maxf(0.0, float(effect.get("remaining", 0.0)))
 
 func cooldown_multiplier(pad: Dictionary) -> float:
 	return 1.25 if branch(pad) == CONTROL else 1.0
@@ -98,28 +116,34 @@ func _hit(enemy: BattleUnit, amount: float, source: BattleUnit, hits: Array[Dict
 
 func advance(delta: float, active: bool = true) -> void:
 	# 暂停、选卡不走秒；清理死亡/释放引用仍可执行。
-	for id in _slows.keys():
-		var effect: Dictionary = _slows[id]
-		var enemy: BattleUnit = effect.unit.get_ref() as BattleUnit
-		if not eligible(enemy):
-			_slows.erase(id)
-			continue
-		if active: effect.remaining = maxf(0.0, float(effect.remaining) - maxf(delta, 0.0))
-		if effect.remaining <= 0: _slows.erase(id)
+	var elapsed := maxf(delta, 0.0) if is_finite(delta) else 0.0
+	for effects: Dictionary in [_slows, _nets]:
+		for id in effects.keys():
+			var effect: Dictionary = effects[id]
+			var enemy: BattleUnit = effect.unit.get_ref() as BattleUnit
+			if not eligible(enemy):
+				effects.erase(id)
+				continue
+			if active: effect.remaining = maxf(0.0, float(effect.remaining) - elapsed)
+			if effect.remaining <= 0: effects.erase(id)
 
 func movement_multiplier(enemy: BattleUnit) -> float:
 	if not eligible(enemy): return 1.0
 	var effect: Dictionary = _slows.get(enemy.get_instance_id(), {})
-	return 1.0 - float(effect.get("strength", 0.0))
+	var net: Dictionary = _nets.get(enemy.get_instance_id(), {})
+	return 1.0 - maxf(float(effect.get("strength", 0.0)), float(net.get("strength", 0.0)))
 
 func forget_enemy(enemy: BattleUnit) -> void:
-	if is_instance_valid(enemy): _slows.erase(enemy.get_instance_id())
+	if is_instance_valid(enemy):
+		_slows.erase(enemy.get_instance_id())
+		_nets.erase(enemy.get_instance_id())
 
 func _on_defeated(enemy: BattleUnit, _source: BattleUnit) -> void:
 	forget_enemy(enemy) # 当帧清除，死亡后同帧复活也不能继承旧减速。
 
 func reset_effects() -> void:
 	_slows.clear()
+	_nets.clear()
 
 func description(pad: Dictionary) -> String:
 	match branch(pad):

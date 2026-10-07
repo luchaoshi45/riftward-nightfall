@@ -1190,6 +1190,12 @@ func draw_squads() -> void:
 				if int(barrage.get("casting",0))+int(barrage.get("flight",0))>0:
 					footer="炮兵准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))]
 			CleanHud._paragraph(self,"喷火队 · 射程2.5–6.5米 / 22伤 · 扇形32° · 最多4目标 · 前摇0.55秒 · %s" % footer,Vector2(46,681),496,12,muted,18,1)
+	elif troop_page==3:
+		label("投网队 · 需存活研究所 · 100零件 / 9秒",Vector2(46,553),14,ink)
+		label("射程2.5–9米 · 10伤 · 前摇0.6秒",Vector2(46,580),14,amber)
+		CleanHud._paragraph(self,"网控2秒 · 普通减速45% / 重敌20% · 间隔4秒",Vector2(46,609),496,14,muted,21,1)
+		CleanHud._paragraph(self,"配合固定落点炮击与近程喷火 · 不直接打断首领拍击",Vector2(46,648),496,13,ink,20,1)
+		CleanHud._paragraph(self,"与牵制塔取最强，分别到期 · 改令取消未命中前摇",Vector2(46,681),496,12,muted,18,1)
 
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory

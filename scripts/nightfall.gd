@@ -3603,6 +3603,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	shutting_down=true
 	set_process(false)
+	specializations.reset_effects()
 	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
 	control_groups.clear()

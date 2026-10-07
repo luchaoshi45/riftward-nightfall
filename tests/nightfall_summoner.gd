@@ -243,6 +243,10 @@ func timing_cap_and_freeze() -> void:
 	var controller: Node3D = pack.controller
 	var token := source.get_instance_id()
 	var initial_panels: Array = game.hud.live_panel_rects().duplicate()
+	# Urgent world warnings release suppressed ordinary notice/prompt hitboxes;
+	# the persistent HUD itself must remain exactly the same.
+	initial_panels.erase(CleanHud.notice_rect(game.hud, game))
+	initial_panels.erase(game.hud.context_prompt_rect())
 	check(game.spawn_summoned_reinforcement(source, controller.snapshot().entry_position) == null,
 		"The root authority rejects an external early reinforcement request")
 	begin(controller)

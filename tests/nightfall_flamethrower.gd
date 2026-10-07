@@ -70,8 +70,8 @@ func run() -> void:
 		and String(definition.requires[0]) == "armory",
 		"The flamethrower must cost 125, train for 11 seconds and require a live armory")
 	check(is_equal_approx(float(Catalog.troop("flamer").hp), 150.0), "The flamethrower must use its 150 HP definition")
-	check(Catalog.TROOP_IDS.size() == 9 and ceili(Catalog.TROOP_IDS.size() / 3.0) == 3,
-		"The third troop page must contain the new troop without changing page size")
+	check(Catalog.TROOP_IDS.size() == 10 and ceili(Catalog.TROOP_IDS.size() / 3.0) == 4,
+		"The appended control troop must preserve three choices per page and the flamethrower's third page")
 
 	check(RunSession.queue_request(self, SEED, "siege"), "The real scene must accept the fixed flamethrower seed")
 	game = load(SCENE).instantiate()
