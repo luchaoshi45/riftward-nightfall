@@ -203,7 +203,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
-	ui.label("M 地图",Vector2(174,848),12,LIVE_MUTED)
+	ui.label("地图",Vector2(189,848),12,LIVE_MUTED)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
 	ui.label("Y 建造",Vector2(268,848),12,build_tint)
 	if not is_instance_valid(game.squads):return

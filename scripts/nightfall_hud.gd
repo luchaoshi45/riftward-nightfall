@@ -89,7 +89,11 @@ func _display_font_names() -> Array[String]:
 		_: return ["DejaVu Sans"]
 
 func label(value: String,point: Vector2,size_px: int,color: Color=Color("e7e1d3"),latin: bool=false) -> void:
-	draw_string(display_font if latin else font,point,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,color)
+	var actual_font: Font=display_font if latin else font
+	# A one-pixel dark edge keeps the cardless HUD legible over pale ground and
+	# moving buildings without bringing back opaque panels or changing layout.
+	draw_string_outline(actual_font,point,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,1,Color(.015,.022,.023,color.a*.88))
+	draw_string(actual_font,point,value,HORIZONTAL_ALIGNMENT_LEFT,-1,size_px,color)
 
 func box(rect: Rect2,fill: Color=Color(.022,.035,.045,.88),outline: Color=Color("435455")) -> void:
 	var style:=StyleBoxFlat.new()
@@ -280,7 +284,10 @@ func live_panel_rects() -> Array[Rect2]:
 	if event_priority==0 and game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
 	if event_priority==0 and game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
 	if game.hero_damage_flash_time>0.0:areas.append(Rect2(558,773,530,24))
-	if not game.target_warning_snapshot().is_empty():areas.append(Rect2(566,606,530,32))
+	for warning: Dictionary in _visible_target_warnings():
+		if warning.target==game.hero:
+			areas.append(Rect2(566,606,530,32))
+			break
 	return areas
 
 func context_prompt_rect() -> Rect2:
@@ -295,7 +302,7 @@ func context_prompt_rect() -> Rect2:
 func _has_event_warning() -> bool:
 	if not is_instance_valid(game):return false
 	if float(game.hero_damage_flash_time)>0.0 or float(game.beacon_alarm_time)>0.0:return true
-	if game.has_method("target_warning_snapshot") and not game.target_warning_snapshot().is_empty():return true
+	if not _visible_target_warnings().is_empty():return true
 	if game.has_method("lobber_warning_snapshot") and not game.lobber_warning_snapshot().is_empty():return true
 	if game.has_method("summoner_warning_snapshot") and not game.summoner_warning_snapshot().is_empty():return true
 	if game.has_method("warder_warning_snapshot") and not game.warder_warning_snapshot().is_empty():return true
@@ -579,24 +586,33 @@ func _world_screen(point: Vector3) -> Variant:
 	if viewport_size.x<=0.0 or viewport_size.y<=0.0:return null
 	return game.camera.unproject_position(point)*Vector2(1440,900)/viewport_size
 
+func _visible_target_warnings() -> Array[Dictionary]:
+	var visible: Array[Dictionary]=[]
+	if not is_instance_valid(game) or game.phase not in ["day","night","paused"] or not game.has_method("target_warning_snapshot"):return visible
+	for warning: Dictionary in game.target_warning_snapshot():
+		var source:=warning.get("source") as BattleUnit
+		var target:=warning.get("target") as Node3D
+		# Friendly windups and off-screen attacks do not paint a danger warning,
+		# so they must not suppress feedback or reserve invisible HUD hitboxes.
+		if not is_instance_valid(source) or source.team!=2 or not is_instance_valid(target):continue
+		var screen: Variant=_world_screen(target.global_position+Vector3.UP*1.05)
+		if screen==null:continue
+		var position:=screen as Vector2
+		if not Rect2(0,0,1440,900).has_point(position):continue
+		var shown:=warning.duplicate()
+		shown["screen"]=position
+		visible.append(shown)
+	return visible
+
 func draw_target_warnings() -> void:
 	if game.phase not in ["day","night","paused"] or not game.has_method("target_warning_snapshot"):return
 	var hero_warning_count:=0
 	var hero_remaining:=INF
 	var hero_source_title: String=""
 	var rendered_labels := 0
-	for warning: Dictionary in game.target_warning_snapshot():
-		var source:=warning.get("source") as BattleUnit
+	for warning: Dictionary in _visible_target_warnings():
 		var target:=warning.get("target") as Node3D
-		# Only enemy windups are target-side danger warnings. Friendly squad
-		# attacks remain visible through their existing attack pose and never tint
-		# the player's target marker red.
-		if not is_instance_valid(source) or source.team!=2 or not is_instance_valid(target):continue
-		var point:=target.global_position+Vector3.UP*1.05
-		var screen: Variant=_world_screen(point)
-		if screen==null:continue
-		var position:=screen as Vector2
-		if position.x<0.0 or position.x>1440.0 or position.y<0.0 or position.y>900.0:continue
+		var position:=warning.screen as Vector2
 		var remaining:=maxf(0.0,float(warning.get("remaining",0.0)))
 		var progress_value:=clampf(float(warning.get("progress",0.0)),0.0,1.0)
 		var danger:=Color("f08b67") if String(warning.get("threat","stalker"))!="runner" else Color("e5bb70")
@@ -877,7 +893,7 @@ func draw_minimap() -> void:
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,map_rect.size.y-1),map_rect.position+Vector2(map_rect.size.x,map_rect.size.y-1),Color("66624d",.34),1.0)
-		label("M 地图",map_rect.position+Vector2(9,18),11,Color(muted,.62))
+		label("地图 · 点击展开",map_rect.position+Vector2(9,18),11,Color(muted,.86))
 	else:
 		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
