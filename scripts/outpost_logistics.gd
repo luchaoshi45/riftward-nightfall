@@ -19,6 +19,7 @@ var game: Node3D
 var fields: Array[Dictionary] = []
 var delivered := 0
 var lost := 0
+var raided := 0
 var _teams: Dictionary = {}
 var _cargo: Dictionary = {}
 var _members: Dictionary = {}
@@ -52,7 +53,7 @@ func clear() -> void:
 	fields.clear()
 	_teams.clear(); _cargo.clear(); _members.clear(); _member_teams.clear(); _properties.clear()
 	_route_cache.clear()
-	delivered = 0; lost = 0; _elapsed = 0.0; _navigation_token = -1
+	delivered = 0; lost = 0; raided = 0; _elapsed = 0.0; _navigation_token = -1
 	game = null
 
 func _property(name: String) -> Variant:
@@ -171,6 +172,37 @@ func selected_hauler_count() -> int:
 				break
 	return count
 
+func haul_raider_targets() -> Array[Dictionary]:
+	# The raider may only lock a real living carrier that currently owns
+	# physical cargo. A selected or automatic order alone is never enough.
+	_sync_teams()
+	var result: Array[Dictionary] = []
+	for team: Dictionary in _teams.values():
+		var team_id := int(team.id)
+		for token: int in team.tokens:
+			var member := _unit(token)
+			var cargo_row: Dictionary = _cargo.get(token, {})
+			if not _living(member) or cargo_row.is_empty() or int(cargo_row.get("amount", 0)) <= 0:
+				continue
+			result.append({"kind": "squad", "index": -1, "token": token,
+				"squad_id": team_id, "unit": member, "position": member.position,
+				"haul_cargo": int(cargo_row.amount)})
+	return result
+
+func haul_raider_target(origin: Vector3) -> Dictionary:
+	var candidates := haul_raider_targets()
+	if candidates.is_empty():
+		return {}
+	var selected: Dictionary = {}
+	var best := INF
+	for candidate: Dictionary in candidates:
+		var point: Vector3 = candidate.position
+		var distance := _distance(origin, point)
+		if distance < best:
+			best = distance
+			selected = candidate
+	return selected
+
 func command_selected_field(index: int) -> Dictionary:
 	if not _active(): return {"ok": false, "count": 0, "reason": "暂停或选卡时不能指定采运"}
 	if not _field_live(index): return {"ok": false, "count": 0, "reason": "请选择真实废料堆"}
@@ -253,6 +285,62 @@ func on_member_defeated(member_token: int) -> void:
 		team.destinations.erase(member_token); team.homes.erase(member_token); team.unloading.erase(member_token)
 		team.retry = 0.0
 	_refresh_route_markers()
+
+func raid_member(member_token: int, expected_member: Variant, expected_squad_id: int, amount: int) -> Dictionary:
+	# A raider must operate on the exact live carrier it originally targeted.
+	# Refreshing the roster here prevents a same-slot replacement from inheriting
+	# the old target, while all validation happens before touching cargo or stats.
+	var result := {"ok": false, "amount": 0, "reason": "", "token": member_token,
+		"squad_id": expected_squad_id, "remaining": 0}
+	if not _active():
+		result.reason = "inactive"
+		return result
+	if amount <= 0:
+		result.reason = "invalid_amount"
+		return result
+	if expected_squad_id < 0:
+		result.reason = "invalid_squad"
+		return result
+	_sync_teams()
+	var member := _unit(member_token)
+	if not _living(member):
+		result.reason = "member_not_alive"
+		return result
+	if not is_instance_valid(expected_member) or not is_same(member, expected_member):
+		result.reason = "member_identity_mismatch"
+		return result
+	var current_squad_id := int(_member_teams.get(member_token, -1))
+	if current_squad_id != expected_squad_id:
+		result.reason = "squad_identity_mismatch"
+		return result
+	var cargo_row: Dictionary = _cargo.get(member_token, {})
+	if cargo_row.is_empty():
+		result.reason = "no_cargo"
+		return result
+	if int(cargo_row.get("squad_id", -1)) != expected_squad_id:
+		result.reason = "cargo_identity_mismatch"
+		return result
+	var available := maxi(0, int(cargo_row.get("amount", 0)))
+	var stolen := mini(amount, available)
+	if stolen <= 0:
+		result.reason = "no_cargo"
+		return result
+
+	# Commit the whole transfer as one state change. The wallet is deliberately
+	# untouched: raided goods leave the carrier and are tracked separately from
+	# goods lost when a carrier is defeated.
+	var remaining := available - stolen
+	if remaining > 0:
+		cargo_row.amount = remaining
+		_cargo[member_token] = cargo_row
+	else:
+		_cargo.erase(member_token)
+	raided += stolen
+	_show_cargo(member_token, remaining)
+	result.ok = true
+	result.amount = stolen
+	result.remaining = remaining
+	return result
 
 func on_night() -> void:
 	if not _active() or String(_property("phase")) != "night": return
@@ -578,7 +666,8 @@ func snapshot() -> Dictionary:
 			"reason": String(team.reason), "field": int(team.field), "preferred_field": int(team.preferred_field), "home": int(team.home), "automatic": bool(team.automatic),
 			"cargo": _team_cargo(int(team.id)), "loading_progress": clampf(float(team.loading) / LOAD_SECONDS, 0.0, 1.0),
 			"unloading_progress": unload_progress, "members": members})
-	return {"remaining": _remaining(), "cargo": total_cargo, "delivered": delivered, "lost": lost, "fields": field_rows, "teams": rows}
+	return {"remaining": _remaining(), "cargo": total_cargo, "delivered": delivered, "lost": lost, "raided": raided,
+		"fields": field_rows, "teams": rows}
 
 func _distance(from: Vector3, to: Vector3) -> float:
 	return Vector2(from.x, from.z).distance_to(Vector2(to.x, to.z))

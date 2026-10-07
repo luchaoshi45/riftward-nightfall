@@ -23,6 +23,7 @@ const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
 const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
 const BurstlingScript = preload("res://scripts/nightfall_burstling.gd")
+const HaulRaiderScript = preload("res://scripts/nightfall_haul_raider.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const RunArchiveScript = preload("res://scripts/run_archive.gd")
 const DAY_LENGTH := 90.0
@@ -123,6 +124,7 @@ var lobbers: Array[Node3D] = []
 var summoners: Array[Node3D] = []
 var warders: Array[Node3D] = []
 var burstlings: Array[Node3D] = []
+var haul_raider = HaulRaiderScript.new()
 var mana := 300.0
 var max_mana := 300.0
 var cooldowns: Array[float] = [0,0,0,0,0]
@@ -263,6 +265,7 @@ func _ready() -> void:
 	prepare_opening_defenses()
 	refresh_construction_navigation()
 	logistics=LogisticsScript.new();logistics.setup(self)
+	haul_raider.setup(self)
 	rally=RallyScript.new();rally.setup(self)
 	control_groups.setup(self)
 	repairs.setup(self)
@@ -368,6 +371,9 @@ func simulate(delta: float) -> void:
 	update_hero_attack(delta)
 	if phase!="day" and phase!="night":return
 	if logistics:logistics.advance(delta)
+	if phase=="night" and haul_raider:
+		haul_raider.advance(delta)
+		if haul_raider.eligible():spawn_haul_raider()
 	if squads:
 		squads.set_health_multiplier(districts.squad_health_multiplier())
 		squads.advance(delta)
@@ -511,6 +517,7 @@ func start_night() -> void:
 	if is_instance_valid(contract_marker):contract_marker.queue_free()
 	contract_marker=null
 	phase="night";phase_time=NIGHT_LENGTH
+	if haul_raider:haul_raider.begin_night(day_number)
 	if logistics:logistics.on_night()
 	districts.begin_night(day_number)
 	if night_plan.is_empty() or int(night_plan[0].get("night",day_number))!=day_number:
@@ -895,6 +902,7 @@ func finish_night() -> void:
 	if phase!="night" or not night_clearance_active or phase_time>0.0 or wave_index<WAVES_PER_NIGHT:return
 	if quitting or restart_pending or shutting_down or _has_living_night_enemies():return
 	if not is_instance_valid(hero) or not hero.alive or hero.hp<=0.0 or beacon_hp<=0.0:return
+	if haul_raider:haul_raider.clear()
 	if logistics:logistics.on_night_end()
 	var was_final_clearance: bool=final_clearance_active
 	_settle_wave_wager_loss("night_end")
@@ -1443,6 +1451,25 @@ func spawn_creature(night: bool, role: String="", register_veterancy: bool=true)
 	if register_veterancy and is_instance_valid(squads) and squads.veterancy:squads.veterancy.observe_enemy(creature)
 	return creature
 
+func spawn_haul_raider() -> BattleUnit:
+	if phase!="night" or not haul_raider or not haul_raider.eligible():return null
+	var raider: BattleUnit=spawn_creature(true,"haul_raider",false)
+	if not is_instance_valid(raider):return null
+	raider.set_meta("haul_raider",true)
+	raider.set_meta("threat","haul_raider")
+	raider.title="劫运体"
+	raider.max_hp=190.0+day_number*24.0
+	raider.hp=raider.max_hp
+	raider.damage=18.0+day_number*1.5
+	raider.speed=4.15
+	raider.attack_range=1.65
+	raider.attack_interval=1.25
+	raider.visual.scale=Vector3.ONE*1.18
+	BattleVisuals.ring(raider,Vector3(0,.08,0),.78,Color("d58b62"),.05)
+	haul_raider.mark_spawned(raider)
+	notify("劫运体出现 · 正在追踪载货工队",4)
+	return raider
+
 func spawn_nest_guards() -> void:
 	for nest in world.nests:
 		if nest.cleansed:continue
@@ -1530,6 +1557,11 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 			elif attacking_unit:
 				var victim:=selected.get("unit") as BattleUnit
 				if is_instance_valid(victim) and victim.alive:
+					if creature.get_meta("haul_raider",false) and is_instance_valid(logistics):
+						var raid: Dictionary=logistics.raid_member(target_token,victim,int(selected.get("squad_id",-1)),2)
+						var raided_amount:=int(raid.get("amount",0))
+						if raided_amount>0:
+							notify("劫运体掠走 %d 零件 · 载货工队受袭" % raided_amount,3)
 					victim.hurt(creature.damage,creature)
 					BattleVisuals.sparks(effects,victim.position+Vector3.UP,Color("ef9d76"),5)
 					BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
@@ -1573,6 +1605,13 @@ func choose_enemy_target(creature: BattleUnit) -> Dictionary:
 		var gate_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(gate_barricade.position.x,gate_barricade.position.z))
 		if gate_distance<6.0:
 			return {"kind":"barricade","index":-1,"position":gate_barricade.position}
+	if creature.get_meta("haul_raider",false) and is_instance_valid(logistics):
+		var cargo_target: Dictionary=logistics.haul_raider_target(creature.position)
+		if not cargo_target.is_empty() and enemy_target_reachable(creature.position,cargo_target):
+			return cargo_target
+		# A raider without a reachable loaded carrier falls back to the core. It
+		# never retargets an empty member just because that member is nearby.
+		return {"kind":"beacon","index":-1,"position":beacon_position}
 	if phase=="night" and hero.alive:
 		var hero_distance:=Vector2(creature.position.x,creature.position.z).distance_to(Vector2(hero.position.x,hero.position.z))
 		if hero_distance<best:
@@ -2489,6 +2528,19 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 		return
 	if is_instance_valid(squads) and squads.veterancy:squads.veterancy.on_enemy_defeated(creature)
 	specializations.forget_enemy(creature)
+	if creature.get_meta("haul_raider",false):
+		kills+=1
+		var raider_reward:=14
+		scrap+=raider_reward
+		notify("劫运体已击破 · +%d 零件" % raider_reward,4)
+		if player_attack_resolving and _source==hero:
+			kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
+			kill_chain_time=6.0
+			if combat:combat.kill(creature.position,raider_reward)
+		if deaths:
+			var raider_source_position:=_source.global_position if is_instance_valid(_source) else creature.global_position-Vector3.FORWARD
+			deaths.spawn(creature,raider_source_position)
+		return
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase
 	var reward_id: int=int(creature.get_meta("wave_reward_id",-1))
@@ -2573,6 +2625,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	if haul_raider:haul_raider.clear()
 	night_clearance_active=false
 	night_clearance_elapsed=0.0
 	final_clearance_active=false
@@ -3747,6 +3800,7 @@ func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
 	shutting_down=true
+	if haul_raider:haul_raider.clear()
 	night_clearance_active=false
 	night_clearance_elapsed=0.0
 	final_clearance_active=false
