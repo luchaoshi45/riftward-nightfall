@@ -3000,6 +3000,17 @@ func gate_pressure() -> int:
 func contract_interaction_prompt(action: Dictionary) -> String:
 	var source: Dictionary=action.source
 	if String(action.get("kind",""))=="bonus_discovery":
+		# The optional route is bound to the same authoritative discovery and
+		# guard generation. Surface the guard gate before the generic delivery
+		# copy, so the player knows why F is currently refused.
+		if String(source.get("kind",""))=="supply_cache" and is_instance_valid(discoveries) and is_instance_valid(discoveries.cache_guards):
+			var guard_state: Dictionary=discoveries.cache_guards.snapshot(int(action.get("index",-1)))
+			if bool(guard_state.get("blocked",false)):
+				if int(guard_state.get("lost",0))>0:
+					return "守卫离场 · 补给箱仍锁，次日再试"
+				return "先清守卫%d/2 · 清后F开启3秒补给箱" % int(guard_state.get("remaining",0))
+			if String(source.get("state",""))=="channel":
+				return "正在开启补给箱 · 留在4米内3秒"
 		return "F 带回追加%s · 返回灯塔领取 +%d 零件" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0))]
 	match contracts.kind:
 		"salvage":return "F 采集委托废料 · +%d 零件" % (int(source.amount)+3)
