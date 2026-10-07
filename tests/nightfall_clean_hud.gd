@@ -888,6 +888,162 @@ func scale_and_hit_testing() -> void:
 	root.content_scale_size = root.size
 	await redraw()
 
+func event_warning_priority() -> void:
+	# Use the squad produced by the preceding real GUI queue, plus normal enemy
+	# births and their native attack entry points. Actor placement is an isolated
+	# HUD fixture; attack flags, warning snapshots and painting are never mocked.
+	check(game.squads.squads.size() == 1, "Event priority requires the genuinely GUI-trained squad")
+	if game.squads.squads.size() != 1: return
+	check(game.enemies.is_empty(), "Event priority starts without replacing any prior native enemy")
+	if not game.enemies.is_empty(): return
+	var pad: Dictionary = game.world.tower_pads[0]
+	var approach: Vector3 = game.building_approach_position(pad.position + Vector3(0,0,-4), pad.position, "tower")
+	check(approach.is_finite() and game.outpost_walkable(approach), "Event-priority tower interaction uses a real reachable approach")
+	if not approach.is_finite() or not game.outpost_walkable(approach): return
+	var saved := tag_command_snapshot()
+	var saved_finances := finances()
+	var original_phase: String = game.phase
+	var original_phase_time: float = game.phase_time
+	var spawn_state: int = game.spawn_rng.state
+	var hero_position: Vector3 = game.hero.position
+	var original_size: Vector2i = root.size
+	var original_content: Vector2i = root.content_scale_size
+	var camera_transform: Transform3D = game.camera.transform
+	var group: Dictionary = game.squads.squads[0]
+	var group_state := group.duplicate(true)
+	var member_states: Array[Dictionary] = []
+	for member: BattleUnit in group.members:
+		var properties: Dictionary = {}
+		for key in ["transform","age","attack_timer","shield_time","shield","visual_hit_stop","attack_pose","hit_recoil","moving"]:
+			properties[key] = member.get(key)
+		var poses: Array[Dictionary] = []
+		for part: Node3D in member.find_children("*","Node3D",true,false):
+			poses.append({"node":part,"transform":part.transform})
+		member_states.append({"node":member,"properties":properties,"poses":poses,
+			"had_amove":member.has_meta("amove_engaged"),"amove":member.get_meta("amove_engaged",false)})
+	var header := Rect2(566,606,530,32)
+	# Temporarily use night targeting without rebuilding the world's actual
+	# contracts, discoveries, wave plan or paid training lifecycle.
+	game.phase = "night"
+	clear_transient_hud()
+	game.hud.dismiss_details()
+	stand(approach)
+	var source: BattleUnit = group.members[1]
+	for slot in group.members.size():
+		var member: BattleUnit = group.members[slot]
+		member.position = Vector3(6 + (slot-1)*1.2,5,-4)
+	var enemy: BattleUnit = game.spawn_creature(true,"basic")
+	enemy.position = Vector3(6,5,-2.5)
+	enemy.speed = 0.0
+	var enemy_hp: float = enemy.hp
+	var selected: Array[int] = [int(group.id)]
+	game.squads.select_ids(selected)
+	check(bool(game.squads.command_attack(enemy).ok), "The trained squad accepts a real attack order for the friendly-windup fixture")
+	game.squads.advance(.001)
+	check(source.attack_queued and source.attack_windup > 0.0 and source.target == enemy and enemy.hp == enemy_hp,
+		"Native squad advance starts its full friendly preparation without an early hit")
+	check(not game.target_warning_snapshot().is_empty(), "Production snapshots genuinely include the friendly squad preparation")
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		var label := "Friendly windup %dx%d" % [size.x,size.y]
+		game.notify("友军正在攻击，普通通知仍可阅读",3.0)
+		await redraw()
+		var notice := drawn_notice_box()
+		check(notice.has_area() and game.notice in game.hud.all_labels and game.hud.visible_hud_rects().has(notice),
+			label + ": a native friendly windup must retain the painted notice and its current input footprint")
+		check(not game.hud.drawn_boxes.has(header) and not game.hud.visible_hud_rects().has(header),
+			label + ": friendly preparation must never reserve an undrawn hero-danger header")
+		if size == Vector2i(1920,1200): await capture("friendly-windup-notice")
+		game.notice_time = 0.0
+		await redraw()
+		var prompt: String = game.interaction_prompt()
+		var prompt_area: Rect2 = game.hud.context_prompt_rect()
+		check(not prompt.is_empty() and "F" in prompt, label + ": the real nearby live tower supplies an F interaction")
+		check(not recorded_text_in(prompt_area).is_empty() and game.hud.visible_hud_rects().has(prompt_area),
+			label + ": native friendly preparation must retain the actual F prompt and its input footprint")
+		if size == Vector2i(1920,1200): await capture("friendly-windup-prompt")
+	# A genuine new move command cancels the friendly preparation before the
+	# enemy cases; keep the trained members well away from target arbitration.
+	check(bool(game.squads.command_move(Vector3(-12,5,-10)).ok), "A real move command cancels the friendly attack before enemy warning checks")
+	for slot in group.members.size():
+		(group.members[slot] as BattleUnit).position = Vector3(-12 + (slot-1)*1.2,5,-10)
+	game.squads.cancel_selection()
+	remove_enemies()
+	stand(HOME)
+	enemy = game.spawn_creature(true,"basic")
+	enemy.position = HOME + Vector3(1.35,0,0)
+	enemy.speed = 0.0
+	enemy.attack_timer = 0.0
+	game.update_creature(enemy,.001)
+	check(enemy.attack_queued and enemy.attack_windup > 0.0 and game.attack_target_node(enemy) == game.hero,
+		"Native enemy update queues a real visible attack against the hero")
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		var label := "Hero enemy windup %dx%d" % [size.x,size.y]
+		game.notify("敌方锁定英雄时应让位的普通通知",3.0)
+		await redraw()
+		check(not drawn_notice_box().has_area(), label + ": the actual visible enemy preparation suppresses an ordinary notice")
+		check(game.hud.drawn_boxes.has(header) and game.hud.visible_hud_rects().has(header) and not recorded_text_in(header).is_empty(),
+			label + ": only a genuine on-screen hero warning paints and reserves the danger header")
+		await assert_no_command(header.get_center(),label + " visible hero warning")
+		if size == Vector2i(1920,1200): await capture("enemy-hero-windup")
+		# Move the camera, not the actors or warning state: the same native hero
+		# attack now lies off-screen and must release its formerly visible HUD.
+		game.camera.position += Vector3(200,0,0)
+		await redraw()
+		check(enemy.attack_queued and not game.target_warning_snapshot().is_empty(), label + ": the off-screen case retains its original real preparation")
+		check(drawn_notice_box().has_area() and not game.hud.drawn_boxes.has(header) and not game.hud.visible_hud_rects().has(header),
+			label + ": an off-screen enemy attack cannot suppress the notice or reserve a false hero header")
+		if size == Vector2i(1920,1200): await capture("enemy-offscreen-windup")
+		game.camera.transform = camera_transform
+	remove_enemies()
+	stand(Vector3(12,5,-10))
+	enemy = game.spawn_creature(true,"basic")
+	enemy.position = approach
+	enemy.speed = 0.0
+	enemy.attack_timer = 0.0
+	game.update_creature(enemy,.001)
+	check(enemy.attack_queued and enemy.attack_windup > 0.0 and game.attack_target_node(enemy) == pad.node,
+		"Native enemy update really chooses the nearest live tower and starts its preparation")
+	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size = size
+		root.content_scale_size = size
+		game.notify("防御塔蓄力警告优先于普通通知",3.0)
+		await redraw()
+		check(not drawn_notice_box().has_area(), "A real visible tower-targeted enemy preparation retains danger priority")
+		check(not game.hud.drawn_boxes.has(header) and not game.hud.visible_hud_rects().has(header),
+			"A genuine enemy attack against a tower must never reserve the hero-only danger header")
+		var native_label := false
+		for text: String in game.hud.all_labels: native_label = native_label or text.begins_with("蓄力 ")
+		check(native_label, "Tower-targeted native preparation must retain its actually painted local warning")
+		if size == Vector2i(1920,1200): await capture("enemy-tower-windup")
+	remove_enemies()
+	clear_transient_hud()
+	root.size = original_size
+	root.content_scale_size = original_content
+	game.camera.transform = camera_transform
+	stand(hero_position)
+	game.phase = original_phase
+	game.phase_time = original_phase_time
+	game.spawn_rng.state = spawn_state
+	game.squads.training_queues.assign(saved_finances.queues)
+	group.clear()
+	group.merge(group_state)
+	restore_tag_commands(saved)
+	for row: Dictionary in member_states:
+		var member: BattleUnit = row.node
+		for key: String in row.properties: member.set(key,row.properties[key])
+		for pose: Dictionary in row.poses: (pose.node as Node3D).transform = pose.transform
+		if row.had_amove: member.set_meta("amove_engaged",row.amove)
+		elif member.has_meta("amove_engaged"): member.remove_meta("amove_engaged")
+	check(finances() == saved_finances and game.phase_time == original_phase_time and game.spawn_rng.state == spawn_state,
+		"Warning fixtures restore the original game phase, clock, paid queues, wallet and enemy random stream")
+	check(orders() == saved.orders and game.enemies.is_empty(),
+		"Warning fixtures restore prior hero/troop orders and leave no temporary native enemies")
+	await redraw()
+
 func urgent_feedback() -> void:
 	game.start_night()
 	remove_enemies()
@@ -1012,6 +1168,7 @@ func run() -> void:
 	await active_exploration_tag_inputs()
 	await defense_and_memory_gui()
 	await scale_and_hit_testing()
+	await event_warning_priority()
 	await urgent_feedback()
 	if render_test:
 		var file := FileAccess.open("res://build/clean-hud-layout.json",FileAccess.WRITE)
