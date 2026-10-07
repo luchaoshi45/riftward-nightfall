@@ -230,10 +230,10 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 	ui.box(HERO_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.box(MEMORY_DRAW_RECT,HERO_FILL,Color(0,0,0,0))
 	ui.draw_line(Vector2(360,878),Vector2(1096,878),Color(FOCUS_RAIL,.60),1.0)
-	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,836),10,LIVE_INK)
-	ui.progress(Rect2(360,842,132,2),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),9,BLUE)
-	ui.progress(Rect2(360,867,132,1),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,836),12,LIVE_INK)
+	ui.progress(Rect2(360,842,132,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,862),11,BLUE)
+	ui.progress(Rect2(360,867,132,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
 	for index in 5:
@@ -251,9 +251,9 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 			# cooldown ring grow backwards; the number shows exact seconds left.
 			var duration: float=maxf(.001,float(game.COOLDOWNS[index]))
 			ui.draw_arc(center,16.0,-PI*.5,-PI*.5+TAU*clampf(cooldown/duration,0.0,1.0),32,Color(tint,.7),1.25)
-		ui.label(keys[index],Vector2(x+16,873),9,LIVE_QUIET,true)
-		ui.label(names[index],Vector2(x+42,837),10,LIVE_INK if ready else LIVE_MUTED)
-		if not ready:ui.label(status,Vector2(x+42,859),9,tint)
+		ui.label(keys[index],Vector2(x+16,873),11,LIVE_QUIET,true)
+		ui.label(names[index],Vector2(x+42,837),12,LIVE_INK if ready else LIVE_MUTED)
+		if not ready:ui.label(status,Vector2(x+42,859),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()

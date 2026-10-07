@@ -304,6 +304,10 @@ func live_panel_rects() -> Array[Rect2]:
 	return areas
 
 func context_prompt_rect() -> Rect2:
+	# Minimal mode paints one compact line. Keep the logical interceptor to the
+	# same height as that line so the hidden detail area never blocks battlefield
+	# selection or movement.
+	if minimal_display:return Rect2(435,682,570,40)
 	if game.districts.nearest()>=0:return Rect2(435,642,570,84)
 	var pad: int=game.nearest_tower_pad()
 	if pad>=0 and game.world.tower_pads[pad].level>=2:return Rect2(435,642,570,84)
