@@ -158,6 +158,8 @@ func default_layout(label: String) -> void:
 		label + ": default gameplay must show no tactical drawer or expanded map")
 	check("地图 · 点击展开" not in game.hud.all_labels,
 		label + ": the default radar must stay icon-only; map guidance belongs to the bottom shortcut rail")
+	check("地图" in game.hud.all_labels,
+		label + ": the compact map affordance must retain a short readable label")
 	check("F3" in game.hud.all_labels and "Y" in game.hud.all_labels,
 		label + ": the default navigation must keep compact key badges for details and build")
 	check("F3 详情" not in game.hud.all_labels and "Y 建造" not in game.hud.all_labels,
@@ -205,6 +207,18 @@ func capture(label: String) -> void:
 	var picture: Image = root.get_texture().get_image()
 	check(picture.get_size() == root.content_scale_size and Vector2(picture.get_size()) == game.hud.get_viewport_rect().size, "Actual clean-HUD capture must use the requested content viewport size")
 	check(picture.save_png("res://build/clean-hud-%s.png" % label) == OK, "Save the actual clean HUD " + label)
+
+func capture_production_default(label: String) -> void:
+	# The recorder normally keeps minimal_display=false so the interaction
+	# suite can observe every legacy hitbox. Capture the real player-facing mode
+	# separately, otherwise default screenshots can regress to the old card
+	# stack while the production HUD itself remains clean.
+	var previous: bool = game.hud.minimal_display
+	game.hud.minimal_display=true
+	await redraw()
+	await capture("production-" + label)
+	game.hud.minimal_display=previous
+	await redraw()
 
 func api_ready() -> bool:
 	var complete := true
@@ -1381,6 +1395,7 @@ func run() -> void:
 	clear_transient_hud()
 	await default_layout("default-night")
 	await capture("default-night")
+	await capture_production_default("night")
 	TransitionFixture.finish_for_fixture(game)
 	press(KEY_1)
 	game.world._process(6.1)
@@ -1390,6 +1405,7 @@ func run() -> void:
 	check(game.phase == "day" and game.day_number == 2, "The actual first dawn must generate the HUD's real day state")
 	await default_layout("default-day")
 	await capture("default-day")
+	await capture_production_default("day")
 	await scene_priority_default()
 	check_live_data()
 	await detail_navigation()

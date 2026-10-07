@@ -317,6 +317,10 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	ui.draw_circle(Vector2(196,847),5.0,Color(LIVE_MUTED,.76),false,1.0)
 	ui.draw_line(Vector2(196,840),Vector2(196,854),Color(LIVE_MUTED,.62),1.0)
 	ui.draw_line(Vector2(189,847),Vector2(203,847),Color(LIVE_MUTED,.62),1.0)
+	# Keep the map affordance discoverable without restoring the old verbose
+	# "地图 · 点击展开" card. The shortcut remains mouse-click only because M
+	# is reserved for music; the short label is enough to explain the glyph.
+	ui.label("地图",Vector2(210,851),11,LIVE_MUTED)
 	ui.label("Y",Vector2(278,849),13,build_tint,true)
 	ui.draw_line(Vector2(43,857),Vector2(88,857),Color(nav_tint,.42),1.0)
 	ui.draw_line(Vector2(189,857),Vector2(204,857),Color(LIVE_MUTED,.30),1.0)
