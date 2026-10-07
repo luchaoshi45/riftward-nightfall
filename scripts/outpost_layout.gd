@@ -17,8 +17,38 @@ const RAMP_WALL_END := 25.1
 const RAMP_END := 25.5
 const FORT_TERRAIN_EDGE := 16.0
 const EXPANSION_OFFSET := 6.5
-const MAP_HALF_X := 123.0
-const MAP_HALF_Z := 107.0
+# The castle remains the authored 26 m core. The surrounding wilderness now
+# has a wider play envelope so the camera can reveal landmarks before culling.
+const MAP_HALF_X := 148.0
+const MAP_HALF_Z := 128.0
+
+# Natural obstacles are deliberately placed in the far perimeter. They make
+# route choice matter without sealing the south gate, contract staging area or
+# the three existing nest approaches.
+const LAKE_AREAS: Array[Rect2] = [
+	Rect2(70.0, -91.0, 34.0, 26.0),
+	Rect2(-112.0, 61.0, 30.0, 22.0),
+]
+const MOUNTAIN_AREAS: Array[Rect2] = [
+	Rect2(-139.0, -101.0, 30.0, 48.0),
+	Rect2(101.0, 46.0, 40.0, 30.0),
+]
+
+static func terrain_blocks() -> Array[Rect2]:
+	var blocks: Array[Rect2] = []
+	for area: Rect2 in LAKE_AREAS:
+		blocks.append(area.grow(.65))
+	for area: Rect2 in MOUNTAIN_AREAS:
+		blocks.append(area.grow(.35))
+	return blocks
+
+static func terrain_blocked(point: Vector3, margin: float = 0.0) -> bool:
+	if not point.is_finite():return true
+	for area: Rect2 in LAKE_AREAS:
+		if area.grow(margin).has_point(Vector2(point.x, point.z)):return true
+	for area: Rect2 in MOUNTAIN_AREAS:
+		if area.grow(margin).has_point(Vector2(point.x, point.z)):return true
+	return false
 
 static func wall_blocks() -> Array[Rect2]:
 	var wall_width := FORT_OUTER-FORT_INNER

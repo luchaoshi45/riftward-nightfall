@@ -72,6 +72,7 @@ const FOCUS_COOLDOWN := 22.0
 const COSTS := [35.0,45.0,30.0,85.0,0.0]
 const COOLDOWNS := [4.5,9.0,6.5,28.0,38.0]
 var WALK_BLOCKS: Array[Rect2] = Layout.wall_blocks()
+var TERRAIN_BLOCKS: Array[Rect2] = Layout.terrain_blocks()
 
 var world: NightfallWorld
 var hero: BattleUnit
@@ -246,7 +247,7 @@ func _ready() -> void:
 	camera.size=38
 	# Gameplay never approaches this camera; avoid wasting depth precision at .05m.
 	camera.near=.3
-	camera.far=130
+	camera.far=190
 	camera.position=hero.position+Vector3(0,25,29)
 	camera.look_at(hero.position)
 	camera.current=true
@@ -2157,12 +2158,16 @@ func raised_ramp_corner_escape(origin: Vector3, delta: Vector3, step_distance: f
 
 func build_hero_navigation() -> void:
 	hero_navigation=AStarGrid2D.new()
-	hero_navigation.region=Rect2i(-123,-107,247,215)
+	var min_x:=int(-Layout.MAP_HALF_X)
+	var max_x:=int(Layout.MAP_HALF_X)
+	var min_z:=int(-Layout.MAP_HALF_Z)
+	var max_z:=int(Layout.MAP_HALF_Z)
+	hero_navigation.region=Rect2i(min_x,min_z,max_x-min_x+1,max_z-min_z+1)
 	hero_navigation.cell_size=Vector2.ONE
 	hero_navigation.diagonal_mode=AStarGrid2D.DIAGONAL_MODE_NEVER
 	hero_navigation.update()
-	for z in range(-107,108):
-		for x in range(-123,124):
+	for z in range(min_z,max_z+1):
+		for x in range(min_x,max_x+1):
 			if not outpost_walkable(Vector3(x,0,z)):
 				hero_navigation.set_point_solid(Vector2i(x,z))
 
@@ -2183,7 +2188,7 @@ func refresh_construction_navigation() -> void:
 	if is_instance_valid(hero) and not hero_path.is_empty():plan_hero_path(move_goal)
 
 func nearest_navigation_cell(point: Vector3, require_reachable: bool) -> Vector2i:
-	var center:=Vector2i(clampi(roundi(point.x),-123,123),clampi(roundi(point.z),-107,107))
+	var center:=Vector2i(clampi(roundi(point.x),-int(Layout.MAP_HALF_X),int(Layout.MAP_HALF_X)),clampi(roundi(point.z),-int(Layout.MAP_HALF_Z),int(Layout.MAP_HALF_Z)))
 	for radius in range(0,7):
 		var best:=Vector2i(999,999)
 		var best_distance:=INF
@@ -2201,7 +2206,7 @@ func nearest_navigation_cell(point: Vector3, require_reachable: bool) -> Vector2
 func plan_hero_path(destination: Vector3) -> void:
 	hero_keyboard_active=false
 	hero_path.clear()
-	var goal:=Vector3(clampf(destination.x,-122.5,122.5),0,clampf(destination.z,-106.5,106.5))
+	var goal:=Vector3(clampf(destination.x,-Layout.MAP_HALF_X+.5,Layout.MAP_HALF_X-.5),0,clampf(destination.z,-Layout.MAP_HALF_Z+.5,Layout.MAP_HALF_Z-.5))
 	var end_cell:=nearest_navigation_cell(goal,false)
 	if end_cell.x==999:
 		move_goal=hero.position
@@ -2251,6 +2256,8 @@ func outpost_walkable(point: Vector3) -> bool:
 	var flat:=Vector2(point.x,point.z)
 	for block: Rect2 in WALK_BLOCKS:
 		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
+	for block: Rect2 in TERRAIN_BLOCKS:
+		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
 	for block: Rect2 in construction_blocks:
 		if flat.x>block.position.x and flat.x<block.end.x and flat.y>block.position.y and flat.y<block.end.y:return false
 	return true
@@ -2263,6 +2270,8 @@ func can_traverse(start: Vector3, end: Vector3) -> bool:
 	var origin:=Vector2(start.x,start.z)
 	var direction:=Vector2(end.x-start.x,end.z-start.z)
 	for block: Rect2 in WALK_BLOCKS:
+		if segment_crosses_wall(origin,direction,block):return false
+	for block: Rect2 in TERRAIN_BLOCKS:
 		if segment_crosses_wall(origin,direction,block):return false
 	for block: Rect2 in construction_blocks:
 		if segment_crosses_wall(origin,direction,block):return false
@@ -2280,6 +2289,8 @@ func can_attack_line(start: Vector3, end: Vector3) -> bool:
 	var origin:=Vector2(start.x,start.z)
 	var direction:=Vector2(end.x-start.x,end.z-start.z)
 	for block: Rect2 in WALK_BLOCKS:
+		if segment_crosses_wall(origin,direction,block):return false
+	for block: Rect2 in TERRAIN_BLOCKS:
 		if segment_crosses_wall(origin,direction,block):return false
 	return true
 

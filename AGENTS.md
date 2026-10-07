@@ -1,5 +1,11 @@
 # 《余烬守望》项目规则、双机派工与交接
 
+## 2026-10-08城池外围与山水湖泊地图扩张（主机A）
+
+按“增加城池面积、扩大地图、加入山水湖泊”的要求，扩大共享地图边界至 `MAP_HALF_X=148`、`MAP_HALF_Z=128`，增加外围底板、四段城池外廊和角落堡垒柱；新增两处湖泊与两处山地区域，湖面使用现有水面着色器，山地使用岩石群和底座表现。湖泊、山地同时接入英雄寻路、移动阻挡和攻击射线阻挡，外围树木/废墟/车辆生成会避开障碍；相机远裁剪面同步扩大，避免远端地形被裁掉。地图回归断言覆盖新边界、湖泊、山体和穿越/攻击射线阻挡。
+
+验证：`NIGHTFALL_LOOP_OK`、`NIGHTFALL_OUTER_TERRAIN_MOVEMENT_OK checks=25656`、`NIGHTFALL_RALLY_POINTS_OK checks=4402`、`NIGHTFALL_CLEAN_HUD_OK checks=4000`、`NIGHTFALL_HIGH_GROUND_RAY_OK samples=32`、`NIGHTFALL_GROUND_MOTION_FLICKER_OK checks=600`、`NIGHTFALL_TERRAIN_SMOOTHNESS_OK checks=247`、`NIGHTFALL_VISUAL_STABILITY_OK` 均通过；OpenGL Compatibility 实际渲染与外围地形截图通过。`scripts/outpost_layout.gd`、`scripts/nightfall_world.gd`、`scripts/nightfall.gd` 已完成 sec-code 安全扫描并上报风险情况。版本与正式计数继续以 `optimization-progress.json` 为准（0.8.37、47/100），本轮属于地图/视觉维护，不增加正式完成计数。
+
 ## 2026-10-08普通攻击受击反馈与建造面板收敛（主机A）
 
 针对“攻击没有受击效果、建筑太复杂”的反馈，增加独立的通用命中反馈：非英雄攻击命中会显示短闪光、环形冲击、少量火花和 `-N` 浮字，不复用英雄连斩/镜头震动；已接入部队攻击敌人、盾卫拦截、敌人攻击部队、防御塔命中敌人、敌人攻击塔/城区/路障。真实伤害与死亡规则不变，暂停、结束和减弱特效仍由原战斗反馈生命周期清理。建造面板保留格子选择、分页、1/2/3、F/左键、H维修、Del拆卖和退出快捷键，视觉改为一层低对比度操作轨道，选址状态只保留必要摘要和错误原因。

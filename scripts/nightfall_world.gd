@@ -6,8 +6,8 @@ const Grid = preload("res://scripts/construction_grid.gd")
 const FORT_HEIGHT := Layout.FORT_HEIGHT
 const LIGHT_TRANSITION_SECONDS := 6.0
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
-const DECORATION_CULL_NEAR := 84.0
-const DECORATION_CULL_FAR := 98.0
+const DECORATION_CULL_NEAR := 104.0
+const DECORATION_CULL_FAR := 126.0
 const DECORATION_CULL_INTERVAL := 0.16
 
 var terrain: Node3D
@@ -33,6 +33,7 @@ var decorative_nodes: Array[Node3D] = []
 var decoration_cull_origin := Vector3(INF, INF, INF)
 var decoration_cull_time := 0.0
 var decoration_visible_count := 0
+var terrain_feature_nodes: Array[Node3D] = []
 var night_active:=false
 var night_mix:=0.0
 var wave_warning:=false
@@ -54,6 +55,7 @@ func _process(delta: float) -> void:
 	apply_lighting()
 
 func build() -> void:
+	create_outer_ground()
 	terrain = (load("res://assets/models/castle_ground.glb") as PackedScene).instantiate() as Node3D
 	add_child(terrain)
 	var masonry_shader:=load("res://assets/shaders/outpost_masonry.gdshader") as Shader
@@ -75,7 +77,9 @@ func build() -> void:
 				stone.shader=masonry_shader
 				stone.set_shader_parameter("base_color",original.albedo_color)
 				masonry_materials[original]=stone
-			surface.set_surface_override_material(index,masonry_materials[original])
+				surface.set_surface_override_material(index,masonry_materials[original])
+	create_outer_courtyard()
+	create_terrain_features()
 	beacon=place("res://assets/models/watch_beacon.glb",Vector3(0,FORT_HEIGHT,0),1.0,0)
 	var fence_scene := load("res://assets/models/barricade.glb") as PackedScene
 	for offset in [-11.45,-8.2,-4.9,-1.6,1.6,4.9,8.2,11.45]:
@@ -204,6 +208,91 @@ func build() -> void:
 	add_child(hero_lantern)
 	create_ashfall()
 	set_night(false)
+
+func create_outer_ground() -> void:
+	# The authored castle mesh ends close to the old wilderness boundary. A
+	# quiet underlay keeps the expanded perimeter continuous without touching
+	# the castle mesh or its height sampling.
+	var ground:=MeshInstance3D.new()
+	ground.name="ExpandedWildernessUnderlay"
+	var mesh:=PlaneMesh.new()
+	mesh.size=Vector2(Layout.MAP_HALF_X*2.0+12.0,Layout.MAP_HALF_Z*2.0+12.0)
+	ground.mesh=mesh
+	var material:=StandardMaterial3D.new()
+	material.albedo_color=Color("1b2b25")
+	material.roughness=.96
+	ground.material_override=material
+	ground.position.y=-.12
+	add_child(ground)
+
+func create_outer_courtyard() -> void:
+	# Four low annex pads visually extend the outpost footprint while the
+	# original inner grid remains the precise construction authority.
+	var material:=StandardMaterial3D.new()
+	material.albedo_color=Color("3b4840")
+	material.roughness=.86
+	for data: Dictionary in [
+		{"position":Vector3(-18.2,.05,0),"size":Vector3(6.0,.12,42.0)},
+		{"position":Vector3(18.2,.05,0),"size":Vector3(6.0,.12,42.0)},
+		{"position":Vector3(0,.05,-18.2),"size":Vector3(30.4,.12,6.0)},
+		{"position":Vector3(0,.05,18.2),"size":Vector3(5.0,.12,6.0)},
+	]:
+		var pad:=MeshInstance3D.new()
+		var mesh:=BoxMesh.new();mesh.size=data.size
+		pad.mesh=mesh;pad.material_override=material;pad.position=data.position
+		add_child(pad);terrain_feature_nodes.append(pad)
+	for point: Vector3 in [Vector3(-20,.12,-20),Vector3(20,.12,-20),Vector3(-20,.12,20),Vector3(20,.12,20)]:
+		var bastion:=MeshInstance3D.new()
+		var mesh:=CylinderMesh.new();mesh.top_radius=1.55;mesh.bottom_radius=1.95;mesh.height=1.0
+		bastion.mesh=mesh;bastion.material_override=material;bastion.position=point
+		add_child(bastion);terrain_feature_nodes.append(bastion)
+
+func create_terrain_features() -> void:
+	var water_shader:=load("res://assets/shaders/water.gdshader") as Shader
+	for index in Layout.LAKE_AREAS.size():
+		var area: Rect2=Layout.LAKE_AREAS[index]
+		var shore:=MeshInstance3D.new()
+		shore.name="LakeShore%d" % index
+		var shore_mesh:=BoxMesh.new();shore_mesh.size=Vector3(area.size.x+2.0,.08,area.size.y+2.0)
+		shore.mesh=shore_mesh
+		var shore_material:=StandardMaterial3D.new();shore_material.albedo_color=Color("6d765e");shore_material.roughness=.98
+		shore.material_override=shore_material
+		shore.position=Vector3(area.get_center().x,-.015,area.get_center().y)
+		add_child(shore);terrain_feature_nodes.append(shore)
+		var lake:=MeshInstance3D.new()
+		lake.name="Lake%d" % index
+		var lake_mesh:=PlaneMesh.new();lake_mesh.size=area.size
+		lake.mesh=lake_mesh
+		var lake_material:=ShaderMaterial.new();lake_material.shader=water_shader
+		lake.material_override=lake_material
+		lake.position=Vector3(area.get_center().x,.045,area.get_center().y)
+		add_child(lake);terrain_feature_nodes.append(lake)
+		for side in range(4):
+			var reeds:=MeshInstance3D.new()
+			var reed_mesh:=CylinderMesh.new();reed_mesh.top_radius=.025;reed_mesh.bottom_radius=.07;reed_mesh.height=1.0
+			reeds.mesh=reed_mesh
+			var reed_material:=StandardMaterial3D.new();reed_material.albedo_color=Color("9aa26d");reed_material.roughness=.9
+			reeds.material_override=reed_material
+			var offset:=Vector2(-area.size.x*.36+float(side%2)*area.size.x*.72,-area.size.y*.36+float(side/2)*area.size.y*.72)
+			reeds.position=Vector3(area.get_center().x+offset.x,.5,area.get_center().y+offset.y)
+			add_child(reeds);terrain_feature_nodes.append(reeds)
+	var rock_scene:=load("res://assets/models/rock_v2.glb") as PackedScene
+	var rng:=RandomNumberGenerator.new();rng.seed=715903
+	for ridge: Rect2 in Layout.MOUNTAIN_AREAS:
+		var center:=ridge.get_center()
+		for i in range(9):
+			var u:=rng.randf_range(-.44,.44)
+			var v:=rng.randf_range(-.40,.40)
+			var point:=Vector3(center.x+u*ridge.size.x,0.0,center.y+v*ridge.size.y)
+			var peak:=place_scene(rock_scene,point,rng.randf_range(1.4,2.8),rng.randf_range(0,TAU),false)
+			peak.position.y=rng.randf_range(1.2,3.8)
+			terrain_feature_nodes.append(peak)
+		var marker:=MeshInstance3D.new()
+		var marker_mesh:=CylinderMesh.new();marker_mesh.top_radius=3.2;marker_mesh.bottom_radius=4.8;marker_mesh.height=.18
+		marker.mesh=marker_mesh
+		var marker_material:=StandardMaterial3D.new();marker_material.albedo_color=Color("36423d");marker_material.roughness=1.0
+		marker.material_override=marker_material;marker.position=Vector3(center.x,-.01,center.y)
+		add_child(marker);terrain_feature_nodes.append(marker)
 
 func create_ashfall() -> void:
 	ashfall=GPUParticles3D.new()
@@ -352,7 +441,7 @@ func outskirts_point(angle: float, radius: float) -> Vector3:
 	for _attempt in 12:
 		var raised:=false
 		for offset in [Vector3.ZERO,Vector3(2.4,0,0),Vector3(-2.4,0,0),Vector3(0,0,2.4),Vector3(0,0,-2.4)]:
-			if terrain_height(point+offset)>.01:raised=true;break
+			if terrain_height(point+offset)>.01 or Layout.terrain_blocked(point+offset,2.4):raised=true;break
 		if not raised and not Layout.contains_castle(point,-2.4):return point
 		radius+=2.0
 		point=Vector3(cos(angle)*radius,0.0,sin(angle)*radius)
