@@ -1,5 +1,6 @@
 extends Node3D
 ## Finite physical salvage: members carry goods, reachable live depots pay once.
+const NightHaulScript = preload("res://scripts/outpost_night_haul.gd")
 const HAUL := "haul"
 const DEPOT := "depot"
 const FIELD_STOCK := 96
@@ -26,12 +27,14 @@ var _properties: Dictionary = {}
 var _elapsed := 0.0
 var _navigation_token := -1
 var _route_cache: Dictionary = {}
+var night_haul := NightHaulScript.new()
 
 func setup(controller: Node3D) -> void:
 	clear()
 	game = controller
 	if get_parent() == null: game.add_child(self)
 	for property: Dictionary in game.get_property_list(): _properties[String(property.name)] = true
+	night_haul.setup(self)
 	var used: Array[Vector3] = []
 	for index in FIELD_SEEDS.size():
 		var point := _field_site(FIELD_SEEDS[index], used)
@@ -42,6 +45,7 @@ func setup(controller: Node3D) -> void:
 		fields.append(_create_field(index, point))
 
 func clear() -> void:
+	night_haul.clear()
 	for token in _cargo.keys(): _show_cargo(int(token), 0)
 	for field: Dictionary in fields:
 		if is_instance_valid(field.get("node")): (field.node as Node).queue_free()
@@ -55,7 +59,10 @@ func _property(name: String) -> Variant:
 	return game.get(name) if is_instance_valid(game) and _properties.has(name) else null
 
 func _active() -> bool:
-	return is_instance_valid(game) and String(_property("phase")) in ["day", "night"]
+	if not is_instance_valid(game) or game.is_queued_for_deletion() or String(_property("phase")) not in ["day", "night"]: return false
+	for flag: String in ["quitting", "restart_pending", "shutting_down"]:
+		if bool(_property(flag)): return false
+	return true
 
 func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
@@ -102,6 +109,7 @@ func advance(delta: float) -> void:
 	if not _active() or not is_finite(delta) or delta <= 0.0: return
 	_elapsed += delta
 	_sync_teams()
+	night_haul.advance()
 	var navigation: Variant = _property("hero_navigation")
 	var token: int = navigation.get_instance_id() if is_instance_valid(navigation) else -1
 	if token != _navigation_token:
@@ -124,8 +132,11 @@ func advance(delta: float) -> void:
 			_release_field(team)
 			_advance_return(team, delta, true)
 		elif String(_property("phase")) == "night":
-			_release_field(team)
-			_advance_return(team, delta, false)
+			if night_haul.can_haul(int(team.id)):
+				_advance_field(team, delta)
+			else:
+				_release_field(team)
+				_advance_return(team, delta, false)
 		else:
 			_advance_field(team, delta)
 	_refresh_route_markers()
@@ -175,6 +186,7 @@ func command_selected_field(index: int) -> Dictionary:
 		if bool(team.automatic) and int(team.preferred_field) == index:
 			commanded += 1
 			continue
+		night_haul.cancel(id, "资源线已改变 · 夜采取消")
 		var has_goods := _team_cargo(id) > 0
 		# An automatic loaded carrier retains its current depot route and unload timer.
 		# Other changes clear unit paths through the existing squad order API.
@@ -204,6 +216,7 @@ func start_selected_hauling() -> Dictionary:
 	var started := 0
 	for id: int in squads.get("selected_ids"):
 		if not _teams.has(id) or (_teams[id].tokens as Array).is_empty(): continue
+		night_haul.cancel(id, "恢复自动采运 · 夜采取消")
 		if not bool(squads.call("set_haul_order", id)): continue
 		var team: Dictionary = _teams[id]
 		_release_field(team); team.automatic = true; team.retry = 0.0
@@ -216,6 +229,7 @@ func start_selected_hauling() -> Dictionary:
 		"reason": ("%d队恢复采运" % started if String(_property("phase")) == "day" else "%d队返站 · 夜间不采料" % started) if started > 0 else "请先选择存活采运工队"}
 
 func on_manual_order(squad_id: int) -> void:
+	night_haul.cancel(squad_id, "手动指挥已取消夜采")
 	if not _teams.has(squad_id): return
 	var team: Dictionary = _teams[squad_id]
 	_release_field(team); team.automatic = false
@@ -226,6 +240,7 @@ func on_manual_order(squad_id: int) -> void:
 	_refresh_route_markers()
 
 func on_member_defeated(member_token: int) -> void:
+	night_haul.on_member_defeated(member_token)
 	var row: Dictionary = _cargo.get(member_token, {})
 	var team_id := int(row.get("squad_id", _member_teams.get(member_token, -1)))
 	if not row.is_empty():
@@ -240,16 +255,57 @@ func on_member_defeated(member_token: int) -> void:
 	_refresh_route_markers()
 
 func on_night() -> void:
+	if not _active() or String(_property("phase")) != "night": return
+	var permit_state := night_haul.snapshot()
+	# A retired night remains closed even while finish_night still owns the
+	# night phase. Replaying the hook must not mutate ordinary return state.
+	if bool(permit_state.retired) and int(permit_state.night) == int(permit_state.current_night): return
+	_sync_teams()
+	night_haul.on_night()
 	for team: Dictionary in _teams.values():
+		if night_haul.can_haul(int(team.id)): continue
 		_release_field(team); team.retry = 0.0
 		if bool(team.automatic):
 			_set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "night_wait", "天黑停止采料 · 载货继续返站")
 	_refresh_route_markers()
 
+func on_night_end() -> void:
+	night_haul.on_night_end()
+	_refresh_route_markers()
+
 func on_day() -> void:
+	if not _active() or String(_property("phase")) != "day": return
+	night_haul.on_day()
 	for team: Dictionary in _teams.values():
 		_release_field(team); team.retry = 0.0
 		if bool(team.automatic): _set_state(team, "returning" if _team_cargo(int(team.id)) > 0 else "idle", "")
+	_refresh_route_markers()
+
+func night_haul_snapshot() -> Dictionary:
+	return night_haul.snapshot()
+
+func night_haul_selection() -> Dictionary:
+	return night_haul.selection()
+
+func prepare_selected_night_hauling() -> Dictionary:
+	# Explicit field commands already synchronize their real team. A rejected
+	# permit request must not create an otherwise absent logistics state.
+	return night_haul.prepare_selected()
+
+func toggle_selected_night_hauling() -> Dictionary:
+	return night_haul.toggle_selected()
+
+func stop_selected_night_hauling() -> Dictionary:
+	return night_haul.stop_selected()
+
+func _stop_night_hauling(id: int, reason: String) -> void:
+	if not _teams.has(id): return
+	var team: Dictionary = _teams[id]
+	_release_field(team); team.retry = 0.0; team.destinations.clear()
+	# This is a permit stop, not a manual squad order. Loaded members retain
+	# their paid-for cargo, home bindings and current unload timers.
+	if bool(team.automatic):
+		_set_state(team, "returning" if _team_cargo(id) > 0 else "night_wait", reason)
 	_refresh_route_markers()
 
 func destination_for(squad_id: int, member_token: int) -> Vector3:
@@ -274,6 +330,13 @@ func _team_cargo(id: int) -> int:
 	return amount
 
 func _advance_field(team: Dictionary, delta: float) -> void:
+	if not _active() or not is_finite(delta) or delta <= 0.0: return
+	# Permission is checked at the actual field path as well as its caller.
+	# Losing an original field/roster identity cannot fall back to a new heap.
+	if String(_property("phase")) == "night" and not night_haul.can_haul(int(team.id)):
+		_release_field(team)
+		_advance_return(team, delta, _team_cargo(int(team.id)) > 0)
+		return
 	if _depots().is_empty():
 		_release_field(team); team.destinations.clear(); team.home = -1; team.homes.clear()
 		_set_state(team, "waiting_home", "需要存活中转站")
@@ -329,6 +392,9 @@ func _advance_field(team: Dictionary, delta: float) -> void:
 	_set_state(team, "loading", "")
 	team.loading = float(team.loading) + delta
 	if float(team.loading) < LOAD_SECONDS: return
+	if String(_property("phase")) == "night" and not night_haul.can_haul(int(team.id)):
+		_release_field(team); team.destinations.clear()
+		return
 	# Atomic finite source transfer. Only members really standing at this heap
 	# acquire goods; a dead or remotely located member never receives capacity.
 	var remaining := int(field.remaining)
@@ -342,6 +408,7 @@ func _advance_field(team: Dictionary, delta: float) -> void:
 	field.remaining = remaining
 	_refresh_field(field)
 	_release_field(team); team.destinations.clear(); team.retry = 0.0
+	if remaining <= 0: night_haul.cancel(int(team.id), "指定废料堆已采尽 · 载货返站")
 	_set_state(team, "returning", "")
 
 func _choose_field(team: Dictionary) -> int:

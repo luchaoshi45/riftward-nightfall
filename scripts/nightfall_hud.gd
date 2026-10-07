@@ -53,6 +53,7 @@ const BUILD_BUTTON_RECT := CleanHud.BUILD_BUTTON_RECT
 const DETAIL_CLOSE_RECT := CleanHud.DRAWER_CLOSE_RECT
 const HAUL_BUTTON_RECT := Rect2(356,628,176,32)
 const MEDIC_BUTTON_RECT := Rect2(356,662,176,26)
+const NIGHT_HAUL_BUTTON_RECT := Rect2(46,662,296,26)
 const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 # Keep transient world text subordinate to the battlefield; rings and urgent
 # hero warnings remain visible even when secondary labels are capped.
@@ -1036,6 +1037,22 @@ func selected_hauler_ids() -> Array[int]:
 func haul_button_visible() -> bool:
 	return detail_tab=="army" and troop_page==1 and not game.construction.active and not selected_hauler_ids().is_empty() and is_instance_valid(game.logistics)
 
+func night_haul_button_visible() -> bool:
+	return haul_button_visible()
+
+func night_haul_caption(selection: Dictionary) -> String:
+	if game.phase=="paused":return "暂停 · 夜采保持"
+	if String(selection.action)=="stop":
+		return "取消夜采准备" if game.phase=="day" else "停止夜采 · 载货返站"
+	var cost:=int(selection.cost)
+	return "准备夜采 · 日落每队%d零件" % cost if game.phase=="day" else "装配夜采 · 每队%d零件" % cost
+
+func toggle_selected_night_hauling() -> void:
+	if not night_haul_button_visible():return
+	var result: Dictionary=game.logistics.toggle_selected_night_hauling()
+	game.notify(String(result.reason),3)
+	queue_redraw()
+
 func selected_medic_ids() -> Array[int]:
 	var ids: Array[int]=[]
 	if not is_instance_valid(game.squads):return ids
@@ -1154,6 +1171,7 @@ func draw_squads() -> void:
 		var medics:=selected_medic_ids()
 		var support_hint:="工队右键废料堆指定采运 · 采尽后自动" if bool(eligibility.available) else "采运 · "+String(eligibility.reason)
 		if not medics.is_empty():support_hint="医护默认停疗 · 驻定治疗 · 前摇0.65秒 / 间隔4秒"
+		if night_haul_button_visible():support_hint="夜采需活研究所、中转站 · 停采当夜不能重启"
 		CleanHud._paragraph(self,support_hint,Vector2(46,580),496,14,amber,21,1)
 		if is_instance_valid(game.logistics):
 			var transport: Dictionary=game.logistics.snapshot()
@@ -1170,9 +1188,16 @@ func draw_squads() -> void:
 			if haul_button_visible():
 				box(HAUL_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
 				label("恢复自动采运" if game.phase!="paused" else "暂停 · 自动采运",HAUL_BUTTON_RECT.position+Vector2(12,21),13,amber if game.phase!="paused" else muted)
+			if night_haul_button_visible():
+				var selection: Dictionary=game.logistics.night_haul_selection()
+				var can_toggle: bool=game.phase in ["day","night"] and (bool(selection.available) or String(selection.action)=="stop")
+				box(NIGHT_HAUL_BUTTON_RECT,panel,Color("668a78") if can_toggle else muted)
+				var caption:=night_haul_caption(selection)
+				if not can_toggle and game.phase!="paused":caption=String(selection.reason)
+				CleanHud._paragraph(self,caption,NIGHT_HAUL_BUTTON_RECT.position+Vector2(9,18),278,12,amber if can_toggle else muted,18,1)
 		if medic_button_visible():
 			var medical: Dictionary=game.squads.medic_snapshot()
-			CleanHud._paragraph(self,"医护合计%d次 · 恢复%.0f · 花费%d" % [int(medical.treatments),float(medical.healed_hp),int(medical.spent)],Vector2(46,681),296,12,muted,18,1)
+			if not night_haul_button_visible():CleanHud._paragraph(self,"医护合计%d次 · 恢复%.0f · 花费%d" % [int(medical.treatments),float(medical.healed_hp),int(medical.spent)],Vector2(46,681),296,12,muted,18,1)
 			box(MEDIC_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
 			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2零件"
 			label("暂停 · 医护保持" if game.phase=="paused" else caption,MEDIC_BUTTON_RECT.position+Vector2(9,18),12,muted if game.phase=="paused" else amber)
@@ -1444,6 +1469,7 @@ func _gui_input(event: InputEvent) -> void:
 						var result: Dictionary=game.rally.reset_selected()
 						game.notify(String(result.reason),3);queue_redraw();accept_event();return
 					if medic_button_visible() and MEDIC_BUTTON_RECT.has_point(point):toggle_selected_medics();accept_event();return
+					if night_haul_button_visible() and NIGHT_HAUL_BUTTON_RECT.has_point(point):toggle_selected_night_hauling();accept_event();return
 					if haul_button_visible() and HAUL_BUTTON_RECT.has_point(point):
 						var result: Dictionary=game.logistics.start_selected_hauling()
 						game.notify(String(result.reason),3)

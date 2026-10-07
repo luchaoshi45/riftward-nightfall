@@ -819,6 +819,7 @@ func beacon_repair_cost() -> int:
 
 func finish_night() -> void:
 	if phase=="ended":return
+	if logistics:logistics.on_night_end()
 	var was_final_clearance: bool=final_clearance_active
 	_settle_wave_wager_loss("night_end")
 	bounty.expire()
