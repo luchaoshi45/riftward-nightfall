@@ -927,13 +927,15 @@ func draw_minimap() -> void:
 		# faint ring and corner marks so it remains discoverable without pulling
 		# attention away from the battlefield.
 		var compact_center:=map_rect.get_center()+Vector2(0,2)
-		draw_circle(compact_center,58.0,Color(.018,.034,.041,.025))
-		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.20),1.0)
+		draw_circle(compact_center,52.0,Color(.018,.034,.041,.014))
+		draw_arc(compact_center,52.0,0,TAU,48,Color("66624d",.14),1.0)
 		draw_line(map_rect.position+Vector2(0,1),map_rect.position+Vector2(26,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,map_rect.size.y-1),map_rect.position+Vector2(map_rect.size.x,map_rect.size.y-1),Color("66624d",.34),1.0)
-		label("地图 · 点击展开",map_rect.position+Vector2(9,18),11,Color(muted,.86))
+		# The map button at the bottom owns the discoverability hint. The radar
+		# itself stays icon-only so it never competes with the world or objective.
+		draw_circle(compact_center,2.5,Color(muted,.52))
 	else:
 		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))

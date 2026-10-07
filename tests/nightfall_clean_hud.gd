@@ -155,6 +155,10 @@ func default_layout(label: String) -> void:
 	await redraw()
 	check(game.hud.detail_tab == "" and not game.hud.map_expanded,
 		label + ": default gameplay must show no tactical drawer or expanded map")
+	check("地图 · 点击展开" not in game.hud.all_labels,
+		label + ": the default radar must stay icon-only; map guidance belongs to the bottom shortcut rail")
+	check(game.hud.CleanHud.HERO_FILL.a == 0.0,
+		label + ": the default hero dock must remain transparent so the battlefield keeps visual priority")
 	check(game.hud.minimap_rect() == MINI, label + ": the default minimap must retain the compact 164-pixel size")
 	var visible: Array = game.hud.visible_hud_rects()
 	var area := 0.0
