@@ -328,6 +328,9 @@ func _process(delta: float) -> void:
 	if rally:rally.tick(delta)
 
 func simulate(delta: float) -> void:
+	# Register actual hostile actors before either heroes or troop weapons deal
+	# damage, including production expedition and boss actors outside the factory.
+	if is_instance_valid(squads) and squads.veterancy:squads.veterancy.observe_enemies()
 	if phase!="day" and phase!="night":return
 	# Advance route timers once, before speed is read and before this frame
 	# can grant a fresh bonus through a completed discovery interaction.
@@ -555,10 +558,11 @@ func spawn_night_wave() -> void:
 		var creature: BattleUnit=spawn_creature(true,role)
 		if standard_rewards:wave_rewards.register_enemy(reward_id,creature)
 	if bool(entry.get("boss_entry",false)):
-		var boss: BattleUnit=spawn_creature(true,"breaker")
+		var boss: BattleUnit=spawn_creature(true,"breaker",false)
 		siege_boss=SiegeBossScript.new()
 		siege_boss.name="SiegeBossController"
 		siege_boss.setup(self,boss)
+		if is_instance_valid(squads) and squads.veterancy:squads.veterancy.observe_enemy(boss)
 		if standard_rewards:wave_rewards.register_enemy(reward_id,boss)
 	if standard_rewards:wave_rewards.seal_wave(reward_id)
 	spawn_timer=maxf(0,float(night_plan[wave_index].time)-(NIGHT_LENGTH-phase_time)) if wave_index<night_plan.size() else 0.0
@@ -1297,7 +1301,7 @@ func settle_contract_reward() -> void:
 		while reward_toasts.size()>4:reward_toasts.remove_at(0)
 		notify("委托已交回 · +%d零件" % int(reward.scrap),3)
 
-func spawn_creature(night: bool, role: String="") -> BattleUnit:
+func spawn_creature(night: bool, role: String="", register_veterancy: bool=true) -> BattleUnit:
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
 	var is_warder: bool=night and role=="warder"
@@ -1435,6 +1439,7 @@ func spawn_creature(night: bool, role: String="") -> BattleUnit:
 		else:creature.set_meta("threat","stalker")
 	creature.defeated.connect(_on_creature_defeated)
 	enemies.append(creature)
+	if register_veterancy and is_instance_valid(squads) and squads.veterancy:squads.veterancy.observe_enemy(creature)
 	return creature
 
 func spawn_nest_guards() -> void:
@@ -2461,6 +2466,7 @@ func beacon_pulse() -> void:
 func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 	if is_instance_valid(discoveries) and not discoveries.cache_guards.on_defeated(creature):
 		return
+	if is_instance_valid(squads) and squads.veterancy:squads.veterancy.on_enemy_defeated(creature)
 	specializations.forget_enemy(creature)
 	kills+=1
 	var combat_phase: String=return_phase if phase=="draft" else phase

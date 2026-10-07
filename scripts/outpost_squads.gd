@@ -10,6 +10,7 @@ const HunterScript := preload("res://scripts/outpost_hunters.gd")
 const EscortScript := preload("res://scripts/outpost_escort.gd")
 const FlamethrowerScript := preload("res://scripts/outpost_flamethrower.gd")
 const NetterScript := preload("res://scripts/outpost_netters.gd")
+const VeterancyScript := preload("res://scripts/outpost_veterancy.gd")
 const MEMBERS_PER_SQUAD := 3
 const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110, "flamer": 125, "netter": 100}
 const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0, "flamer": 11.0, "netter": 9.0}
@@ -49,6 +50,7 @@ var hunters: Node3D
 var flamethrower: Node3D
 var netters: Node3D
 var escort: RefCounted
+var veterancy: RefCounted
 var _epoch := 0
 
 func setup(controller: Node3D, allow_ranged: bool = false) -> void:
@@ -83,6 +85,8 @@ func setup(controller: Node3D, allow_ranged: bool = false) -> void:
 		if String(property.name) == "rally": _has_rally = true
 	ranged_enabled = allow_ranged
 	health_multiplier = 1.0
+	if not is_instance_valid(veterancy): veterancy = VeterancyScript.new()
+	veterancy.setup(game, self)
 
 func set_health_multiplier(value: float) -> void:
 	var next := clampf(value, 0.5, 3.0)
@@ -91,7 +95,9 @@ func set_health_multiplier(value: float) -> void:
 		for soldier: BattleUnit in squad.members:
 			if not _living(soldier): continue
 			var ratio := clampf(soldier.hp / maxf(1.0, soldier.max_hp), 0.0, 1.0)
-			soldier.max_hp = _base_max_hp(str(squad.kind)) * next
+			var rank_multiplier := 1.0
+			if is_instance_valid(veterancy): rank_multiplier = float(veterancy.member_snapshot(soldier).get("health_multiplier", 1.0))
+			soldier.max_hp = _base_max_hp(str(squad.kind)) * next * rank_multiplier
 			soldier.hp = soldier.max_hp * ratio
 	health_multiplier = next
 
@@ -173,6 +179,7 @@ func _create_squad(kind: String, origin: Vector3) -> int:
 			_retire_member(soldier)
 			return -1
 		members.append(soldier)
+		if is_instance_valid(veterancy): veterancy.register_member(soldier, squad, slot)
 	return id
 
 func _barracks() -> Array[Dictionary]:
@@ -993,6 +1000,7 @@ func refill(squad_id: int = -1) -> Dictionary:
 			else:
 				_retire_member(soldier)
 				squad.members[slot] = _spawn_member(squad, slot)
+				if is_instance_valid(veterancy): veterancy.register_member(squad.members[slot], squad, slot)
 	return _result(true, "小队补员休整完成", cost, squad_id)
 
 func refill_cost(squad_id: int = -1) -> int:
@@ -1008,6 +1016,7 @@ func refill_cost(squad_id: int = -1) -> int:
 
 func advance(delta: float, active: bool = true) -> void:
 	if not active or not _active(): return
+	if is_instance_valid(veterancy): veterancy.observe_enemies()
 	var generation := _epoch
 	var elapsed := maxf(0.0, delta)
 	for key in _intercepts.keys():
@@ -1541,6 +1550,7 @@ func _living(unit: Variant) -> bool:
 	return is_instance_valid(unit) and unit is BattleUnit and not unit.is_queued_for_deletion() and unit.alive
 
 func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
+	if is_instance_valid(veterancy): veterancy.forget_member(unit)
 	if is_instance_valid(escort): escort.on_member_defeated(unit)
 	if String(unit.get_meta("squad_kind","")) == "artillery" and is_instance_valid(artillery): artillery.unregister(unit)
 	if String(unit.get_meta("squad_kind","")) == "hunter" and is_instance_valid(hunters): hunters.unregister(unit)
@@ -1565,6 +1575,7 @@ func _on_member_defeated(unit: BattleUnit, _source: BattleUnit) -> void:
 	unit.queue_free()
 
 func _retire_member(unit: BattleUnit) -> void:
+	if is_instance_valid(veterancy): veterancy.forget_member(unit)
 	if is_instance_valid(unit) and not unit.is_queued_for_deletion(): unit.queue_free()
 
 func _animate_member(soldier: BattleUnit) -> void:
@@ -1609,12 +1620,24 @@ func snapshot() -> Dictionary:
 	for squad in squads:
 		var count := 0
 		var hp := 0.0
+		var veterans := 0
+		var elite := 0
+		var experience := 0.0
+		var members: Array[Dictionary] = []
 		for soldier: BattleUnit in squad.members:
-			if _living(soldier): count += 1; hp += soldier.hp
+			if not _living(soldier): continue
+			count += 1; hp += soldier.hp
+			var growth: Dictionary = veterancy.member_snapshot(soldier) if is_instance_valid(veterancy) else {}
+			if growth.is_empty(): continue
+			members.append(growth)
+			experience += float(growth.xp)
+			if int(growth.rank) >= 1: veterans += 1
+			if int(growth.rank) == 2: elite += 1
 		total_alive += count
 		rows.append({"id": squad.id, "kind": squad.kind, "title": String(Catalog.troop(String(squad.kind)).title), "order": squad.order,
 			"order_label": "护航工队" if squad.order == ESCORT else String({HOLD: "驻守南门", RECALL: "撤回灯塔", MOVE: "移动", AMOVE: "攻击推进", ATTACK: "攻击", GUARD: "原地驻守", HAUL: "采运"}.get(squad.order, "待命")),
 			"alive": count, "capacity": MEMBERS_PER_SQUAD, "hp": hp, "refill_cost": refill_cost(squad.id),
+			"veterans": veterans, "elite": elite, "xp": experience, "members": members,
 			"position": _squad_position(squad), "selected": int(squad.id) in selected_ids})
 	var queues: Array[Dictionary] = []
 	var duration_multiplier := 1.0
@@ -1634,8 +1657,14 @@ func snapshot() -> Dictionary:
 		"squads": rows, "selected": selected_ids.size(),
 		"selected_ids": selected_ids.duplicate(), "queues": queues, "trainings": queues}
 
+func veterancy_snapshot() -> Dictionary:
+	return veterancy.snapshot() if is_instance_valid(veterancy) else {"members": [], "alive": 0,
+		"rookies": 0, "veterans": 0, "elite": 0, "xp_total": 0.0, "pending_enemies": 0,
+		"enemies": [], "settled_enemies": 0}
+
 func clear() -> void:
 	_epoch += 1
+	if is_instance_valid(veterancy): veterancy.clear()
 	_cancel_intercepts()
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()
@@ -1660,6 +1689,7 @@ func clear() -> void:
 
 func _exit_tree() -> void:
 	_epoch += 1
+	if is_instance_valid(veterancy): veterancy.clear()
 	_cancel_intercepts()
 	_cancel_medic_casts("clear")
 	if is_instance_valid(artillery): artillery.clear()

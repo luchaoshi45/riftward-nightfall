@@ -403,6 +403,7 @@ func _draw() -> void:
 	draw_warder_warnings()
 	draw_burstling_warnings()
 	draw_shellguard_armor()
+	draw_veterancy_labels()
 	draw_building_repairs()
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
@@ -761,6 +762,22 @@ func draw_burstling_warnings() -> void:
 		var text_value:="爆裂 %.1f秒 · 撤出圈" % maxf(0.0,float(warning.remaining))
 		_draw_shell_label((warning.position as Vector3)+Vector3.UP*2.1,text_value,Color("f1bf91"),occupied)
 		rendered_labels+=1
+
+func draw_veterancy_labels() -> void:
+	if game.phase not in ["day","night","paused"] or game.construction.active:return
+	if not is_instance_valid(game.squads) or not game.squads.veterancy:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	var rendered:=0
+	for squad: Dictionary in game.squads.squads:
+		if int(squad.id) not in game.squads.selected_ids:continue
+		for member: Variant in squad.members:
+			if rendered>=MAX_RENDERED_WORLD_LABELS:return
+			if not is_instance_valid(member) or member.is_queued_for_deletion() or not member.alive:continue
+			var state: Dictionary=game.squads.veterancy.member_snapshot(member)
+			if int(state.get("rank",0))<1:continue
+			_draw_shell_label(member.position+Vector3.UP*1.9,String(state.rank_label),amber,occupied)
+			rendered+=1
 
 func _draw_shell_label(point: Vector3, text_value: String, tint: Color, occupied: Array[Rect2]) -> void:
 	var screen: Variant=_world_screen(point)
@@ -1129,7 +1146,8 @@ func draw_squads() -> void:
 	training_cancel_buttons.clear()
 	if not is_instance_valid(game.squads) or game.phase not in ["day","night","paused"]:return
 	var snapshot: Dictionary=game.squads.snapshot()
-	label("部队 · 已选%d队 / 共%d队" % [int(snapshot.selected),int(snapshot.count)],Vector2(46,184),17,Color("a9d8cf"))
+	var growth: Dictionary=game.squads.veterancy.snapshot() if game.squads.veterancy else {}
+	label("部队 · 已选%d/%d队 · 老兵%d / 精锐%d" % [int(snapshot.selected),int(snapshot.count),maxi(0,int(growth.get("veterans",0))-int(growth.get("elite",0))),int(growth.get("elite",0))],Vector2(46,184),17,Color("a9d8cf"))
 	label("存活 %d/%d人 · L白昼补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
 	var kinds:=visible_training_kinds()
 	for index in kinds.size():
@@ -1186,7 +1204,25 @@ func draw_squads() -> void:
 	label("兵营%d · 训练%d组 · 页%d/%d%s%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint,relay_hint],Vector2(46,465),12,muted)
 	label(control_group_hint(),Vector2(46,494),13,amber)
 	label("Shift+右键攻击推进 · Alt+右键工队护航",Vector2(46,522),14,muted)
-	if troop_page==1:
+	if troop_page==0:
+		CleanHud._paragraph(self,"成长：真击杀后结算生命贡献，300老兵 / 900精锐。",Vector2(46,553),496,14,ink,21,1)
+		CleanHud._paragraph(self,"基础攻击与生命上限 +10% / +20%；晋级不回血。",Vector2(46,580),496,14,amber,21,1)
+		CleanHud._paragraph(self,"幸存者跨昼夜保留；补员为新兵，本局结束清零。",Vector2(46,609),496,14,muted,21,1)
+		var selected_members: Array[String]=[]
+		var selected_id:=-1
+		for row: Dictionary in growth.get("members",[]):
+			var squad_id:=int(row.squad_id)
+			if squad_id not in game.squads.selected_ids:continue
+			if selected_id<0:selected_id=squad_id
+			if selected_id!=squad_id:continue
+			var progress:=str(floori(float(row.xp)))
+			if int(row.rank)<2:progress+="/%d" % int(row.next_threshold)
+			selected_members.append("%d%s%s" % [int(row.slot)+1,String(row.rank_label),progress])
+		var member_text:="点选编组查看成长；医护、采运不积累战斗经验。"
+		if not selected_members.is_empty():member_text="队%d：%s" % [selected_id+1," · ".join(selected_members)]
+		CleanHud._paragraph(self,member_text,Vector2(46,648),496,13,ink,20,1)
+		CleanHud._paragraph(self,"按真实成员记功，无需尾刀；护盾、溢伤和援军不计。",Vector2(46,676),496,12,muted,18,1)
+	elif troop_page==1:
 		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
 		var medics:=selected_medic_ids()
