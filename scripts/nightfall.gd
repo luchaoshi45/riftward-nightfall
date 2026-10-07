@@ -98,6 +98,7 @@ var attack_count := 0
 var day_start_pending: bool=false
 var run_mode: String="teaching"
 var run_mode_locked := false
+var selected_blueprint := ""
 var encounters=preload("res://scripts/nightfall_encounters.gd").new()
 var night_plan: Array[Dictionary]=[]
 var countermeasure_selected := -1
@@ -1062,6 +1063,35 @@ func select_run_mode(index: int) -> bool:
 	if index<0 or index>=options.size():return false
 	run_mode=options[index]
 	notify("本局模式：%s · 选择核心后锁定" % run_mode_title(),3)
+	return true
+
+func available_blueprints() -> Array[Dictionary]:
+	var options: Array[Dictionary] = [{"id": "", "title": "无蓝图", "detail": "基础开局 · 不解锁额外建筑许可"}]
+	if not is_instance_valid(archive) or not archive.has_method("unlocked_blueprints"): return options
+	var catalog: Dictionary = archive.blueprint_catalog()
+	for blueprint_id: String in archive.unlocked_blueprints():
+		var definition: Dictionary = catalog.get(blueprint_id, {})
+		if definition.is_empty(): continue
+		options.append({"id": blueprint_id, "title": String(definition.get("title", blueprint_id)), "detail": String(definition.get("detail", "永久许可 · 需本局选择后可用"))})
+	return options
+
+func _blueprint_title(blueprint_id: String) -> String:
+	if blueprint_id.is_empty(): return "无"
+	for option: Dictionary in available_blueprints():
+		if String(option.get("id", "")) == blueprint_id: return String(option.get("title", blueprint_id))
+	return blueprint_id
+
+func select_blueprint(blueprint_id: String) -> bool:
+	if phase!="draft" or not opening_night_pending or run_mode_locked:return false
+	var allowed := false
+	for option: Dictionary in available_blueprints():
+		if String(option.get("id", "")) == blueprint_id:
+			allowed=true
+			break
+	if not allowed:return false
+	selected_blueprint=blueprint_id
+	notify("本局蓝图：%s · 只解锁付费建筑许可" % _blueprint_title(blueprint_id),3)
+	if is_instance_valid(hud):hud.queue_redraw()
 	return true
 
 func select_bonus_route(index: int, serial: int, expected: Dictionary = {}) -> bool:
@@ -2182,6 +2212,18 @@ func clear_focus() -> void:
 	focus_target=null
 	focus_time=0.0
 
+func focus_duration_seconds() -> float:
+	var level := int(districts.live_level("signal_beacon")) if is_instance_valid(districts) else 0
+	return FOCUS_DURATION + float(level) * 4.0
+
+func focus_cooldown_seconds() -> float:
+	var level := int(districts.live_level("signal_beacon")) if is_instance_valid(districts) else 0
+	return maxf(12.0, FOCUS_COOLDOWN - float(level) * 4.0)
+
+func refresh_focus_bonus() -> void:
+	if focus_time>0.0:focus_time=minf(focus_time,focus_duration_seconds())
+	if focus_cooldown>0.0:focus_cooldown=minf(focus_cooldown,focus_cooldown_seconds())
+
 func issue_focus_order() -> bool:
 	if phase!="day" and phase!="night":return false
 	if focus_cooldown>0:return false
@@ -2205,11 +2247,11 @@ func issue_focus_order() -> bool:
 		return false
 	clear_focus()
 	focus_target=selected
-	focus_time=FOCUS_DURATION
-	focus_cooldown=FOCUS_COOLDOWN
+	focus_time=focus_duration_seconds()
+	focus_cooldown=focus_cooldown_seconds()
 	focus_ring=BattleVisuals.ring(selected,Vector3(0,.16,0),.95,Color("f0c66f"),.1)
 	BattleVisuals.sparks(effects,selected.position+Vector3.UP,Color("f0c66f"),9)
-	notify("塔群集火：%s · 持续 8 秒" % selected.title,2)
+	notify("塔群集火：%s · 持续 %.0f 秒 · 冷却 %.0f 秒" % [selected.title,focus_time,focus_cooldown],2)
 	return true
 
 func auto_attack() -> void:

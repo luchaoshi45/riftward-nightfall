@@ -1,7 +1,7 @@
 class_name OutpostCatalog
 extends RefCounted
 ## The shared playable building and troop definitions used by costs and technology.
-const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary", "armory", "command_relay"]
+const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary", "armory", "command_relay", "signal_beacon"]
 const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery", "hunter", "flamer"]
 const BUILDINGS := {
 	"tower": {"title": "防御塔", "cost": 60, "size": Vector2i(3, 3), "hp": 280.0, "requires": []},
@@ -13,6 +13,7 @@ const BUILDINGS := {
 	"infirmary": {"title": "救护站", "cost": 100, "size": Vector2i(3, 3), "hp": 480.0, "requires": ["barracks"]},
 	"armory": {"title": "军械厂", "cost": 140, "size": Vector2i(4, 3), "hp": 600.0, "requires": ["laboratory", "workshop"]},
 	"command_relay": {"title": "指挥中继站", "cost": 130, "size": Vector2i(3, 2), "hp": 520.0, "requires": ["armory"]},
+	"signal_beacon": {"title": "曙光信标", "cost": 110, "size": Vector2i(3, 2), "hp": 520.0, "requires": ["workshop"]},
 }
 const TROOPS := {
 	"shield": {"title": "盾卫", "cost": 70, "time": 6.0, "hp": 200.0, "requires": []},

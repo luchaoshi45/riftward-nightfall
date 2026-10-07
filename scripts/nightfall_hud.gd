@@ -31,6 +31,7 @@ var red:=Color("db756c")
 var panel:=Color(.022,.035,.045,.88)
 var card_rects: Array[Rect2] = []
 var mode_rects: Array[Rect2] = []
+var blueprint_rects: Array[Rect2] = []
 var training_cancel_buttons: Array[Dictionary] = []
 var training_page := 0
 var construction_page := 0
@@ -308,6 +309,7 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO,0,get_viewport_rect().size/Vector2(1440,900))
 	card_rects.clear()
 	mode_rects.clear()
+	blueprint_rects.clear()
 	training_cancel_buttons.clear()
 	if game.music_credits_open:
 		draw_music_credits()
@@ -812,13 +814,13 @@ func draw_minimap() -> void:
 		# faint ring and corner marks so it remains discoverable without pulling
 		# attention away from the battlefield.
 		var compact_center:=map_rect.get_center()+Vector2(0,2)
-		draw_circle(compact_center,58.0,Color(.018,.034,.041,.045))
-		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.28),1.0)
+		draw_circle(compact_center,58.0,Color(.018,.034,.041,.025))
+		draw_arc(compact_center,58.0,0,TAU,48,Color("66624d",.20),1.0)
 		draw_line(map_rect.position+Vector2(0,1),map_rect.position+Vector2(26,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,1),map_rect.position+Vector2(map_rect.size.x,1),Color("66624d",.52),1.0)
 		draw_line(map_rect.position+Vector2(0,map_rect.size.y-1),map_rect.position+Vector2(26,map_rect.size.y-1),Color("66624d",.34),1.0)
 		draw_line(map_rect.position+Vector2(map_rect.size.x-26,map_rect.size.y-1),map_rect.position+Vector2(map_rect.size.x,map_rect.size.y-1),Color("66624d",.34),1.0)
-		label("M 地图",map_rect.position+Vector2(9,18),11,Color(muted,.76))
+		label("M 地图",map_rect.position+Vector2(9,18),11,Color(muted,.62))
 	else:
 		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
@@ -840,8 +842,9 @@ func draw_minimap() -> void:
 			else:
 				draw_circle(nest_marker,4.2,Color("d75b77",.78))
 		var shown_threats:=0
+		var threat_cap: int=1 if game.phase=="day" else 2
 		for creature in game.enemies:
-			if shown_threats>=2:break
+			if shown_threats>=threat_cap:break
 			if not is_instance_valid(creature) or not creature.alive:continue
 			if creature.position.distance_to(game.hero.position)>22.0 and game.phase!="night":continue
 			var threat: String=creature.get_meta("threat","")
@@ -1198,18 +1201,28 @@ func draw_draft() -> void:
 			box(mode_rect,Color(.105,.105,.078,.98) if selected else Color(.046,.066,.075,.97),amber if selected else Color("49605b"))
 			label(mode_keys[i]+"  "+mode_names[i],mode_rect.position+Vector2(16,23),15,amber if selected else ink)
 			label(game.run_mode_description() if selected else ["三夜入门 · 基础奖励易懂","四夜标准 · 重敌压门","四夜标准 · 灯光与快敌"][i],mode_rect.position+Vector2(16,43),11,muted)
+		label("永久蓝图 · 只解锁付费建筑许可，不免费赠送",Vector2(205,353),13,Color("a3c7b7"))
+		var blueprint_options: Array[Dictionary] = game.available_blueprints() if game.has_method("available_blueprints") else [{"id":"","title":"无蓝图","detail":"基础开局"}]
+		for i in blueprint_options.size():
+			var blueprint: Dictionary = blueprint_options[i]
+			var blueprint_rect:=Rect2(198+i*349,362,315,36)
+			blueprint_rects.append(blueprint_rect)
+			var blueprint_selected: bool=String(blueprint.get("id", ""))==String(game.selected_blueprint)
+			box(blueprint_rect,Color(.105,.105,.078,.98) if blueprint_selected else Color(.039,.061,.067,.97),Color("b08a57") if blueprint_selected else Color("49605b"))
+			label(String(blueprint.get("title","无蓝图")),blueprint_rect.position+Vector2(14,23),14,amber if blueprint_selected else ink)
+			label(String(blueprint.get("detail","")),blueprint_rect.position+Vector2(120,23),11,muted)
 	for i in range(game.run.offer.size()):
 		var card: Dictionary=game.run.offer[i]
-		var rect:=Rect2(198+i*349,355,315,330)
+		var rect:=Rect2(198+i*349,410,315,275)
 		card_rects.append(rect)
 		var color: Color=RunBuild.COLORS[card.school]
 		box(rect,Color(.046,.066,.075,.97),color.darkened(.36))
 		label("%d" % (i+1),rect.position+Vector2(22,40),24,color,true)
 		label(RunBuild.SCHOOLS[card.school]+" · "+RunBuild.RARITIES[card.rarity],rect.position+Vector2(58,39),14,color)
-		label(card.name,rect.position+Vector2(23,117),23,ink)
+		label(card.name,rect.position+Vector2(23,105),23,ink)
 		var lines:=String(card.desc).split("\n")
-		for j in range(lines.size()):label(lines[j],rect.position+Vector2(23,168+j*29),15,muted)
-		label("按 %d / 点击 铭刻" % (i+1),rect.position+Vector2(22,330),16,amber)
+		for j in range(lines.size()):label(lines[j],rect.position+Vector2(23,150+j*25),15,muted)
+		label("按 %d / 点击 铭刻" % (i+1),rect.position+Vector2(22,252),16,amber)
 	label("世界已暂停 · 开局/黎明赠卡，V 消耗零件铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
 
 func draw_result() -> void:
@@ -1282,6 +1295,11 @@ func _gui_input(event: InputEvent) -> void:
 	if game.phase=="draft":
 		if event is InputEventMouseButton:
 			if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+				for index in blueprint_rects.size():
+					if blueprint_rects[index].has_point(point):
+						var options: Array[Dictionary] = game.available_blueprints() if game.has_method("available_blueprints") else []
+						if index<options.size():game.select_blueprint(String(options[index].get("id", "")))
+						accept_event();return
 				for index in mode_rects.size():
 					if mode_rects[index].has_point(point):game.select_run_mode(index);accept_event();return
 				for index in card_rects.size():

@@ -11,6 +11,7 @@ const MEMORY_DRAW_RECT := Rect2(1108,816,104,64)
 const TACTICS_RECT := Rect2(24,824,126,36)
 const MAP_BUTTON_RECT := Rect2(164,824,96,36)
 const BUILD_BUTTON_RECT := Rect2(272,824,64,36)
+const SELECTED_SQUAD_RECT := Rect2(24,762,300,54)
 const DRAWER_RECT := Rect2(24,112,540,622)
 const DRAWER_CLOSE_RECT := Rect2(428,692,112,30)
 const TAB_IDS := ["contract","exploration","army","defense","help"]
@@ -24,6 +25,7 @@ const RAIL_FAINT := Color("82978b", .19)
 const RAIL_GHOST := Color("82978b", .10)
 const LIVE_INK := Color("e4e2d8")
 const LIVE_MUTED := Color("9da9a2")
+const LIVE_QUIET := Color("9da9a2", .62)
 # Keep the default battlefield quiet: the live layer is an information rail,
 # not a stack of opaque cards. Urgent states still supply stronger tints at the
 # call site, while routine data stays legible without competing with the map.
@@ -65,10 +67,10 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(127,40),14,LIVE_INK)
 	var detail: String=game.run_mode_title()
 	if night:detail="第%d/%d波 · %s" % [game.wave_index,game.WAVES_PER_NIGHT,game.run_mode_title()]
-	ui.label(detail,Vector2(45,60),11,Color(LIVE_MUTED,.78))
+	ui.label(detail,Vector2(45,60),11,LIVE_QUIET)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
-	ui.progress(Rect2(45,70,193,2),float(game.phase_time)/length,Color(tint,.52))
-	ui.draw_line(Vector2(45,79),Vector2(238,79),RAIL_GHOST,1.0)
+	ui.progress(Rect2(45,70,193,2),float(game.phase_time)/length,Color(tint,.38))
+	ui.draw_line(Vector2(45,79),Vector2(238,79),Color(RAIL_GHOST,.55),1.0)
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
@@ -106,16 +108,16 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 		if String(contract.status)=="active":
 			var remaining:=maxf(0.0,float(game.phase_time)-contract.selected_risk_seconds())
 			detail="目标余时 %.0f秒 · P 指路 / F 行动 · F3 查看方案" % remaining
-		elif String(contract.status)=="bonus_offer":detail="4 返家保底 / 5 追加 · F3 查看真实返家估时"
-		elif String(contract.status) in ["bonus_active","returning"]:detail="P 前往当前目标 · 日落前返回灯塔交付"
-		else:detail="Y 城内建设 · 或外出搜寻 · F3 查看详情"
+		elif String(contract.status)=="bonus_offer":detail="4 返家 / 5 追加 · F3 战术"
+		elif String(contract.status) in ["bonus_active","returning"]:detail="P 前往目标 · 日落前回灯塔"
+		else:detail="Y 建造 · P 搜寻"
 	if float(game.beacon_alarm_time)>0.0:
 		detail="灯塔受到攻击 -%d · 立即回防" % ceili(float(game.beacon_alarm_damage))
 	# One title and one supporting line are enough for the live layer. The F3
 	# drawer owns the longer plan, route and countermeasure explanations.
 	_paragraph(ui,title,Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
 	_paragraph(ui,detail,Vector2(444,66),552,12,ui.red if float(game.beacon_alarm_time)>0.0 else LIVE_MUTED,17,1)
-	ui.draw_line(Vector2(444,84),Vector2(992,84),Color(accent,.22),1.0)
+	ui.draw_line(Vector2(444,84),Vector2(992,84),Color(accent,.14),1.0)
 
 static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 	var state:=String(boss.get("phase","approach"))
@@ -148,14 +150,12 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.label("零件 %d" % int(game.scrap),Vector2(1100,40),15,ui.ink)
 	ui.draw_line(Vector2(1183,29),Vector2(1183,45),RAIL_FAINT,1.0)
 	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1200,40),13,tint)
-	ui.progress(Rect2(1100,53,288,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.70))
-	ui.draw_line(Vector2(1100,61),Vector2(1388,61),RAIL_FAINT,1.0)
+	ui.progress(Rect2(1100,53,288,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.56))
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
 	# Skills are the only persistent bottom controls. They share one quiet rail,
 	# use a single key marker, and reveal cooldown text only when it matters.
-	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+8),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+8),RAIL_FAINT,1.0)
-	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+HERO_RECT.size.y-7),Color(RAIL,.18),1.0)
+	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+8),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+8),Color(RAIL_FAINT,.72),1.0)
 	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,832),12,LIVE_INK)
 	ui.progress(Rect2(360,840,168,4),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
 	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,864),11,BLUE)
@@ -173,13 +173,13 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		ui.draw_arc(Vector2(x+20,827),8.0,0,TAU,16,Color(tint,.78),1.0)
 		ui.label(keys[index],Vector2(x+14,831),11,tint,true)
 		ui.label(names[index],Vector2(x+39,831),12,LIVE_INK if ready else LIVE_MUTED)
-		if ready:ui.draw_rect(Rect2(x+11,848,75,2),Color("668571",.46))
+		if ready:ui.draw_rect(Rect2(x+11,848,75,2),Color("668571",.30))
 		else:ui.label(status,Vector2(x+11,864),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
 	var ready: bool=pending>0 or affordable
-	ui.draw_line(Vector2(MEMORY_DRAW_RECT.position.x,MEMORY_DRAW_RECT.position.y+8),Vector2(MEMORY_DRAW_RECT.end.x,MEMORY_DRAW_RECT.position.y+8),Color("527568",.38),1.0)
+	ui.draw_line(Vector2(MEMORY_DRAW_RECT.position.x,MEMORY_DRAW_RECT.position.y+8),Vector2(MEMORY_DRAW_RECT.end.x,MEMORY_DRAW_RECT.position.y+8),Color("527568",.25),1.0)
 	ui.draw_circle(Vector2(1120,833),3.0,Color(ui.amber,.85) if ready else RAIL)
 	ui.label("V",Vector2(1130,837),13,ui.amber if ready else ui.muted,true)
 	ui.label("强化",Vector2(1147,837),12,ui.amber if ready else ui.muted)
@@ -200,14 +200,14 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
-	ui.draw_line(Vector2(36,858),Vector2(137,858),Color(nav_tint,.34),1.0)
+	ui.draw_line(Vector2(36,858),Vector2(137,858),Color(nav_tint,.24),1.0)
 	ui.draw_line(Vector2(153,836),Vector2(153,858),RAIL_FAINT,1.0)
 	ui.label("M 地图",Vector2(174,848),12,LIVE_MUTED)
-	ui.draw_line(Vector2(168,858),Vector2(244,858),Color("617364",.22),1.0)
+	ui.draw_line(Vector2(168,858),Vector2(244,858),Color("617364",.14),1.0)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
 	ui.draw_line(Vector2(250,836),Vector2(250,858),RAIL_FAINT,1.0)
 	ui.label("Y 建造",Vector2(268,848),12,build_tint)
-	ui.draw_line(Vector2(263,858),Vector2(329,858),Color(build_tint,.24),1.0)
+	ui.draw_line(Vector2(263,858),Vector2(329,858),Color(build_tint,.18),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
@@ -218,9 +218,12 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 		if bool(row.selected) and int(row.alive)>0 and String(row.order)=="escort":escorting+=1
 	var title: String="已选%d队 · 推进%d队" % [int(snapshot.selected),advancing] if advancing>0 else "已选%d队 · 全军%d人" % [int(snapshot.selected),int(snapshot.alive)]
 	if escorting>0:title="已选%d队 · 护航%d队" % [int(snapshot.selected),escorting]
-	ui.draw_line(Vector2(32,779),Vector2(286,779),Color("6f927f",.34),1.0)
-	ui.label(title,Vector2(34,797),13,GREEN)
-	ui.label(selected_command_hint(ui,game),Vector2(34,817),12,ui.muted)
+	# Keep this conditional strip quiet, but paint its logical footprint so the
+	# visible interception area and the actual feedback stay in sync.
+	ui.box(SELECTED_SQUAD_RECT,Color(0,0,0,0),Color(0,0,0,0))
+	ui.draw_line(Vector2(32,779),Vector2(286,779),Color("6f927f",.24),1.0)
+	ui.label(title,Vector2(38,783),14,GREEN)
+	ui.label(selected_command_hint(ui,game),Vector2(38,808),13,ui.muted)
 
 static func selected_command_hint(ui: Control, game: Node3D) -> String:
 	if ui.rally_setting():return "选点中 · 原部队命令保留"
@@ -280,15 +283,18 @@ static func _draw_active_tags(ui: Control, game: Node3D) -> void:
 	# Retain the transparent logical footprint for the recorder and input
 	# exclusion checks; the tag itself remains a single lightweight line.
 	ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
-	ui.draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,72.0),0),Color("6f927f",.32),1.0)
-	ui.label(_active_tags_text(game),rect.position+Vector2(0,20),13,GREEN)
+	ui.draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,72.0),0),Color("6f927f",.22),1.0)
+	ui.label(_active_tags_text(game),rect.position+Vector2(0,20),13,Color(GREEN,.82))
 
 static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 	ui.box(DRAWER_RECT,DRAWER_FILL,Color("62776a"))
 	for index in TAB_IDS.size():
 		var rect: Rect2=ui.details_tab_rect(index)
 		var selected: bool=tab==TAB_IDS[index]
-		ui.box(rect,Color(.08,.13,.11,.97) if selected else Color(.029,.046,.044,.97),GREEN if selected else Color("3e5148"))
+		# Drawer tabs are navigation, not five extra cards. Keep their hitboxes
+		# and labels, but use one selected underline to reduce visual noise.
+		ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
+		ui.draw_line(rect.position+Vector2(8,31),rect.position+Vector2(92,31),Color(GREEN if selected else Color("3e5148"),.72 if selected else .22),2.0 if selected else 1.0)
 		ui.label(TAB_TITLES[index],rect.position+Vector2(32,23),16,GREEN if selected else ui.muted)
 	match tab:
 		"contract":_draw_contract(ui,game)
@@ -296,11 +302,13 @@ static func _draw_drawer(ui: Control, game: Node3D, tab: String) -> void:
 		"army":ui.draw_squads()
 		"defense":_draw_defense(ui,game)
 		"help":_draw_help(ui)
-	ui.box(DRAWER_CLOSE_RECT,Color(.027,.047,.042,.96),Color("52695c"))
+	ui.box(DRAWER_CLOSE_RECT,Color(0,0,0,0),Color(0,0,0,0))
+	ui.draw_line(DRAWER_CLOSE_RECT.position+Vector2(10,29),DRAWER_CLOSE_RECT.end-Vector2(10,1),Color("52695c",.34),1.0)
 	ui.label("F3 收起",DRAWER_CLOSE_RECT.position+Vector2(22,21),14,ui.muted)
 	if tab=="exploration":
 		var nav: Rect2=ui.SALVAGE_NAV_RECT
-		ui.box(nav,Color(.027,.047,.042,.96),Color("52695c"))
+		ui.box(nav,Color(0,0,0,0),Color(0,0,0,0))
+		ui.draw_line(nav.position+Vector2(10,29),nav.end-Vector2(10,1),Color("52695c",.34),1.0)
 		ui.label("探索记录" if bool(ui.get("salvage_draw_open")) else "补给抽取",nav.position+Vector2(58,21),14,GREEN)
 
 static func _contract_objective(contract: Node) -> String:

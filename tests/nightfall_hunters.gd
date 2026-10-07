@@ -246,7 +246,7 @@ func open_army() -> void:
 
 func train_gui() -> void:
  await open_army()
- check(game.hud.visible_training_kinds() == ["artillery","hunter"], "Third page exposes cannon and hunter with one genuinely empty slot")
+ check(game.hud.visible_training_kinds() == ["artillery","hunter","flamer"], "Third page exposes cannon, hunter and flamethrower entries")
  var balance: int = game.scrap; var before := orders()
  await click_ui(game.hud.training_kind_rect(1))
  check(game.scrap == balance - 110 and orders() == before,
@@ -310,8 +310,8 @@ func begin(source: BattleUnit, target: BattleUnit) -> void:
 
 func catalog_queue() -> void:
  await fresh()
- check(Catalog.BUILDING_IDS.size() == 8 and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic","artillery","hunter"],
-  "Hunter adds one troop while retaining all eight buildings and seven previous troops")
+ check(Catalog.BUILDING_IDS.size() == 10 and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic","artillery","hunter","flamer"],
+  "Hunter and flamethrower preserve the expanded building catalog and troop roster")
  var troop: Dictionary = Catalog.troop("hunter")
  check(troop.cost == 110 and troop.time == 10.0 and troop.hp == 125.0 and troop.requires == ["workshop"],
   "Actual hunter catalog matches110 parts/10 seconds/125 HP/live workshop")
@@ -327,7 +327,7 @@ func catalog_queue() -> void:
   var before := orders()
   await click_ui(game.hud.training_kind_rect(2)); await click_ui(game.hud.training_kind_rect(2),MOUSE_BUTTON_RIGHT)
   check(game.scrap == balance and orders() == before and game.squads.training_queues.is_empty(),
-   "Genuinely empty third-page slot neither trades nor sends world orders at " + str(viewport))
+   "Locked third-page flamethrower entry neither trades nor sends world orders at " + str(viewport))
  root.size = VIEWPORTS[0]; root.content_scale_size = VIEWPORTS[0]; await press(KEY_F3)
  var workshop := await build_gui("workshop",WORKSHOP)
  await train_gui(); await open_army(); balance = game.scrap

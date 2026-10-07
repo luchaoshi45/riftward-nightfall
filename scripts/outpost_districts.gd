@@ -14,9 +14,10 @@ const DEPOT := "depot"
 const INFIRMARY := "infirmary"
 const ARMORY := "armory"
 const COMMAND_RELAY := "command_relay"
+const SIGNAL_BEACON := "signal_beacon"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0, COMMAND_RELAY: 520.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0, COMMAND_RELAY: 520.0, SIGNAL_BEACON: 520.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -51,7 +52,29 @@ func has_live(kind: String) -> bool:
 	return false
 
 func build_eligibility(kind: String) -> Dictionary:
-	return _technology_eligibility(Catalog.building(kind), "未知建筑")
+	var result := _technology_eligibility(Catalog.building(kind), "未知建筑")
+	if not bool(result.available) or kind != SIGNAL_BEACON: return result
+	if _selected_blueprint() != SIGNAL_BEACON:
+		return {"available": false, "reason": "需要在开局选择曙光阵列蓝图", "missing": [SIGNAL_BEACON]}
+	var archive: Variant = _archive()
+	if is_instance_valid(archive) and archive.has_method("has_blueprint") and not bool(archive.call("has_blueprint", SIGNAL_BEACON)):
+		return {"available": false, "reason": "档案尚未解锁曙光阵列蓝图", "missing": [SIGNAL_BEACON]}
+	return result
+
+func live_level(kind: String) -> int:
+	return _levels(kind)
+
+func _selected_blueprint() -> String:
+	if not is_instance_valid(game): return ""
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) == "selected_blueprint": return String(game.get("selected_blueprint"))
+	return ""
+
+func _archive() -> Variant:
+	if not is_instance_valid(game): return null
+	for property: Dictionary in game.get_property_list():
+		if String(property.name) == "archive": return game.get("archive")
+	return null
 
 func training_eligibility(kind: String) -> Dictionary:
 	return _technology_eligibility(Catalog.troop(kind), "未知兵种")
@@ -346,6 +369,7 @@ func snapshots() -> Array[Dictionary]:
 			INFIRMARY: benefit = "存活时解锁医护队 · 治疗须在部队页开启并付费"
 			ARMORY: benefit = "存活时解锁迫击炮队 · 前置研究所与工坊"
 			COMMAND_RELAY: benefit = "存活时缩短兵营训练时长 · 一级×0.9 · 二级×0.8 · 双站封顶"
+			SIGNAL_BEACON: benefit = "存活时 C 集火持续更久、冷却更短 · 一级12/18秒 · 二级14/16秒"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -368,7 +392,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -377,7 +401,7 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY]: return null
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON]: return null
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
@@ -385,7 +409,7 @@ func create_model(kind: String) -> Node3D:
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "CommandRelayPrototype" if kind == COMMAND_RELAY else "InfirmaryPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "CommandRelayPrototype" if kind == COMMAND_RELAY else "SignalBeaconPrototype" if kind == SIGNAL_BEACON else "InfirmaryPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -468,6 +492,19 @@ func create_model(kind: String) -> Node3D:
 		signal_panel.name = "CommandRelayPanel"
 		var panel_frame := BattleVisuals.box(model, Vector3(-0.82, 0.72, 0.70), Vector3(0.92, 0.74, 0.08), copper)
 		panel_frame.name = "CommandRelayPanelFrame"
+	elif kind == SIGNAL_BEACON:
+		# The blueprint building reuses the generator body and adds a dawn mast,
+		# signal lamp and compact dish. Geometry remains inside the 3x2 footprint.
+		var dawn_glass := BattleVisuals.material(Color("8edbd3"), 0.08)
+		var mast := BattleVisuals.box(model, Vector3(0.78, 1.08, -0.62), Vector3(0.08, 2.0, 0.08), steel)
+		mast.name = "SignalBeaconMast"
+		var lamp := BattleVisuals.box(model, Vector3(0.78, 2.02, -0.62), Vector3(0.34, 0.22, 0.34), dawn_glass)
+		lamp.name = "SignalBeaconLamp"
+		var dish := BattleVisuals.box(model, Vector3(-0.78, 1.08, 0.72), Vector3(0.72, 0.08, 0.72), copper)
+		dish.name = "SignalBeaconDish"
+		dish.rotation.x = -0.34
+		var beacon_core := BattleVisuals.box(model, Vector3(-0.78, 0.48, 0.72), Vector3(0.48, 0.72, 0.48), glass)
+		beacon_core.name = "SignalBeaconCore"
 	else:
 		# This station only unlocks paid medical squads. Supply cases and a cyan
 		# marker identify the shared camp prototype without adding passive healing.
@@ -590,6 +627,7 @@ func _can_change(index: int) -> Dictionary:
 
 func _changed() -> void:
 	if game.has_method("refresh_construction_navigation"): game.call("refresh_construction_navigation")
+	if game.has_method("refresh_focus_bonus"): game.call("refresh_focus_bonus")
 	for property: Dictionary in game.get_property_list():
 		if String(property.name) != "squads": continue
 		var squads: Node = game.get("squads") as Node
