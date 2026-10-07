@@ -11,8 +11,11 @@ func run() -> void:
 	game.start_night()
 	game.hero.position=Vector3(20,0,20)
 	game.move_goal=game.hero.position
-	var creature: BattleUnit=game.spawn_creature(true)
-	creature.position=Vector3(0,5,1.3)
+	# This case observes an ordinary melee windup; random special roles use
+	# their own attack controllers and do not enter attack_queued here.
+	var creature: BattleUnit=game.spawn_creature(true,"basic")
+	# Stand outside the core footprint, where a real melee attacker can reach it.
+	creature.position=Vector3(0,5,3.6)
 	creature.attack_timer=0
 	var before: float=game.beacon_hp
 	game.update_creature(creature,.1)
@@ -34,5 +37,10 @@ func run() -> void:
 	assert(game.beacon_alarm_damage==first_damage+12.0)
 	game.update_beacon_alarm(3.1)
 	assert(game.beacon_alarm_time==0 and game.beacon_alarm_damage==0)
+	await game.prepare_shutdown()
+	current_scene=null
+	game.queue_free()
+	await process_frame
+	await create_timer(.5).timeout
 	print("NIGHTFALL_BEACON_ALARM_OK")
 	quit()

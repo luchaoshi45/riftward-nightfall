@@ -32,6 +32,14 @@ class FixtureGame extends Node3D:
 		last_notice = message
 	func record_beacon_hit(amount: float) -> void:
 		recorded += amount
+	# This isolated boss fixture supplies the controller's core-damage port;
+	# blueprint damage modifiers are covered by the real-scene holdfast test.
+	func apply_beacon_damage(amount: float, message: String="") -> float:
+		var before:=beacon_hp
+		beacon_hp=maxf(0.0,beacon_hp-amount)
+		record_beacon_hit(before-beacon_hp)
+		if beacon_hp<=0.0:end_defeat(message)
+		return before-beacon_hp
 	func end_defeat(_message: String) -> void:
 		phase = "ended"
 	func spawn_creature(night: bool, role: String = "") -> BattleUnit:

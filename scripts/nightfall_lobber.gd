@@ -387,10 +387,7 @@ func _impact() -> void:
 	if not _active_impact(): return
 	var beacon: Node3D = game.get("world").beacon as Node3D
 	if is_instance_valid(beacon) and float(game.get("beacon_hp")) > 0.0 and _building_covered(beacon.position, "core"):
-		var before := float(game.get("beacon_hp"))
-		game.set("beacon_hp", maxf(0.0, before - amount))
-		game.call("record_beacon_hit", before - float(game.get("beacon_hp")))
-		if float(game.get("beacon_hp")) <= 0.0: game.call("end_defeat", "投蚀体击碎灯塔 · 哨站失守")
+		game.call("apply_beacon_damage", amount, "投蚀体击碎灯塔 · 哨站失守")
 
 func _hurt_unit(fighter: BattleUnit, amount: float, source: BattleUnit) -> void:
 	# damage_confirmed is synchronous. Preserve the real projectile identity even

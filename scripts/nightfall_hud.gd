@@ -970,7 +970,7 @@ func draw_minimap() -> void:
 	for plot: Dictionary in game.districts.plots:
 		if int(plot.level)<=0:continue
 		var p: Vector3=plot.position
-		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0"),"depot":Color("c9be89"),"command_relay":Color("b789d5")}.get(String(plot.kind),muted)
+		var color: Color={"barracks":Color("a9d8cf"),"workshop":Color("d6b777"),"recycler":Color("9fc47b"),"laboratory":Color("9baee0"),"depot":Color("c9be89"),"command_relay":Color("b789d5"),"holdfast_beacon":Color("e2b56c")}.get(String(plot.kind),muted)
 		draw_rect(Rect2(center+Vector2(p.x,p.z)*scale-Vector2(2.5,2.5),Vector2(5,5)),color)
 	if is_instance_valid(game.logistics):
 		for field: Dictionary in game.logistics.snapshot().fields:

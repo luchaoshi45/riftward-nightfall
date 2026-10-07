@@ -201,6 +201,7 @@ var hero_damage_flash_text := ""
 var camera_follow := Vector3.ZERO
 var quitting := false
 var restart_pending := false
+var shutting_down := false
 const SALVAGE_REFRESH := 55.0
 
 func _ready() -> void:
@@ -1432,11 +1433,8 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 					BattleVisuals.sparks(effects,victim.position+Vector3.UP,Color("ef9d76"),5)
 					BattleVisuals.burst(effects,creature.position,.85,Color("d77962"),.2)
 			elif target_kind=="beacon" and final_target:
-				var previous_hp:=beacon_hp
-				beacon_hp=maxf(0,beacon_hp-creature.damage)
-				record_beacon_hit(previous_hp-beacon_hp)
+				apply_beacon_damage(creature.damage)
 				BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),1.15,Color("ff9a4d"),.28)
-				if beacon_hp<=0:end_defeat("灯塔熄灭 · 哨站失守")
 			elif target_kind=="hero" and hero_attackable:
 				hero.hurt(creature.damage,creature)
 				BattleVisuals.sparks(effects,hero.position+Vector3.UP,Color("ef9d76"),5)
@@ -1682,6 +1680,16 @@ func damage_tower(index: int, amount: float) -> void:
 	BattleVisuals.burst(effects,pad.position,2.5,Color("db8757"),.45)
 	notify("城内防御塔被摧毁 · 到残基旁按F重建",3)
 	refresh_construction_navigation()
+
+func apply_beacon_damage(amount: float, defeat_message: String="灯塔熄灭 · 哨站失守") -> float:
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or beacon_hp<=0.0 or not is_finite(amount) or amount<=0.0:return 0.0
+	var multiplier: float=districts.holdfast_damage_multiplier() if is_instance_valid(districts) else 1.0
+	var before:=beacon_hp
+	beacon_hp=maxf(0.0,beacon_hp-amount*multiplier)
+	var actual:=before-beacon_hp
+	record_beacon_hit(actual)
+	if beacon_hp<=0.0:end_defeat(defeat_message)
+	return actual
 
 func record_beacon_hit(amount: float) -> void:
 	if amount<=0:return
@@ -2653,8 +2661,9 @@ func build_gate_barricade() -> bool:
 	return true
 
 func damage_gate_barricade(amount: float) -> void:
-	if gate_barricade_hp<=0:return
-	gate_barricade_hp=maxf(0.0,gate_barricade_hp-amount)
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or gate_barricade_hp<=0.0 or not is_finite(amount) or amount<=0.0:return
+	var multiplier: float=districts.holdfast_damage_multiplier() if is_instance_valid(districts) else 1.0
+	gate_barricade_hp=maxf(0.0,gate_barricade_hp-amount*multiplier)
 	BattleVisuals.sparks(effects,gate_barricade.position+Vector3(0,1.0,0),Color("e5ad73"),5)
 	gate_barricade_ring.material_override.albedo_color=Color("d35f54") if gate_barricade_hp<BARRICADE_MAX*.4 else Color("e2a665")
 	if gate_barricade_hp>0:return
@@ -3592,6 +3601,7 @@ func request_run_restart(same_seed: bool) -> void:
 func prepare_shutdown() -> void:
 	# Retire audio while its players and music bus still belong to the tree.
 	# Removing the bus first can strand pending playback handles during teardown.
+	shutting_down=true
 	set_process(false)
 	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
 	salvage_draw.clear()
@@ -3608,6 +3618,7 @@ func prepare_shutdown() -> void:
 	if rally:rally.clear()
 	if logistics:logistics.clear()
 	if squads:squads.clear()
+	if districts:districts.clear()
 	if skill_lights:skill_lights.clear()
 	if combat:combat.clear_transients()
 	if music:

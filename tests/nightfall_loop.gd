@@ -100,7 +100,7 @@ func run() -> void:
 	var pad: Dictionary=game.world.tower_pads.back()
 	assert(pad.level==1 and game.tower_count()==3)
 	assert(game.interact() and pad.level==2)
-	var tower_target: BattleUnit=game.spawn_creature(true)
+	var tower_target: BattleUnit=game.spawn_creature(true,"basic")
 	assert(tower_target.legs.size()==4 and tower_target.stalker_head!=null)
 	tower_target.position=pad.position+Vector3(5,0,0)
 	var target_hp: float=tower_target.hp

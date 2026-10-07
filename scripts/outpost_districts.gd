@@ -15,9 +15,10 @@ const INFIRMARY := "infirmary"
 const ARMORY := "armory"
 const COMMAND_RELAY := "command_relay"
 const SIGNAL_BEACON := "signal_beacon"
+const HOLDFAST_BEACON := "holdfast_beacon"
 const BARRACKS_SCENE: PackedScene = preload("res://assets/models/survivor_camp.glb")
 const WORKSHOP_SCENE: PackedScene = preload("res://assets/models/day_generator.glb")
-const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0, COMMAND_RELAY: 520.0, SIGNAL_BEACON: 520.0}
+const BASE_HEALTH := {BARRACKS: 600.0, WORKSHOP: 450.0, RECYCLER: 500.0, LABORATORY: 550.0, DEPOT: 500.0, INFIRMARY: 480.0, ARMORY: 600.0, COMMAND_RELAY: 520.0, SIGNAL_BEACON: 520.0, HOLDFAST_BEACON: 520.0}
 const RECOVERY_RADIUS := 12.0
 const RECOVERY_NIGHT_CAP := 24
 const WRECK_SCRAP := 2
@@ -53,12 +54,13 @@ func has_live(kind: String) -> bool:
 
 func build_eligibility(kind: String) -> Dictionary:
 	var result := _technology_eligibility(Catalog.building(kind), "未知建筑")
-	if not bool(result.available) or kind != SIGNAL_BEACON: return result
-	if _selected_blueprint() != SIGNAL_BEACON:
-		return {"available": false, "reason": "需要在开局选择曙光阵列蓝图", "missing": [SIGNAL_BEACON]}
+	if not bool(result.available) or kind not in [SIGNAL_BEACON, HOLDFAST_BEACON]: return result
+	var blueprint_title := "曙光阵列蓝图" if kind == SIGNAL_BEACON else "坚守灯塔蓝图"
+	if _selected_blueprint() != kind:
+		return {"available": false, "reason": "需要在开局选择%s" % blueprint_title, "missing": [kind]}
 	var archive: Variant = _archive()
-	if is_instance_valid(archive) and archive.has_method("has_blueprint") and not bool(archive.call("has_blueprint", SIGNAL_BEACON)):
-		return {"available": false, "reason": "档案尚未解锁曙光阵列蓝图", "missing": [SIGNAL_BEACON]}
+	if not is_instance_valid(archive) or not archive.has_method("has_blueprint") or not bool(archive.call("has_blueprint", kind)):
+		return {"available": false, "reason": "档案尚未解锁%s" % blueprint_title, "missing": [kind]}
 	return result
 
 func live_level(kind: String) -> int:
@@ -350,6 +352,13 @@ func training_duration_multiplier() -> float:
 	# construction from creating an unbounded production advantage.
 	return 1.0 - float(mini(2, _levels(COMMAND_RELAY))) * 0.1
 
+func holdfast_damage_multiplier() -> float:
+	# Existing beacons keep their protection when the prerequisite workshop is
+	# lost. Only the live beacon levels count; rebuilding reads them afresh.
+	if not is_instance_valid(game) or String(game.phase) == "ended": return 1.0
+	var level := clampi(_levels(HOLDFAST_BEACON), 0, 2)
+	return 1.0 if level == 0 else 0.9 if level == 1 else 0.82
+
 func snapshots() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for index in plots.size():
@@ -370,6 +379,7 @@ func snapshots() -> Array[Dictionary]:
 			ARMORY: benefit = "存活时解锁迫击炮队 · 前置研究所与工坊"
 			COMMAND_RELAY: benefit = "存活时缩短兵营训练时长 · 一级×0.9 · 二级×0.8 · 双站封顶"
 			SIGNAL_BEACON: benefit = "存活时 C 集火持续更久、冷却更短 · 一级12/18秒 · 二级14/16秒"
+			HOLDFAST_BEACON: benefit = "核心灯塔与南门路障承伤 · 一级-10% · 二级-18% · 全城封顶18%"
 		if not _living(plot):
 			title += "残址"
 			benefit = "重新选址到这里可付费重建"
@@ -392,7 +402,7 @@ func prompt() -> String:
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON]: return Vector2.ZERO
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON, HOLDFAST_BEACON]: return Vector2.ZERO
 	if not _footprints.has(kind):
 		var model := create_model(kind)
 		var bounds := model_bounds(model)
@@ -401,7 +411,7 @@ func footprint(kind: String) -> Vector2:
 	return _footprints[kind]
 
 func create_model(kind: String) -> Node3D:
-	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON]: return null
+	if kind not in [BARRACKS, WORKSHOP, RECYCLER, LABORATORY, DEPOT, INFIRMARY, ARMORY, COMMAND_RELAY, SIGNAL_BEACON, HOLDFAST_BEACON]: return null
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
@@ -409,7 +419,7 @@ func create_model(kind: String) -> Node3D:
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
-	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "CommandRelayPrototype" if kind == COMMAND_RELAY else "SignalBeaconPrototype" if kind == SIGNAL_BEACON else "InfirmaryPrototype"
+	model.name = "RecyclerPrototype" if kind == RECYCLER else "LaboratoryPrototype" if kind == LABORATORY else "DepotPrototype" if kind == DEPOT else "ArmoryPrototype" if kind == ARMORY else "CommandRelayPrototype" if kind == COMMAND_RELAY else "SignalBeaconPrototype" if kind == SIGNAL_BEACON else "HoldfastBeaconPrototype" if kind == HOLDFAST_BEACON else "InfirmaryPrototype"
 	model.set_meta("building_kind", kind)
 	model.add_child(base)
 	var steel := BattleVisuals.material(Color("384e54"))
@@ -505,6 +515,23 @@ func create_model(kind: String) -> Node3D:
 		dish.rotation.x = -0.34
 		var beacon_core := BattleVisuals.box(model, Vector3(-0.78, 0.48, 0.72), Vector3(0.48, 0.72, 0.48), glass)
 		beacon_core.name = "SignalBeaconCore"
+	elif kind == HOLDFAST_BEACON:
+		# Reuse the generator base with two short guard lamps and a shield plate,
+		# rather than the dawn beacon's mast/dish. Keep every mesh in the 3x2 grid.
+		var guard_glass := BattleVisuals.material(Color("e9ba74"), 0.08)
+		for side in [-1.0, 1.0]:
+			var pillar := BattleVisuals.box(model, Vector3(side * 1.12, 0.74, 0), Vector3(0.18, 1.25, 0.18), steel)
+			pillar.name = "HoldfastShieldPillar"
+			var lamp := BattleVisuals.box(model, Vector3(side * 1.12, 1.49, 0), Vector3(0.4, 0.24, 0.4), guard_glass)
+			lamp.name = "HoldfastGuardLamp"
+			var hood := BattleVisuals.box(model, Vector3(side * 1.12, 1.66, 0), Vector3(0.48, 0.08, 0.48), copper)
+			hood.name = "HoldfastGuardHood"
+		var shield_plate := BattleVisuals.box(model, Vector3(0, 0.62, 0.79), Vector3(1.72, 0.8, 0.12), steel)
+		shield_plate.name = "HoldfastShieldPlate"
+		var shield_bar := BattleVisuals.box(model, Vector3(0, 0.18, 0.80), Vector3(1.92, 0.16, 0.16), copper)
+		shield_bar.name = "HoldfastShieldBar"
+		var shield_mark := BattleVisuals.box(model, Vector3(0, 0.62, 0.868), Vector3(0.28, 0.54, 0.024), copper)
+		shield_mark.name = "HoldfastShieldMark"
 	else:
 		# This station only unlocks paid medical squads. Supply cases and a cyan
 		# marker identify the shared camp prototype without adding passive healing.

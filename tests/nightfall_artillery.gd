@@ -332,7 +332,7 @@ func land(source: BattleUnit) -> void:
 
 func catalog_technology_queue() -> void:
  await fresh()
- check(Catalog.BUILDING_IDS == ["tower","barracks","workshop","recycler","laboratory","depot","infirmary","armory","command_relay","signal_beacon"]
+ check(Catalog.BUILDING_IDS == ["tower","barracks","workshop","recycler","laboratory","depot","infirmary","armory","command_relay","signal_beacon","holdfast_beacon"]
   and Catalog.TROOP_IDS.slice(0,7) == ["shield","ranged","engineer","ballista","hauler","medic","artillery"],
   "The expanded building catalog preserves the original seven-troop prefix")
  var building := Catalog.building("armory"); var troop := Catalog.troop("artillery")

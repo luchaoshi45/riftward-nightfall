@@ -205,13 +205,7 @@ func _apply_slam() -> void:
 			fighter.hurt(SLAM_DAMAGE, source)
 	# 核心只在实际锁定区域内受伤，不因首领在地图别处蓄力而掉血。
 	if _core_point().distance_to(_locked_point) <= SLAM_RADIUS:
-		var previous: float = float(game.get("beacon_hp"))
-		var remaining: float = maxf(0.0, previous - SLAM_DAMAGE)
-		game.set("beacon_hp", remaining)
-		if game.has_method("record_beacon_hit"):
-			game.call("record_beacon_hit", previous - remaining)
-		if remaining <= 0.0 and game.has_method("end_defeat"):
-			game.call("end_defeat", "灯噬巨兽击碎灯塔 · 哨站失守")
+		game.call("apply_beacon_damage", SLAM_DAMAGE, "灯噬巨兽击碎灯塔 · 哨站失守")
 
 func _squad_fighters() -> Array[BattleUnit]:
 	var fighters: Array[BattleUnit] = []

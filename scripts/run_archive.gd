@@ -11,7 +11,7 @@ const BLUEPRINT_IDS := ["signal_beacon", "holdfast_beacon"]
 const OBJECTIVE_IDS := ["victory_signal", "victory_hold"]
 const BLUEPRINT_CATALOG := {
 	"signal_beacon": {"title": "曙光阵列蓝图", "detail": "完成信号结局后记录的远征蓝图"},
-	"holdfast_beacon": {"title": "坚守灯塔蓝图", "detail": "完成坚守结局后记录的防线蓝图"},
+	"holdfast_beacon": {"title": "坚守灯塔蓝图", "detail": "需工坊 · 减伤10%/18%"},
 }
 
 var path := PROFILE_PATH

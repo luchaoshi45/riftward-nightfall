@@ -310,7 +310,7 @@ func begin(source: BattleUnit, target: BattleUnit) -> void:
 
 func catalog_queue() -> void:
  await fresh()
- check(Catalog.BUILDING_IDS.size() == 10 and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic","artillery","hunter","flamer"],
+ check(Catalog.BUILDING_IDS.size() == 11 and Catalog.TROOP_IDS == ["shield","ranged","engineer","ballista","hauler","medic","artillery","hunter","flamer"],
   "Hunter and flamethrower preserve the expanded building catalog and troop roster")
  var troop: Dictionary = Catalog.troop("hunter")
  check(troop.cost == 110 and troop.time == 10.0 and troop.hp == 125.0 and troop.requires == ["workshop"],
