@@ -269,11 +269,16 @@ func live_panel_rects() -> Array[Rect2]:
 	var active_tags:=CleanHud.active_tags_rect(self,game)
 	if active_tags.has_area():areas.append(active_tags)
 	if game.squads.selected_count()>0:areas.append(SELECTED_SQUAD_RECT)
+	var event_priority:=_event_priority()
 	var notice_area:=CleanHud.notice_rect(self,game)
-	if notice_area.has_area():areas.append(notice_area)
-	if game.phase in ["day","night"] and not game.construction.active and not rally_setting() and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
-	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
-	if game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
+	# Conditional event copy is painted through the same priority rail as its
+	# hitbox.  When a higher-priority warning suppresses a notice or prompt,
+	# release that covered space for world input instead of leaving an invisible
+	# interceptor behind.
+	if event_priority==2 and notice_area.has_area():areas.append(notice_area)
+	if event_priority<=1 and game.phase in ["day","night"] and not game.construction.active and not rally_setting() and detail_tab.is_empty() and not game.interaction_prompt().is_empty():areas.append(context_prompt_rect())
+	if event_priority==0 and game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:areas.append(Rect2(24,724,300,30))
+	if event_priority==0 and game.combat_milestone_time>0.0:areas.append(Rect2(566,142,530,36))
 	if game.hero_damage_flash_time>0.0:areas.append(Rect2(558,773,530,24))
 	if not game.target_warning_snapshot().is_empty():areas.append(Rect2(566,606,530,32))
 	return areas
@@ -284,8 +289,56 @@ func context_prompt_rect() -> Rect2:
 	if pad>=0 and game.world.tower_pads[pad].level>=2:return Rect2(435,642,570,84)
 	return Rect2(435,682,570,40)
 
+# The live HUD has several short-lived messages that are useful in isolation
+# but noisy when they arrive on the same frame. Paint and hitboxes share one
+# priority rail so suppressed copy never leaves an invisible input blocker.
+func _has_event_warning() -> bool:
+	if not is_instance_valid(game):return false
+	if float(game.hero_damage_flash_time)>0.0 or float(game.beacon_alarm_time)>0.0:return true
+	if game.has_method("target_warning_snapshot") and not game.target_warning_snapshot().is_empty():return true
+	if game.has_method("lobber_warning_snapshot") and not game.lobber_warning_snapshot().is_empty():return true
+	if game.has_method("summoner_warning_snapshot") and not game.summoner_warning_snapshot().is_empty():return true
+	if game.has_method("warder_warning_snapshot") and not game.warder_warning_snapshot().is_empty():return true
+	return false
+
+func _has_event_prompt() -> bool:
+	return game.phase in ["day","night"] and not game.construction.active and not rally_setting() \
+		and detail_tab.is_empty() and not game.interaction_prompt().is_empty()
+
+func _has_event_notice() -> bool:
+	return CleanHud.notice_rect(self,game).has_area()
+
+func _event_priority() -> int:
+	if _has_event_warning():return 3
+	if _has_event_notice():return 2
+	if _has_event_prompt():return 1
+	return 0
+
+func _draw_live_with_event_priority() -> void:
+	# Mirror CleanHud.draw_live so notice painting can participate in the same
+	# priority rail without changing notice_rect(), notice text, or hit areas.
+	var phase: String=String(game.phase)
+	if game.phase=="paused":phase=String(game.paused_from)
+	elif game.phase=="draft":phase=String(game.return_phase)
+	CleanHud._draw_phase(self,game,phase)
+	CleanHud._draw_objective(self,game,phase)
+	CleanHud._draw_resources(self,game)
+	CleanHud._draw_hero(self,game)
+	CleanHud._draw_navigation_buttons(self,game)
+	var warning:=_has_event_warning()
+	# Urgent warnings win over ordinary notices, and notices win over the
+	# contextual interaction copy. The notice state itself remains untouched for
+	# resumption, while draw_context_prompt() yields when a notice is painted.
+	if not warning:CleanHud._draw_notice(self,game)
+	if not game.construction.active and detail_tab in CleanHud.TAB_IDS:
+		CleanHud._draw_drawer(self,game,detail_tab)
+	elif not game.construction.active:
+		CleanHud._draw_active_tags(self,game)
+
 func draw_context_prompt() -> void:
 	if game.phase not in ["day","night"] or game.construction.active or rally_setting() or not detail_tab.is_empty():return
+	if _has_event_warning():return
+	if _has_event_notice():return
 	var prompt: String=game.interaction_prompt()
 	if prompt.is_empty():return
 	var rect:=context_prompt_rect()
@@ -321,7 +374,7 @@ func _draw() -> void:
 		draw_result()
 		return
 	draw_combat_floats()
-	CleanHud.draw_live(self)
+	_draw_live_with_event_priority()
 	draw_minimap()
 	draw_context_prompt()
 	draw_construction()
@@ -773,17 +826,21 @@ func draw_day_forecast() -> void:
 
 func draw_combat_rewards() -> void:
 	if game.phase not in ["day","night","paused"] or not is_instance_valid(game.combat):return
+	var transient_priority:=_event_priority()
 	var step: int=clampi(int(game.attack_chain),0,2)
 	var charged: bool=step==2 and game.attack_chain_time>0.0
 	for index in 3:
 		var point:=Vector2(489+index*16,819)
 		draw_circle(point,3.5,amber if index<step else Color("354b4e"))
 		if index==2:draw_arc(point,5,0,TAU,20,amber if charged else muted,1.0,true)
-	if game.kill_chain>0 and game.kill_chain_time>0.0 and detail_tab.is_empty() and not game.construction.active:
+	# The three-hit dots are persistent combat state. The textual streak and
+	# milestone share one quiet slot so they never compete with each other or
+	# with an interaction/notice rail.
+	if transient_priority==0 and game.kill_chain>0 and game.kill_chain_time>0.0 and game.combat_milestone_time<=0.0 and detail_tab.is_empty() and not game.construction.active:
 		draw_line(Vector2(24,724),Vector2(104,724),Color("c19a5f",.68),1.0)
 		label("连斩%d · %.1f秒" % [game.kill_chain,game.kill_chain_time],Vector2(24,744),14,amber)
 		progress(Rect2(24,749,220,2),game.kill_chain_time/6.0,Color(amber,.65))
-	if game.combat_milestone_time>0.0:
+	if transient_priority==0 and game.combat_milestone_time>0.0:
 		var fade: float=minf(1.0,game.combat_milestone_time/.35)
 		var message: String=game.combat_milestone_title+" · "+game.combat_milestone_detail
 		draw_line(Vector2(566,142),Vector2(662,142),Color("c7a56e",fade),1.0)

@@ -59,18 +59,19 @@ static func _phase(game: Node3D) -> String:
 static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var night:=phase=="night"
 	var tint: Color=ui.red if night else ui.amber
-	# The live layer is deliberately cardless. A compact status rail preserves
-	# orientation while leaving the castle and approach lanes unobstructed.
-	ui.draw_circle(Vector2(33,35),4.0,Color(tint,.9))
-	ui.label("D%d · %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
+	# The live layer is deliberately cardless. Keep the phase rail to one short
+	# line and a timer; the mode name belongs in F3 details and should not compete
+	# with the battlefield every frame.
+	ui.draw_circle(Vector2(33,35),3.0,Color(tint,.82))
+	ui.label("D%d %s" % [game.day_number,"夜" if night else "日"],Vector2(45,40),14,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
 	ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(127,40),14,LIVE_INK)
-	var detail: String=game.run_mode_title()
-	if night:detail="第%d/%d波 · %s" % [game.wave_index,game.WAVES_PER_NIGHT,game.run_mode_title()]
-	ui.label(detail,Vector2(45,60),11,LIVE_QUIET)
+	if night:
+		ui.label("第%d/%d波" % [game.wave_index,game.WAVES_PER_NIGHT],Vector2(45,60),11,LIVE_QUIET)
+	else:
+		ui.label("整备窗口",Vector2(45,60),11,LIVE_QUIET)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
 	ui.progress(Rect2(45,70,193,2),float(game.phase_time)/length,Color(tint,.38))
-	ui.draw_line(Vector2(45,79),Vector2(238,79),Color(RAIL_GHOST,.55),1.0)
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
@@ -84,12 +85,14 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 		_draw_boss(ui,game,boss)
 		return
 	var title:="守住南门"
-	var detail:="F3 查看战术详情"
+	var detail:=""
+	var urgent:=false
 	if phase=="night":
 		var preview: Dictionary=game.wave_preview()
 		if not preview.is_empty():
 			title="下一波 · %s · %d只 · %.0f秒" % [String(preview.title),int(preview.count),float(preview.remaining)]
-			detail=String(preview.advice)
+			urgent=float(preview.remaining)<=10.0
+			detail=String(preview.advice) if urgent else ""
 			if int(preview.get("warder_count",0))>0:detail="织壳1秒 · 32盾/4秒 · 最多3次 · 击杀或牵制打断 · F3 防线"
 			if int(preview.get("shellguard_count",0))>0:detail="甲壳卫60甲 · 二级塔J破甲忽略半甲 · C集火 · F3 防线"
 			if String(preview.get("bounty_id",""))=="shellguard_pack":
@@ -102,22 +105,25 @@ static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 		else:
 			title="最后一波已抵达 · 守住南门"
 			detail="处理主要威胁，保护灯塔与受压防线"
+		urgent=true
 	elif phase=="day":
 		var contract: Node=game.contracts
 		title=_contract_objective(contract)
 		if String(contract.status)=="active":
 			var remaining:=maxf(0.0,float(game.phase_time)-contract.selected_risk_seconds())
-			detail="目标余时 %.0f秒 · P 指路 / F 行动 · F3 查看方案" % remaining
+			urgent=remaining<=10.0
+			detail="目标余时 %.0f秒 · F3 查看方案" % remaining if urgent else ""
 		elif String(contract.status)=="bonus_offer":detail="4 返家 / 5 追加 · F3 战术"
 		elif String(contract.status) in ["bonus_active","returning"]:detail="P 前往目标 · 日落前回灯塔"
-		else:detail="Y 建造 · P 搜寻"
+		else:detail=""
 	if float(game.beacon_alarm_time)>0.0:
 		detail="灯塔受到攻击 -%d · 立即回防" % ceili(float(game.beacon_alarm_damage))
+		urgent=true
 	# One title and one supporting line are enough for the live layer. The F3
 	# drawer owns the longer plan, route and countermeasure explanations.
 	_paragraph(ui,title,Vector2(444,43),552,16,ui.amber if phase=="night" else GREEN,19,1)
-	_paragraph(ui,detail,Vector2(444,66),552,12,ui.red if float(game.beacon_alarm_time)>0.0 else LIVE_MUTED,17,1)
-	ui.draw_line(Vector2(444,84),Vector2(992,84),Color(accent,.14),1.0)
+	if not detail.is_empty():
+		_paragraph(ui,detail,Vector2(444,66),552,12,ui.red if urgent else LIVE_MUTED,17,1)
 
 static func _draw_boss(ui: Control, game: Node3D, boss: Dictionary) -> void:
 	var state:=String(boss.get("phase","approach"))
@@ -153,12 +159,11 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	ui.progress(Rect2(1100,53,288,2),float(game.beacon_hp)/float(game.BEACON_MAX),Color(tint,.56))
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
-	# Skills are the only persistent bottom controls. They share one quiet rail,
-	# use a single key marker, and reveal cooldown text only when it matters.
-	ui.draw_line(Vector2(HERO_RECT.position.x,HERO_RECT.position.y+8),Vector2(HERO_RECT.end.x,HERO_RECT.position.y+8),Color(RAIL_FAINT,.72),1.0)
-	ui.label("生命 %d/%d" % [ceili(float(game.hero.hp)),int(game.hero.max_hp)],Vector2(360,832),12,LIVE_INK)
-	ui.progress(Rect2(360,840,168,4),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
-	ui.label("法力 %d/%d" % [floori(float(game.mana)),int(game.max_mana)],Vector2(360,864),11,BLUE)
+	# Skills are the only persistent bottom controls. They use small key markers
+	# and one label each; the old full-width shelf is intentionally gone.
+	ui.label("生命 %d" % ceili(float(game.hero.hp)),Vector2(360,832),12,LIVE_INK)
+	ui.progress(Rect2(360,840,168,3),float(game.hero.hp)/maxf(1.0,float(game.hero.max_hp)),ui.red)
+	ui.label("法力 %d" % floori(float(game.mana)),Vector2(360,864),11,BLUE)
 	ui.progress(Rect2(360,870,168,2),float(game.mana)/maxf(1.0,float(game.max_mana)),BLUE)
 	var keys:=["Q","W","E","R","X"]
 	var names:=["斩光","屏障","突进","灯焰","治疗"]
@@ -169,17 +174,15 @@ static func _draw_hero(ui: Control, game: Node3D) -> void:
 		var status: String=game.skill_status(index)
 		var ready:=status=="就绪"
 		var tint: Color=ui.red if status=="法力不足" else (ui.amber if ready else ui.muted)
-		ui.draw_circle(Vector2(x+20,827),8.0,Color(tint,.12 if not ready else .2))
-		ui.draw_arc(Vector2(x+20,827),8.0,0,TAU,16,Color(tint,.78),1.0)
+		ui.draw_circle(Vector2(x+20,827),7.0,Color(tint,.08 if not ready else .14))
+		ui.draw_arc(Vector2(x+20,827),7.0,0,TAU,16,Color(tint,.62),1.0)
 		ui.label(keys[index],Vector2(x+14,831),11,tint,true)
 		ui.label(names[index],Vector2(x+39,831),12,LIVE_INK if ready else LIVE_MUTED)
-		if ready:ui.draw_rect(Rect2(x+11,848,75,2),Color("668571",.30))
-		else:ui.label(status,Vector2(x+11,864),11,tint)
+		if not ready:ui.label(status,Vector2(x+11,856),11,tint)
 	var pending:=int(game.run.pending)
 	var available: bool=game.run.has_available_upgrade()
 	var affordable: bool=available and int(game.scrap)>=game.run.memory_cost()
 	var ready: bool=pending>0 or affordable
-	ui.draw_line(Vector2(MEMORY_DRAW_RECT.position.x,MEMORY_DRAW_RECT.position.y+8),Vector2(MEMORY_DRAW_RECT.end.x,MEMORY_DRAW_RECT.position.y+8),Color("527568",.25),1.0)
 	ui.draw_circle(Vector2(1120,833),3.0,Color(ui.amber,.85) if ready else RAIL)
 	ui.label("V",Vector2(1130,837),13,ui.amber if ready else ui.muted,true)
 	ui.label("强化",Vector2(1147,837),12,ui.amber if ready else ui.muted)
@@ -200,14 +203,9 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var nav_tint: Color=GREEN if open else ui.muted
 	ui.label("F3",Vector2(43,848),13,nav_tint,true)
 	ui.label("详情" if not open else "收起",Vector2(66,848),12,nav_tint)
-	ui.draw_line(Vector2(36,858),Vector2(137,858),Color(nav_tint,.24),1.0)
-	ui.draw_line(Vector2(153,836),Vector2(153,858),RAIL_FAINT,1.0)
 	ui.label("M 地图",Vector2(174,848),12,LIVE_MUTED)
-	ui.draw_line(Vector2(168,858),Vector2(244,858),Color("617364",.14),1.0)
 	var build_tint: Color=GREEN if game.construction.active else ui.muted
-	ui.draw_line(Vector2(250,836),Vector2(250,858),RAIL_FAINT,1.0)
 	ui.label("Y 建造",Vector2(268,848),12,build_tint)
-	ui.draw_line(Vector2(263,858),Vector2(329,858),Color(build_tint,.18),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
