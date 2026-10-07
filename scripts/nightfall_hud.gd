@@ -339,6 +339,7 @@ func _event_priority() -> int:
 func _draw_live_with_event_priority() -> void:
 	# Mirror CleanHud.draw_live so notice painting can participate in the same
 	# priority rail without changing notice_rect(), notice text, or hit areas.
+	CleanHud._draw_focus_rails(self,game)
 	var phase: String=String(game.phase)
 	if game.phase=="paused":phase=String(game.paused_from)
 	elif game.phase=="draft":phase=String(game.return_phase)

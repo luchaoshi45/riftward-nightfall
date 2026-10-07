@@ -40,6 +40,7 @@ const DRAWER_FILL := Color(.021,.037,.040,.96)
 static func draw_live(ui: Control) -> void:
 	var game: Node3D=ui.get("game") as Node3D
 	if not is_instance_valid(game) or not is_instance_valid(game.hero):return
+	_draw_focus_rails(ui,game)
 	var phase:=_phase(game)
 	_draw_phase(ui,game,phase)
 	_draw_objective(ui,game,phase)
@@ -52,6 +53,18 @@ static func draw_live(ui: Control) -> void:
 	elif not game.construction.active:
 		_draw_active_tags(ui,game)
 
+static func _draw_focus_rails(ui: Control, game: Node3D) -> void:
+	# One quiet frame replaces the old stack of independent cards. It separates
+	# the playable world from the two intentional information bands without
+	# adding another panel or intercepting any input.
+	var phase:=_phase(game)
+	var accent: Color=Color(ui.red,.48) if phase=="night" else Color(ui.amber,.42)
+	ui.draw_line(Vector2(24,79),Vector2(1416,79),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,802),Vector2(1416,802),RAIL_GHOST,1.0)
+	ui.draw_line(Vector2(24,79),Vector2(24,91),Color(accent,.44),1.0)
+	ui.draw_line(Vector2(1416,79),Vector2(1416,91),RAIL_FAINT,1.0)
+	ui.draw_line(Vector2(344,802),Vector2(1096,802),Color(accent,.30),1.0)
+
 static func _phase(game: Node3D) -> String:
 	if game.phase=="paused":return String(game.paused_from)
 	if game.phase=="draft":return String(game.return_phase)
@@ -62,20 +75,21 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 	var tint: Color=ui.red if night else ui.amber
 	var quiet_tint: Color=Color(LIVE_QUIET, .66) if bool(ui.get("minimal_display")) else LIVE_QUIET
 	# The live view uses one quiet top rail. The rectangle remains part of the
-	# logical exclusion map, but the visual layer is reduced to a dot, two short
-	# status lines and a hairline timer so the battlefield stays dominant.
+	# logical exclusion map, but the visual layer is reduced to one phase chip,
+	# one clock and a hairline timer so the battlefield stays dominant.
 	ui.box(PHASE_RECT,PHASE_FILL,Color(0,0,0,0))
-	ui.draw_circle(Vector2(33,37),3.0,Color(tint,.82))
-	ui.label("D%d · %s" % [game.day_number,"夜" if night else "日"],Vector2(45,41),14,tint)
+	ui.draw_line(Vector2(24,26),Vector2(24,70),Color(tint,.56),1.5)
+	ui.draw_circle(Vector2(35,37),3.0,Color(tint,.88))
+	ui.label("D%d · %s" % [game.day_number,"夜" if night else "日"],Vector2(47,41),15,tint)
 	var seconds:=maxi(0,ceili(float(game.phase_time)))
 	var clearance: Dictionary=game.night_clearance_snapshot() if night else {}
 	var clearing:=bool(clearance.get("active",false))
 	if clearing:
 		var elapsed:=floori(float(clearance.elapsed))
-		ui.label("清场 +%02d:%02d" % [elapsed/60,elapsed%60],Vector2(112,41),14,LIVE_INK)
-		ui.label("残敌%d · 飞弹%d" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(45,60),11,quiet_tint)
+		ui.label("清场 %02d:%02d" % [elapsed/60,elapsed%60],Vector2(116,41),15,LIVE_INK)
+		ui.label("残敌%d · 飞弹%d" % [int(clearance.remaining),int(clearance.projectiles)],Vector2(47,60),11,quiet_tint)
 	else:
-		ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(112,41),14,LIVE_INK)
+		ui.label("%02d:%02d" % [seconds/60,seconds%60],Vector2(116,41),15,LIVE_INK)
 	# In focus mode the center objective already carries the wave/contract
 	# context, so the second phase line is reserved for the live clearing count.
 	# The full tactical drawer still exposes the same information on demand.
@@ -85,25 +99,25 @@ static func _draw_phase(ui: Control, game: Node3D, phase: String) -> void:
 		elif not night:
 			ui.label("整备窗口",Vector2(45,60),11,quiet_tint)
 	var length: float=game.NIGHT_LENGTH if night else game.DAY_LENGTH
-	ui.draw_line(Vector2(45,72),Vector2(236,72),Color(tint,.12),1.0)
-	ui.draw_line(Vector2(45,72),Vector2(45+191.0*clampf(float(game.phase_time)/length,0.0,1.0),72),Color(tint,.56),1.0)
+	ui.draw_line(Vector2(47,72),Vector2(236,72),Color(tint,.12),1.0)
+	ui.draw_line(Vector2(47,72),Vector2(47+189.0*clampf(float(game.phase_time)/length,0.0,1.0),72),Color(tint,.62),1.0)
 
 static func _draw_objective(ui: Control, game: Node3D, phase: String) -> void:
 	var boss: Dictionary=game.boss_snapshot() if phase=="night" else {}
 	var state:=_objective_copy(game,phase)
 	var rect:=objective_rect(ui,game)
 	ui.box(rect,OBJECTIVE_NIGHT_FILL if phase=="night" else OBJECTIVE_DAY_FILL,Color(0,0,0,0))
-	var accent:=Color("815e4b",.78) if phase=="night" else Color("587768",.72)
-	# The focus layout uses one quiet marker instead of a card edge. Detailed
-	# route and counter information stays in F3 so the world remains dominant.
-	ui.draw_circle(rect.position+Vector2(4,20),2.0,accent)
+	var accent:=Color("c77c65",.82) if phase=="night" else Color("73aa92",.78)
+	# The focus layout uses a single vertical marker instead of a card edge.
+	# Detailed route and counter information stays in F3 so the world remains dominant.
+	ui.draw_line(rect.position+Vector2(4,10),rect.position+Vector2(4,rect.size.y-8),accent,1.5)
 	if not boss.is_empty():
 		_draw_boss(ui,game,boss)
 		return
 	var title_point:=rect.position+Vector2(18,24)
-	_paragraph(ui,String(state.title),title_point,552,16,ui.amber if phase=="night" else GREEN,19,1)
+	_paragraph(ui,String(state.title),title_point,552,17,ui.amber if phase=="night" else GREEN,20,1)
 	if not String(state.detail).is_empty():
-		_paragraph(ui,String(state.detail),rect.position+Vector2(18,47),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
+		_paragraph(ui,String(state.detail),rect.position+Vector2(18,48),552,12,ui.red if bool(state.urgent) else LIVE_MUTED,17,1)
 
 static func objective_rect(ui: Control, game: Node3D) -> Rect2:
 	if _phase(game)=="night" and not game.boss_snapshot().is_empty():
@@ -183,11 +197,12 @@ static func _draw_resources(ui: Control, game: Node3D) -> void:
 	var threatened:=float(game.beacon_alarm_time)>0.0
 	var tint: Color=ui.red if threatened else Color(ui.amber,.92)
 	ui.box(RESOURCE_RECT,RESOURCE_FILL,Color(0,0,0,0))
-	ui.draw_circle(Vector2(1089,37),3.0,Color(ui.amber,.82))
-	ui.label("零件 %d" % int(game.scrap),Vector2(1100,41),15,ui.ink)
-	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1202,41),13,tint)
-	ui.draw_line(Vector2(1202,52),Vector2(1390,52),FOCUS_GHOST,1.0)
-	ui.draw_line(Vector2(1202,52),Vector2(1202+188.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.62),1.0)
+	ui.draw_line(Vector2(1080,26),Vector2(1080,58),Color(tint,.28),1.0)
+	ui.draw_circle(Vector2(1091,37),3.0,Color(ui.amber,.88))
+	ui.label("零件 %d" % int(game.scrap),Vector2(1103,41),15,ui.ink)
+	ui.label("灯塔 %d/%d" % [ceili(float(game.beacon_hp)),int(game.BEACON_MAX)],Vector2(1214,41),13,tint)
+	ui.draw_line(Vector2(1214,52),Vector2(1390,52),FOCUS_GHOST,1.0)
+	ui.draw_line(Vector2(1214,52),Vector2(1214+176.0*clampf(float(game.beacon_hp)/float(game.BEACON_MAX),0.0,1.0),52),Color(tint,.68),1.0)
 
 static func _draw_hero(ui: Control, game: Node3D) -> void:
 	# One compact dock groups health, skills and the optional upgrade. These
@@ -322,8 +337,8 @@ static func selected_command_hint(ui: Control, game: Node3D) -> String:
 static func selected_command_active(game: Node3D) -> bool:
 	if not is_instance_valid(game) or not is_instance_valid(game.squads):return false
 	for squad: Dictionary in game.squads.squads:
-		if not bool(squad.selected) or int(squad.alive)<=0:continue
-		if String(squad.order) in ["attack_move","escort","capture"] or bool(squad.get("manual_recall",false)):
+		if not bool(squad.get("selected",false)) or int(squad.get("alive",0))<=0:continue
+		if String(squad.get("order","")) in ["attack_move","escort","capture"] or bool(squad.get("manual_recall",false)):
 			return true
 	return is_instance_valid(game.logistics) and game.logistics.selected_hauler_count()>0
 
