@@ -275,7 +275,7 @@ func live_panel_rects() -> Array[Rect2]:
 	if not is_instance_valid(game) or game.phase not in ["day","night","paused"]:return areas
 	var objective:=CleanHud.objective_rect(self,game)
 	areas.assign([CleanHud.PHASE_RECT,objective,CleanHud.RESOURCE_RECT,CleanHud.HERO_RECT,
-		TACTICS_BUTTON_RECT,MAP_BUTTON_RECT,BUILD_BUTTON_RECT])
+		TACTICS_BUTTON_RECT,MAP_BUTTON_RECT])
 	var pending:=int(game.run.pending) if is_instance_valid(game.run) else 0
 	var upgrade_ready: bool=is_instance_valid(game.run) and (pending>0 or (game.run.has_available_upgrade() and int(game.scrap)>=game.run.memory_cost()))
 	if not minimal_display or upgrade_ready:areas.append(MEMORY_BUTTON_RECT)
@@ -452,10 +452,9 @@ func troop_page_rect(direction: int) -> Rect2:
 	return Rect2(456 if direction<0 else 493,267,29,26)
 
 func visible_construction_kinds() -> Array[String]:
+	# Compatibility query exposes only the earned permit, never a catalogue.
 	var kinds: Array[String]=[]
-	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
-	for index in range(page*CATALOG_PAGE_SIZE,mini((page+1)*CATALOG_PAGE_SIZE,Catalog.BUILDING_IDS.size())):
-		kinds.append(Catalog.BUILDING_IDS[index])
+	if is_instance_valid(game) and not game.pending_build_permit_kind.is_empty():kinds.append(game.pending_build_permit_kind)
 	return kinds
 
 func visible_training_kinds() -> Array[String]:
@@ -466,24 +465,13 @@ func visible_training_kinds() -> Array[String]:
 	return kinds
 
 func select_construction_slot(index: int) -> bool:
-	if not is_instance_valid(game) or game.phase not in ["day","night"]:return false
-	var kinds:=visible_construction_kinds()
-	if not game.construction.active:kinds.assign(Catalog.BUILDING_IDS.slice(0,CATALOG_PAGE_SIZE))
-	if index<0 or index>=kinds.size():return false
-	if not game.construction.select_kind(kinds[index]):return false
-	construction_page=Catalog.BUILDING_IDS.find(kinds[index])/CATALOG_PAGE_SIZE
-	game.selection_dragging=false
-	dismiss_details()
-	return true
+	if index!=0 or visible_construction_kinds().is_empty():return false
+	if game.construction.active:return game.construction.kind==game.pending_build_permit_kind
+	return game.toggle_tower_construction()
 
-func change_construction_page(direction: int) -> void:
-	if not game.construction.active or game.phase not in ["day","night"]:return
-	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
-	var next:=clampi(page+direction,0,ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))-1)
-	if next==page:return
-	if game.construction.select_kind(Catalog.BUILDING_IDS[next*CATALOG_PAGE_SIZE]):
-		construction_page=next
-		queue_redraw()
+func change_construction_page(_direction: int) -> void:
+	# Building pages were removed; all player-facing selection comes from crates.
+	return
 
 func change_troop_page(direction: int) -> void:
 	if detail_tab!="army" or game.phase not in ["day","night","paused"]:return
@@ -499,41 +487,25 @@ func draw_construction() -> void:
 	if not bool(placement.valid) and bool(placement.space_valid):tint=amber if bool(placement.tech_valid) else Color("aca0e8")
 	if selling:tint=red if bool(placement.valid) else muted
 	if repairing:tint=Color("85d5a5") if bool(placement.valid) else muted
-	# Construction is an action rail, not a second information drawer. Keep the
-	# existing hit rectangles and shortcuts, but give the panel one quiet surface
-	# and reserve strong contrast for the selected building or an invalid site.
+	# A crate permit is a single action, never a catalogue. Keep only the
+	# placement summary and the existing grid preview; the world remains the
+	# place where the player discovers what to build.
 	box(CONSTRUCTION_PANEL_RECT,Color(.018,.038,.038,.82),Color(tint,.72))
-	var kinds:=visible_construction_kinds()
-	for index in kinds.size():
-		var kind: String=kinds[index]
-		var rect:=construction_kind_rect(index)
-		var selected: bool=not selling and not repairing and kind==String(game.construction.kind)
-		var card_fill:=Color(.07,.16,.13,.88) if selected else Color(.015,.03,.033,.34)
-		box(rect,card_fill,Color(tint,.9) if selected else Color(muted,.38))
-		label("%d %s" % [index+1,String(Catalog.building(kind).title)],rect.position+Vector2(14,22),14,ink)
 	var grid_size: Vector2i=placement.size
 	if repairing:
 		if bool(placement.valid):
-			label("维修  %s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止" if bool(placement.repairing) else "点击确认"],Vector2(457,714),17,ink)
-		else:label("维修 · 指向受损建筑",Vector2(457,714),17,muted)
+			label("维修 · %s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止" if bool(placement.repairing) else "点击确认"],Vector2(457,690),17,ink)
+		else:label("维修 · 指向受损建筑",Vector2(457,690),17,muted)
 	elif selling:
-		label("%s  %s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖 · 指向建筑查看退款",Vector2(457,714),17,red if bool(placement.valid) else muted)
+		label("%s · %s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖 · 指向建筑查看退款",Vector2(457,690),17,red if bool(placement.valid) else muted)
 	else:
-		label("%s  ·  %d×%d格  ·  %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,714),17,ink)
-	var page: int=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
-	var pages:=ceili(Catalog.BUILDING_IDS.size()/float(CATALOG_PAGE_SIZE))
-	label("%d/%d" % [page+1,pages],Vector2(877,716),12,muted,true)
-	for direction in [-1,1]:
-		var rect:=construction_page_rect(direction)
-		var available: bool=page+direction>=0 and page+direction<pages
-		box(rect,Color(.015,.03,.033,.42),Color(muted,.48))
-		label("<" if direction<0 else ">",rect.position+Vector2(8,18),14,amber if available else muted)
+		label("许可 · %s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,690),17,ink)
 	var reason:=String(placement.reason)
-	if reason.is_empty() and not repairing and not selling:reason="移动鼠标选址"
-	label(reason,Vector2(457,740),14,tint if not bool(placement.valid) else muted)
-	label("左键/F 确认  ·  右键/Esc/Y 退出",Vector2(457,766),13,amber)
+	if reason.is_empty() and not repairing and not selling:reason="移动鼠标选择合法格子"
+	label(reason,Vector2(457,718),14,tint if not bool(placement.valid) else muted)
+	label("左键/F 确认  ·  右键/Esc 取消  ·  成功后自动扣费",Vector2(457,744),13,amber)
 	box(REPAIR_BUTTON_RECT,Color(.045,.13,.09,.82) if repairing else Color(.015,.03,.033,.38),Color("85d5a5") if repairing else Color(muted,.5))
-	label("H 建造" if repairing else "H 维修",REPAIR_BUTTON_RECT.position+Vector2(17,18),13,Color("85d5a5") if repairing else ink)
+	label("H 退出维修" if repairing else "H 维修",REPAIR_BUTTON_RECT.position+Vector2(13,18),13,Color("85d5a5") if repairing else ink)
 	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.84) if selling else Color(.015,.03,.033,.38),red if selling else Color(muted,.5))
 	label("Del 建造" if selling else "Del 拆卖",DEMOLITION_BUTTON_RECT.position+Vector2(17,18),13,red if selling else ink)
 
@@ -1324,7 +1296,7 @@ func growth_lines(snapshot: Dictionary) -> Array[String]:
 	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","零件可用于维修、城区或小队","塔改装与城区选择均由你决定"]
 	var action: String={"build":"建造一级","place":"自由建造","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
 	var state: String="可负担" if bool(tower.affordable) else "还差%d" % int(tower.shortfall)
-	var operation: String="Y 选址" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
+	var operation: String="补给箱许可" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
 	return ["防线：%s · %s" % [String(tower.label),action],
 		"%d零件 · %s · %s" % [int(tower.cost),state,operation],String(tower.benefit)]
 
@@ -1514,15 +1486,20 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if game.phase not in ["day","night","paused"]:return
 	if event is InputEventMouseButton:
+		# A live permit preview owns its entire action rail for both mouse press
+		# and release.  Do this before the left-click-only branch so right-click
+		# cannot leak through into world movement.
+		if game.construction.active and game.phase in ["day","night"] and CONSTRUCTION_PANEL_RECT.has_point(point):
+			if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
+				if REPAIR_BUTTON_RECT.has_point(point):game.construction.toggle_repair();accept_event();return
+				if DEMOLITION_BUTTON_RECT.has_point(point):game.construction.toggle_sell();accept_event();return
+			accept_event();return
 		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 			if rally_setting() and RALLY_CANCEL_RECT.has_point(point):
 				game.rally.cancel_setting();queue_redraw();accept_event();return
 			if TACTICS_BUTTON_RECT.has_point(point):toggle_details();accept_event();return
 			if MAP_BUTTON_RECT.has_point(point) or ((not minimal_display or map_expanded) and minimap_rect().has_point(point)):
 				toggle_map();accept_event();return
-			if BUILD_BUTTON_RECT.has_point(point):
-				if game.phase in ["day","night"]:game.toggle_tower_construction()
-				accept_event();return
 			if not detail_tab.is_empty() and not game.construction.active:
 				if DETAIL_CLOSE_RECT.has_point(point):dismiss_details();accept_event();return
 				for index in CleanHud.TAB_IDS.size():
@@ -1557,13 +1534,6 @@ func _gui_input(event: InputEvent) -> void:
 				if (not minimal_display or upgrade_ready) and MEMORY_BUTTON_RECT.has_point(point):
 					if not rally_setting():game.request_upgrade()
 					accept_event();return
-				if game.construction.active:
-					if REPAIR_BUTTON_RECT.has_point(point):game.construction.toggle_repair();accept_event();return
-					if DEMOLITION_BUTTON_RECT.has_point(point):game.construction.toggle_sell();accept_event();return
-					for direction in [-1,1]:
-						if construction_page_rect(direction).has_point(point):change_construction_page(direction);accept_event();return
-					for index in visible_construction_kinds().size():
-						if construction_kind_rect(index).has_point(point):select_construction_slot(index);accept_event();return
 				elif detail_tab=="army":
 					if RALLY_SET_RECT.has_point(point):begin_rally_setting();accept_event();return
 					if RALLY_RESET_RECT.has_point(point) and game.rally:

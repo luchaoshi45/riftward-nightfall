@@ -2,6 +2,7 @@ extends Node3D
 ## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
 const Layout = preload("res://scripts/outpost_layout.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
+const Grid = preload("res://scripts/construction_grid.gd")
 const ConstructionScript = preload("res://scripts/tower_construction.gd")
 const RallyScript = preload("res://scripts/outpost_rally.gd")
 const ControlGroupsScript = preload("res://scripts/outpost_control_groups.gd")
@@ -24,6 +25,7 @@ const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
 const BurstlingScript = preload("res://scripts/nightfall_burstling.gd")
 const HaulRaiderScript = preload("res://scripts/nightfall_haul_raider.gd")
+const SupplyCrateScript = preload("res://scripts/outpost_supply_crate.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const RunArchiveScript = preload("res://scripts/run_archive.gd")
 const DAY_LENGTH := 90.0
@@ -213,6 +215,19 @@ var quitting := false
 var restart_pending := false
 var shutting_down := false
 const SALVAGE_REFRESH := 55.0
+const SUPPLY_CRATE_INTERVAL := 25.0
+const SUPPLY_CRATE_MAX := 3
+const SUPPLY_CRATE_TRIGGER_RADIUS := 1.65
+const SUPPLY_CRATE_SPAWN_ATTEMPTS := 36
+var supply_crates: Array[Node3D] = []
+var supply_crate_clock := 0.0
+var supply_crate_serial := 0
+var supply_rng := RandomNumberGenerator.new()
+var supply_rewards_draining := false
+var supply_training_reason := ""
+var pending_build_permit_kind := ""
+var pending_training_order_kind := ""
+var supply_reward_queue: Array[Dictionary] = []
 
 func _ready() -> void:
 	get_tree().auto_accept_quit=false
@@ -227,6 +242,7 @@ func _ready() -> void:
 		opening_contract_id=String(next_run.get("contract_id", ""))
 	rng.seed=RunSessionScript.stream_seed(run.seed_value,"combat")
 	spawn_rng.seed=RunSessionScript.stream_seed(run.seed_value,"spawns")
+	supply_rng.seed=RunSessionScript.stream_seed(run.seed_value ^ 56237,"spawns")
 	world=NightfallWorld.new();add_child(world);world.build()
 	build_hero_navigation()
 	effects=Node3D.new();add_child(effects)
@@ -485,6 +501,7 @@ func simulate(delta: float) -> void:
 	update_exploration_guidance()
 	wildlife.tick(delta)
 	update_salvage_refresh(delta)
+	advance_supply_crates(delta)
 	if phase=="night":
 		if not night_clearance_active:
 			if wave_index<WAVES_PER_NIGHT:
@@ -509,6 +526,8 @@ func simulate(delta: float) -> void:
 			if not _has_living_night_enemies():finish_night()
 
 func start_night() -> void:
+	clear_supply_crates(false)
+	if is_instance_valid(construction) and construction.active:construction.cancel()
 	salvage_draw.on_night()
 	clear_lobbers()
 	clear_burstlings()
@@ -911,6 +930,8 @@ func finish_night() -> void:
 	if phase!="night" or not night_clearance_active or phase_time>0.0 or wave_index<WAVES_PER_NIGHT:return
 	if quitting or restart_pending or shutting_down or _has_living_night_enemies():return
 	if not is_instance_valid(hero) or not hero.alive or hero.hp<=0.0 or beacon_hp<=0.0:return
+	clear_supply_crates(false)
+	if is_instance_valid(construction) and construction.active:construction.cancel()
 	if haul_raider:haul_raider.clear()
 	if logistics:logistics.on_night_end()
 	var was_final_clearance: bool=final_clearance_active
@@ -937,6 +958,9 @@ func finish_night() -> void:
 		siege_boss=null
 	if squads:squads.on_day()
 	if day_number>=max_nights():
+		# A completed run is terminal: discard any unopened world crates and
+		# unplaced/unqueued rewards instead of carrying them into a new session.
+		clear_supply_crates(true)
 		discoveries.cache_guards.clear()
 		salvage_draw.clear()
 		control_groups.clear()
@@ -991,6 +1015,8 @@ func finish_night() -> void:
 	open_draft()
 
 func begin_day() -> void:
+	clear_supply_crates(false)
+	if is_instance_valid(construction) and construction.active:construction.cancel()
 	day_start_pending=false
 	phase="day";phase_time=DAY_LENGTH
 	if logistics:logistics.on_day()
@@ -2681,6 +2707,7 @@ func _on_hero_damage_confirmed(_unit: BattleUnit, source: BattleUnit, hp_loss: f
 
 func end_defeat(message: String) -> void:
 	if phase=="ended":return
+	clear_supply_crates(true)
 	opening_contract_completed=false
 	if haul_raider:haul_raider.clear()
 	night_clearance_active=false
@@ -3062,7 +3089,7 @@ func contract_interaction_prompt(action: Dictionary) -> String:
 func interaction_prompt() -> String:
 	if construction and construction.active and phase in ["day","night"]:
 		var placement: Dictionary=construction.snapshot()
-		return "Y 选址 · %s · 左键/F确认 · 右键/Esc取消" % String(placement.reason)
+		return "建筑许可 · %s · 左键/F确认 · 右键/Esc取消" % String(placement.reason)
 	if phase!="day" and phase!="night":return ""
 	var contract_action:=contracts.active_target_interaction()
 	if not contract_action.is_empty():return contract_interaction_prompt(contract_action)
@@ -3215,22 +3242,44 @@ func toggle_tower_construction() -> bool:
 	if not construction:return false
 	if rally:rally.cancel_setting()
 	if construction.active:
+		# Y only cancels a live one-shot permit preview. It never opens the
+		# building catalogue or chooses a new structure.
 		construction.cancel()
 		return true
-	if not construction.begin():return false
+	if pending_build_permit_kind.is_empty():
+		notify("暂无建筑许可 · 补给箱会自动带来可放置许可",2.4)
+		return false
+	if not construction.begin(pending_build_permit_kind):return false
 	hud.dismiss_details()
 	selection_dragging=false
-	notify("格子建设 · 1/2/3选择当前页 · PgUp/PgDn翻页 · 左键/F建造",3)
+	notify("建筑许可：%s · 左键/F确认，右键/Esc取消" % String(Catalog.building(pending_build_permit_kind).get("title",pending_build_permit_kind)),3)
 	return true
 
 func build_structure_at(point: Vector3, kind: String) -> bool:
 	if phase not in ["day","night"] or not is_instance_valid(construction):return false
-	if kind=="tower":return build_tower_at(point)
+	if kind=="tower":
+		var tower_built:=build_tower_at(point)
+		if tower_built and pending_build_permit_kind==kind:
+			pending_build_permit_kind=""
+			construction.cancel()
+			notify("建筑已部署",3.0)
+			_drain_supply_rewards()
+			if notice.begins_with("训练订单已加入"):
+				notify("建筑已部署 · "+notice,3.0)
+		return tower_built
 	var placement: Dictionary=construction.validity(point,-1,kind)
 	if not bool(placement.valid):notify(String(placement.reason),2);return false
 	var result: Dictionary=districts.build_at(placement.point,kind)
 	if not bool(result.ok):notify(String(result.reason),2);return false
-	notify("%s建成 · -%d零件 · 可继续放置" % [String(placement.title),int(result.cost)],3)
+	if pending_build_permit_kind==kind:
+		pending_build_permit_kind=""
+		construction.cancel()
+		notify("建筑已部署",3.0)
+		_drain_supply_rewards()
+		if notice.begins_with("训练订单已加入"):
+			notify("建筑已部署 · "+notice,3.0)
+	else:
+		notify("%s建成 · -%d零件 · 可继续放置" % [String(placement.title),int(result.cost)],3)
 	return true
 
 func demolition_at(point: Vector3) -> Dictionary:
@@ -3636,12 +3685,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		# A temporary rally click is an exclusive world tool. Do not train,
 		# upgrade a nearby building or issue a squad order while choosing it.
 		if rally and rally.active and phase in ["day","night"]:
-			if event.keycode==KEY_Y:toggle_tower_construction()
 			return
 		if event.keycode in [KEY_1,KEY_2,KEY_3]:
 			if phase not in ["day","night"]:return
 			if construction.active:
-				hud.select_construction_slot(int(event.keycode)-KEY_1)
+				# Building choice comes only from an opened supply crate. Number keys
+				# remain control-group shortcuts while a permit is being placed.
 				return
 			var slot:=int(event.keycode)-KEY_1+1
 			var saving: bool=event.ctrl_pressed
@@ -3672,8 +3721,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode in [KEY_PAGEUP,KEY_PAGEDOWN] and phase in ["day","night","paused"]:
 			var direction:= -1 if event.keycode==KEY_PAGEUP else 1
-			if construction.active:hud.change_construction_page(direction)
-			elif hud.detail_tab=="army":hud.change_troop_page(direction)
+			if hud.detail_tab=="army" and not construction.active:hud.change_troop_page(direction)
 			return
 		match event.keycode:
 			KEY_DELETE,KEY_BACKSPACE:
@@ -3712,6 +3760,202 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func notify(message: String, duration: float=3.0) -> void:
 	notice=message;notice_time=duration
+
+func supply_crate_status() -> Dictionary:
+	var remaining := maxf(0.0, SUPPLY_CRATE_INTERVAL - supply_crate_clock)
+	return {"count": supply_crates.size(), "max": SUPPLY_CRATE_MAX,
+		"next_seconds": remaining, "pending_build": pending_build_permit_kind,
+		"pending_training": pending_training_order_kind}
+
+func clear_supply_crates(clear_rewards: bool = true) -> void:
+	for crate: Node3D in supply_crates:
+		if is_instance_valid(crate):crate.queue_free()
+	supply_crates.clear()
+	supply_crate_clock=0.0
+	if clear_rewards:
+		pending_build_permit_kind=""
+		pending_training_order_kind=""
+		supply_reward_queue.clear()
+		supply_training_reason=""
+		if is_instance_valid(construction):construction.cancel()
+
+func advance_supply_crates(delta: float) -> void:
+	if phase not in ["day", "night"] or quitting or restart_pending or shutting_down:return
+	for index in range(supply_crates.size()-1,-1,-1):
+		var crate:=supply_crates[index]
+		if not is_instance_valid(crate) or crate.is_queued_for_deletion():
+			supply_crates.remove_at(index)
+			continue
+		if crate.has_method("advance_visual"):crate.advance_visual(delta)
+	if supply_crates.size()<SUPPLY_CRATE_MAX:
+		supply_crate_clock+=delta
+		while supply_crate_clock>=SUPPLY_CRATE_INTERVAL and supply_crates.size()<SUPPLY_CRATE_MAX:
+			supply_crate_clock-=SUPPLY_CRATE_INTERVAL
+			if not _spawn_supply_crate():
+				supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL-.01)
+				break
+	else:
+		supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL)
+	_try_open_supply_crates()
+	_drain_supply_rewards()
+
+func _spawn_supply_crate() -> bool:
+	var point:=_supply_crate_spawn_position()
+	if not point.is_finite():return false
+	var crate:=SupplyCrateScript.new() as Node3D
+	if crate.has_method("setup"):crate.setup(supply_crate_serial)
+	supply_crate_serial+=1
+	crate.position=point
+	add_child(crate)
+	supply_crates.append(crate)
+	notify("发现补给箱",2.4)
+	return true
+
+func _supply_crate_spawn_position() -> Vector3:
+	if not is_instance_valid(hero_navigation) or not is_instance_valid(hero):return Vector3.INF
+	var start_cell:=nearest_navigation_cell(hero.position,true)
+	if start_cell.x==999:return Vector3.INF
+	for _attempt in SUPPLY_CRATE_SPAWN_ATTEMPTS:
+		var candidate:=Vector3(
+			supply_rng.randf_range(-Layout.MAP_HALF_X+4.0,Layout.MAP_HALF_X-4.0),
+			0.0,
+			supply_rng.randf_range(-Layout.MAP_HALF_Z+4.0,Layout.MAP_HALF_Z-4.0))
+		candidate.y=outpost_height(candidate)
+		if _supply_crate_position_legal(candidate,start_cell):return candidate
+	return Vector3.INF
+
+func _supply_crate_position_legal(candidate: Vector3, start_cell: Vector2i) -> bool:
+	if not candidate.is_finite() or not is_instance_valid(hero_navigation):return false
+	if start_cell.x==999 or not hero_navigation.is_in_boundsv(start_cell):return false
+	var center:=Vector2(candidate.x,candidate.z)
+	if center.length()<7.0:return false
+	# Reserve the whole visible box/ring, with clearance from walls and terrain.
+	var clearance:=0.95
+	for blocks: Array in [WALK_BLOCKS,TERRAIN_BLOCKS,construction_blocks]:
+		for block: Rect2 in blocks:
+			if block.grow(clearance).has_point(center):return false
+	for offset: Vector2 in [Vector2.ZERO,Vector2(-clearance,-clearance),Vector2(clearance,-clearance),Vector2(-clearance,clearance),Vector2(clearance,clearance)]:
+		var edge:=candidate+Vector3(offset.x,0,offset.y)
+		if not outpost_walkable(edge) or absf(outpost_height(edge)-candidate.y)>.15:return false
+	# The final leg to the exact box must be traversable, as well as its grid path.
+	var end_cell:=nearest_navigation_cell(candidate,true)
+	if end_cell.x==999 or hero_navigation.get_id_path(start_cell,end_cell).is_empty():return false
+	if is_instance_valid(construction):
+		var occupied: Dictionary=construction.occupied_cells()
+		for cell: Vector2i in Grid.cells_for_rect(Rect2(center-Vector2.ONE*clearance,Vector2.ONE*clearance*2.0)):
+			if occupied.has(cell):return false
+		# This shared roster includes enemies and escort NPCs as well as our units.
+		for unit: Node3D in construction._living_units():
+			if unit.is_inside_tree() and not unit.is_queued_for_deletion() and unit.global_position.distance_to(to_global(candidate))<2.8:return false
+	# Decorative props are not navigation blockers, but must not hide a new box.
+	for prop: Node in world.get_children():
+		if prop is Node3D and not prop.scene_file_path.is_empty() and not prop.is_queued_for_deletion():
+			if prop.global_position.distance_to(to_global(candidate))<3.0:return false
+	for other: Node3D in supply_crates:
+		if is_instance_valid(other) and not other.is_queued_for_deletion() and other.position.distance_to(candidate)<3.2:return false
+	return true
+
+func _supply_opener_valid(unit: Variant) -> bool:
+	if not is_instance_valid(unit) or not unit is BattleUnit:return false
+	if not unit.alive or unit.hp<=0.0 or unit.team!=0 or unit.is_queued_for_deletion() or not unit.is_inside_tree():return false
+	if is_same(unit,hero):return unit.kind=="hero" and is_ancestor_of(unit)
+	if not is_instance_valid(squads) or not is_same(squads.game,self) or squads.is_queued_for_deletion():return false
+	if unit.kind!="minion" or not squads.is_ancestor_of(unit):return false
+	for squad: Dictionary in squads.squads:
+		if squads._owns_squad(squad,squads._epoch) and unit in squad.members:return true
+	return false
+
+func _try_open_supply_crates() -> void:
+	if phase not in ["day", "night"] or quitting or restart_pending or shutting_down:return
+	var targets: Array[Node3D]=[]
+	if _supply_opener_valid(hero):targets.append(hero)
+	if is_instance_valid(squads):
+		for squad: Dictionary in squads.squads:
+			for member: Variant in squad.members:
+				if _supply_opener_valid(member):targets.append(member)
+	for index in range(supply_crates.size()-1,-1,-1):
+		var crate:=supply_crates[index]
+		if not is_instance_valid(crate) or crate.is_queued_for_deletion() or not crate.is_inside_tree():continue
+		var opener: Node3D
+		for target: Node3D in targets:
+			if not _supply_opener_valid(target):continue
+			if target.global_position.distance_to(crate.global_position)<=SUPPLY_CRATE_TRIGGER_RADIUS and can_traverse(to_local(target.global_position),crate.position):
+				opener=target
+				break
+		if not is_instance_valid(opener):continue
+		if not crate.has_method("open") or not bool(crate.call("open")):continue
+		supply_crates.remove_at(index)
+		crate.queue_free()
+		_apply_supply_reward(_roll_supply_reward())
+
+func _roll_supply_reward() -> Dictionary:
+	var building_candidates: Array[String]=[]
+	for kind: String in Catalog.BUILDING_IDS:
+		var eligibility: Dictionary=districts.build_eligibility(kind)
+		if bool(eligibility.get("available",false)):building_candidates.append(kind)
+	var troop_candidates: Array[String]=[]
+	if is_instance_valid(squads):
+		for kind: String in Catalog.TROOP_IDS:
+			var eligibility: Dictionary=squads.training_eligibility(kind)
+			if bool(eligibility.get("available",false)):troop_candidates.append(kind)
+	if building_candidates.is_empty() and troop_candidates.is_empty():return {"type":"building_permit","kind":"tower","title":"防御塔"}
+	var use_building:=building_candidates.size()>0 and (troop_candidates.is_empty() or supply_rng.randf()<.62)
+	if use_building:
+		var kind:=building_candidates[supply_rng.randi_range(0,building_candidates.size()-1)]
+		return {"type":"building_permit","kind":kind,"title":String(Catalog.building(kind).get("title",kind))}
+	var troop_kind:=troop_candidates[supply_rng.randi_range(0,troop_candidates.size()-1)]
+	return {"type":"training_order","kind":troop_kind,"title":String(Catalog.troop(troop_kind).get("title",troop_kind))}
+
+func _apply_supply_reward(reward: Dictionary) -> void:
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down:return
+	var reward_type:=String(reward.get("type",""))
+	var kind:=String(reward.get("kind",""))
+	if reward_type=="building_permit" and kind not in Catalog.BUILDING_IDS:return
+	if reward_type=="training_order" and kind not in Catalog.TROOP_IDS:return
+	if reward_type not in ["building_permit","training_order"]:return
+	var ticket:=reward.duplicate(true)
+	supply_reward_queue.append(ticket)
+	_drain_supply_rewards()
+	if reward_type=="building_permit":
+		notify("获得建筑许可：%s%s" % [String(Catalog.building(kind).title)," · 当前许可完成后可用" if ticket in supply_reward_queue else ""],3.0)
+	elif ticket in supply_reward_queue:
+		notify("训练订单已保留：%s · 前一订单满足条件后自动加入" % String(Catalog.troop(kind).title),3.0)
+	elif not pending_training_order_kind.is_empty():
+		notify("训练订单已保留：%s · %s" % [String(Catalog.troop(kind).title),supply_training_reason],3.0)
+
+func _try_supply_training() -> void:
+	if pending_training_order_kind.is_empty() or not is_instance_valid(squads):return
+	var kind:=pending_training_order_kind
+	var result: Dictionary=squads.enqueue(kind)
+	supply_training_reason=String(result.get("reason",""))
+	if bool(result.get("ok",false)):
+		pending_training_order_kind=""
+		supply_training_reason=""
+		notify("训练订单已加入：%s" % String(Catalog.troop(kind).title),3.0)
+
+func _drain_supply_rewards() -> void:
+	if supply_rewards_draining or phase not in ["day","night"] or quitting or restart_pending or shutting_down:return
+	supply_rewards_draining=true
+	_try_supply_training()
+	# One bounded pass. Blocked training keeps its FIFO order without blocking
+	# building permits; no callback recursively pops and requeues the same item.
+	var count:=supply_reward_queue.size()
+	for _index in count:
+		var reward: Dictionary=supply_reward_queue.pop_front()
+		var kind:=String(reward.get("kind",""))
+		if String(reward.get("type",""))=="building_permit":
+			if pending_build_permit_kind.is_empty() and is_instance_valid(construction) and not construction.active and (not is_instance_valid(rally) or not rally.active):
+				pending_build_permit_kind=kind
+				if construction.begin(kind):
+					hud.dismiss_details()
+					selection_dragging=false
+			else:supply_reward_queue.append(reward)
+		else:
+			if pending_training_order_kind.is_empty():
+				pending_training_order_kind=kind
+				_try_supply_training()
+			else:supply_reward_queue.append(reward)
+	supply_rewards_draining=false
 
 func update_salvage_refresh(delta: float) -> void:
 	if phase!="day" and phase!="night":return
@@ -3872,6 +4116,7 @@ func prepare_shutdown() -> void:
 	# Removing the bus first can strand pending playback handles during teardown.
 	shutting_down=true
 	if haul_raider:haul_raider.clear()
+	clear_supply_crates(true)
 	night_clearance_active=false
 	night_clearance_elapsed=0.0
 	final_clearance_active=false

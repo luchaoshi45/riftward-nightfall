@@ -319,7 +319,6 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	# feel like a stack of controls. The hitboxes and keyboard shortcuts remain
 	# unchanged; detailed descriptions stay in the F3 operation page.
 	var nav_tint: Color=GREEN if open else ui.muted
-	var build_tint: Color=GREEN if game.construction.active else ui.muted
 	for separator_x in [154.0,262.0]:
 		ui.draw_line(Vector2(separator_x,838),Vector2(separator_x,854),RAIL_GHOST,1.0)
 	ui.label("F3",Vector2(43,849),13,nav_tint,true)
@@ -332,10 +331,14 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	# "地图 · 点击展开" card. The shortcut remains mouse-click only because M
 	# is reserved for music; the short label is enough to explain the glyph.
 	ui.label("地图",Vector2(210,851),11,LIVE_MUTED)
-	ui.label("Y",Vector2(278,849),13,build_tint,true)
+	var supply: Dictionary=game.supply_crate_status() if game.has_method("supply_crate_status") else {}
+	var supply_count:=int(supply.get("count",0))
+	var supply_next:=ceilf(float(supply.get("next_seconds",0.0)))
+	var supply_label: String="箱%d" % supply_count if supply_count>0 else "箱0 · %02d秒" % supply_next
+	ui.label(supply_label,Vector2(278,849),11,ui.amber if supply_count>0 else LIVE_MUTED)
 	ui.draw_line(Vector2(43,857),Vector2(88,857),Color(nav_tint,.42),1.0)
 	ui.draw_line(Vector2(189,857),Vector2(204,857),Color(LIVE_MUTED,.30),1.0)
-	ui.draw_line(Vector2(278,857),Vector2(293,857),Color(build_tint,.42),1.0)
+	ui.draw_line(Vector2(278,857),Vector2(293,857),Color(ui.amber,.42) if supply_count>0 else Color(LIVE_MUTED,.3),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
@@ -387,8 +390,13 @@ static func selected_command_active(game: Node3D) -> bool:
 
 static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if not is_instance_valid(game) or game.phase not in ["day","night"]:return Rect2()
-	if game.music_credits_open or game.construction.active or ui.rally_setting() or float(game.hero_damage_flash_time)>0.0:return Rect2()
+	if game.music_credits_open or ui.rally_setting() or float(game.hero_damage_flash_time)>0.0:return Rect2()
 	if float(game.notice_time)<=0.0 or String(game.notice).strip_edges().is_empty():return Rect2()
+	if game.construction.active:
+		var supply_feedback:=false
+		for prefix: String in ["发现补给箱","获得建筑许可：","建筑许可：","建筑已部署","训练订单"]:
+			if String(game.notice).begins_with(prefix):supply_feedback=true;break
+		if not supply_feedback:return Rect2()
 	var lines:=_wrap(ui,String(game.notice),716,15)
 	var count:=mini(2,lines.size())
 	var font: Font=ui.get("font") as Font
@@ -397,7 +405,10 @@ static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 		width=maxf(width,font.get_string_size(lines[index],HORIZONTAL_ALIGNMENT_LEFT,-1,15).x+36.0)
 	width=minf(752.0,width)
 	var height:=34.0+(count-1)*20.0
-	return Rect2(720.0-width*.5,788.0-height,width,height)
+	# Supply receipts remain visible above the automatically opened preview.
+	# Ordinary notices still yield during construction, with no extra panel.
+	var bottom: float=ui.CONSTRUCTION_PANEL_RECT.position.y-10.0 if game.construction.active else 788.0
+	return Rect2(720.0-width*.5,bottom-height,width,height)
 
 static func _draw_notice(ui: Control, game: Node3D) -> void:
 	var rect:=notice_rect(ui,game)
@@ -731,7 +742,7 @@ static func _draw_help(ui: Control) -> void:
 		var shortcuts: Array[String]=[
 			"移动   ZASD / 方向键 · 未选部队时右键寻路",
 			"探索   P 指路 · F 互动 · 4/5/6 委托",
-			"建造   Y 选址 · 1/2/3 切建筑 · H 维修",
+			"建设/维修   补给箱许可自动进格子 · H维修 · 右键/Esc取消",
 			"英雄   Q / W / E / R / X 技能 · V 强化",
 			"生产   U 盾卫 · I 弩手 · N 工程员 · F3 更多",
 			"编队   Ctrl+1/2/3 保存 · 数字召回 · Tab 全选",
@@ -749,7 +760,7 @@ static func _draw_help(ui: Control) -> void:
 	var groups: Array[String]=[
 		"移动：ZASD / 方向键；未选部队时右键寻路。W 用于屏障。",
 		"技能：Q 斩光 / W 屏障 / E 突进 / R 灯焰 / X 治疗。",
-		"建设：Y打开；1/2/3选建筑；PgUp/Dn翻页。\n左键/F确认；H维修；Del拆卖；右键/Esc/Y退出。",
+		"建设：补给箱许可自动进入格子预览。左键/F确认；H维修；Del拆卖；右键/Esc取消；Y不打开目录。",
 		"科技：工坊→回收/中转；兵营+工坊→研究所。\n研究所→重弩；研究所+工坊→军械厂→迫击炮/指挥中继站。\n中转→采运；兵营→救护站→医护；中继站训练时长×0.9/×0.8。",
 		"互动：F搜集、修灯、升级与重建；普通H修近塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",
@@ -757,7 +768,7 @@ static func _draw_help(ui: Control) -> void:
 		"部队：U盾卫 / I弩手 / N工程员；F3训练其余兵种。\n医护默认停疗，每次2零件，可开关；迫击炮近敌停火。\nF3选生产营和集结点；集结工队需恢复自动采运。",
 		"编组：Ctrl+1/2/3保存；数字召回，Shift+数字追加。\n点选/框选/Shift追加；Tab全选，O驻守，Alt+O撤回。\n右键指挥/工队采运；Shift+右键推进；撤回不改工队。\nAlt+右键活工队：护航往返；右键改令。",
 		"整备：白昼L补员，V铭刻；Esc依次关闭详情、建设、部队选择，最后暂停。",
-		"界面：F3 战术详情；点击上方标签切页，地图按钮展开地图。",
+		"界面：F3详情；PgUp/PgDn切部队页；地图按钮展开地图。",
 		"声音：M 配乐开关，[ / ] 音量，F1 来源；F2 减弱震动与闪光。",
 	]
 	for text: String in groups:y=_paragraph(ui,text,Vector2(TEXT_X,y),TEXT_WIDTH,15,ui.ink,20)+5.0

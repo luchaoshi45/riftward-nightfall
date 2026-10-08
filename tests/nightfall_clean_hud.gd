@@ -1,6 +1,7 @@
 extends SceneTree
 ## Artificial phase setup only; natural clearance and victory use real combat.
 const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
+const CleanHud := preload("res://scripts/nightfall_clean_hud.gd")
 ## Production clean-HUD regression with real viewport GUI dispatch. No hidden
 ## legacy hitboxes, automatic commands behind UI, or fixture-only train actions.
 ## --render-test records the default battlefield, details and urgent feedback.
@@ -160,8 +161,13 @@ func default_layout(label: String) -> void:
 		label + ": the default radar must stay icon-only; map guidance belongs to the bottom shortcut rail")
 	check("地图" in game.hud.all_labels,
 		label + ": the compact map affordance must retain a short readable label")
-	check("F3" in game.hud.all_labels and "Y" in game.hud.all_labels,
-		label + ": the default navigation must keep compact key badges for details and build")
+	var supply_badge := false
+	for hud_label: String in game.hud.all_labels:
+		if hud_label.begins_with("箱"):
+			supply_badge = true
+			break
+	check("F3" in game.hud.all_labels and supply_badge,
+		label + ": the default navigation must keep compact detail and supply-crate status badges")
 	check("F3 详情" not in game.hud.all_labels and "Y 建造" not in game.hud.all_labels,
 		label + ": verbose navigation labels must stay out of the default action rail")
 	check(game.hud.CleanHud.HERO_FILL.a == 0.0,
@@ -241,8 +247,8 @@ func assert_interface() -> void:
 	for index in 3:
 		check(game.hud.training_kind_rect(index) == Rect2(44 + index * 168,230,160,32),
 			"Each training choice must live inside the army drawer")
-		check(game.hud.construction_kind_rect(index) == Rect2(457 + index * 175,658,166,31),
-			"Each construction choice must live in its actual new conditional bar")
+		# Construction permits come from supply crates; the old building cards are
+		# intentionally not part of the HUD input surface.
 		check(game.hud.countermeasure_rect(index) == Rect2(44 + index * 168,280,160,62),
 			"Each defensive countermeasure must expose its actual drawer button")
 	check(game.hud.training_page_rect(-1) == Rect2(456,188,29,26)
@@ -766,8 +772,19 @@ func compact_notice_inputs() -> void:
 		check(game.phase == "day" and game.notice_time == 0.0 and not drawn_notice_box().has_area(),
 			label + ": actual notification expiry must remove its paint and current hitbox")
 		await assert_free_world_input(free_point,label + " expired notice")
+		if game.pending_build_permit_kind.is_empty():
+			game._apply_supply_reward({"type":"building_permit","kind":"tower","title":"炮塔"})
+		else:
+			game.toggle_tower_construction()
+		await redraw()
+		var permit_notice: Rect2=CleanHud.notice_rect(game.hud,game)
+		check(game.construction.active and game.hud.all_labels.has(String(game.notice)),
+			label + ": the real permit receipt must be drawn after automatically opening construction")
+		check(permit_notice.has_area() and not permit_notice.intersects(CONSTRUCTION)
+			and game.hud.visible_hud_rects().has(permit_notice),
+			label + ": permit feedback must fit above construction with its actual input footprint")
+		await capture("permit-notice-"+label)
 		game.notify("建设时保留的普通通知",3.0)
-		press(KEY_Y)
 		await redraw()
 		check(game.construction.active and not drawn_notice_box().has_area(),
 			label + ": real construction must hide the ordinary notification")
@@ -920,7 +937,10 @@ func active_exploration_tag_inputs() -> void:
 		await tag_mouse_button(free_point,MOUSE_BUTTON_LEFT,false)
 		restore_tag_commands(commands)
 		press(KEY_ESCAPE)
-		press(KEY_Y)
+		if game.pending_build_permit_kind.is_empty():
+			game._apply_supply_reward({"type":"building_permit","kind":"tower","title":"炮塔"})
+		else:
+			game.toggle_tower_construction()
 		await redraw()
 		check(game.construction.active and not active_tag_box().has_area() and not game.hud.visible_hud_rects().has(tag),label + ": construction must hide both the tag panel and old hitbox")
 		await click_at(free_point,MOUSE_BUTTON_RIGHT)
@@ -969,18 +989,13 @@ func build_barracks() -> void:
 	game.scrap = 1600
 	stand(HOME)
 	game.hud.toggle_details("help")
-	press(KEY_Y)
+	game._apply_supply_reward({"type":"building_permit","kind":"barracks","title":"兵营"})
 	await redraw()
-	check(game.construction.active and game.hud.detail_tab == "", "Entering real construction must dismiss the old detail page")
+	check(game.construction.active and game.construction.kind == "barracks" and game.hud.detail_tab == "", "A crate permit must dismiss details and enter the real construction preview")
 	check(game.hud.visible_hud_rects().has(CONSTRUCTION), "Only active construction must report the live placement bar")
 	press(KEY_F3)
 	check(game.hud.detail_tab == "", "F3 must not cover the active construction preview with a drawer")
-	for index in 3:
-		await click(game.hud.construction_kind_rect(index))
-		check(game.construction.kind == ["tower", "barracks", "workshop"][index],
-			"A real placement-bar click must select the advertised structure kind")
 	game.aim = Vector3(-8,5,-6)
-	await click(game.hud.construction_kind_rect(1))
 	var preview: Dictionary = game.construction.snapshot()
 	check(bool(preview.valid), "The real barracks preview must be legal before confirmation")
 	game.aim = Vector3(-8,5,-6)
@@ -988,9 +1003,10 @@ func build_barracks() -> void:
 	press(KEY_F)
 	check(game.districts.plots.size() == 1 and game.districts.active_barracks().size() == 1,
 		"Real F must construct the barracks used by GUI production verification")
-	await assert_no_command(Vector2(444,770), "The current placement bar background")
+	check(not game.construction.active and game.pending_build_permit_kind.is_empty()
+		and "建筑已部署" in game.notice,
+		"A successful crate permit placement must close the one-shot preview and consume the permit")
 	await capture("construction")
-	press(KEY_ESCAPE)
 	await redraw()
 	check(not game.construction.active and game.hud.detail_tab == ""
 		and not game.hud.visible_hud_rects().has(CONSTRUCTION),

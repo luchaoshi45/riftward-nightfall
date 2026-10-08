@@ -1,9 +1,10 @@
 extends SceneTree
-## Real viewport input, unrestricted city placement, barracks production and
+## Real viewport input, permit-driven city placement, barracks production and
 ## troop commands in the actual Nightfall controller and terrain.
 ## Graphics: --windowed --position 10000,10000 --audio-driver Dummy -- --render-test.
 const Layout := preload("res://scripts/outpost_layout.gd")
 const Grid := preload("res://scripts/construction_grid.gd")
+const Catalog := preload("res://scripts/outpost_catalog.gd")
 const FAR := Vector3(105, 0, 95)
 const STEP := 1.0 / 30.0
 var game: Node3D
@@ -161,24 +162,30 @@ func squad_id(soldier: BattleUnit) -> int:
 func build(kind: String, point: Vector3, mouse: bool = true) -> int:
 	var snapped: Vector3 = Grid.placement(point, kind).point
 	# Keep the actual world click in the unobscured centre of the viewport;
-	# the construction panel correctly consumes clicks within its own bounds.
+	# the permit controls correctly consume clicks within their own bounds.
 	camera_at(ground(point))
-	if not game.construction.active: await press(KEY_Y)
-	await press({"tower": KEY_1, "barracks": KEY_2, "workshop": KEY_3}[kind])
+	check(game.pending_build_permit_kind.is_empty() and not game.construction.active,
+		"Each new construction must require a new earned permit")
+	# Controlled reward injection isolates placement/economy from random crate
+	# discovery; this fixture does not claim a natural crate acquisition route.
+	var balance: int = game.scrap
+	game._apply_supply_reward({"type": "building_permit", "kind": kind,
+		"title": String(Catalog.building(kind).get("title", kind))})
+	check(game.scrap == balance, "Receiving a %s permit must not debit its construction fee" % kind)
 	await aim_at(point)
 	var preview: Dictionary = game.construction.snapshot()
-	check(game.construction.active and String(preview.get("kind", "")) == kind,
-		"Y and 1/2/3 must select the actual %s preview" % kind)
+	check(game.construction.active and game.pending_build_permit_kind == kind and String(preview.get("kind", "")) == kind,
+		"A controlled %s reward must automatically enter its actual grid preview" % kind)
 	check(bool(preview.valid) and planar(preview.point, snapped) < .06,
 		"A freely chosen %s point must have a fresh legal terrain preview: %s" % [kind, preview])
-	var balance: int = game.scrap
 	var before: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
 	if mouse: await click(point)
 	else: await press(KEY_F)
 	var after: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
 	check(after == before + 1 and game.scrap == balance - int(preview.cost),
 		"One real confirmation must create one %s and debit the displayed live fee" % kind)
-	check(game.construction.active, "Successful construction must retain continuous placement")
+	check(not game.construction.active and game.pending_build_permit_kind.is_empty(),
+		"Successful construction must consume its one-shot permit and close the preview")
 	if after != before + 1: return -1
 	var placed: Dictionary = game.world.tower_pads[before] if kind == "tower" else game.districts.plots[before]
 	check(planar(placed.position, snapped) < .06 and absf(placed.position.y - Layout.FORT_HEIGHT) < .001,
@@ -207,6 +214,11 @@ func construction_and_economy() -> void:
 	check(game.world.tower_pads.size() == 2 and game.tower_count() == 2,
 		"The production opening must contain only its two real towers")
 	check(game.districts.plots.is_empty(), "New cities must not reserve two hardcoded district plots")
+	var opening_balance: int = game.scrap
+	await press(KEY_Y)
+	check(not game.construction.active and game.pending_build_permit_kind.is_empty() and game.scrap == opening_balance,
+		"Y without an earned permit must not open a building catalogue or spend resources")
+	check(game.hud.visible_construction_kinds().is_empty(), "Without a permit the HUD must expose no building choices")
 	# Deliberately build in the old south passage and at arbitrary city
 	# positions, while retaining collisions against complete grid footprints.
 	var near_core := Vector3(-4.5, 5, -.5)
@@ -221,7 +233,8 @@ func construction_and_economy() -> void:
 	if workshop >= 0:
 		var plot: Dictionary = game.districts.plots[workshop]
 		check(is_equal_approx(float(plot.hp), 450.0), "A new workshop must have 450 real durability")
-		await press(KEY_ESCAPE)
+		check(not game.construction.active and game.phase == "day",
+			"Completed permit placement must leave normal workshop interactions available")
 		stand(plot.position + Vector3(0, 0, 2.3))
 		var balance: int = game.scrap
 		await press(KEY_F)
@@ -231,8 +244,7 @@ func construction_and_economy() -> void:
 	for index: int in barracks:
 		if index >= 0:
 			check(is_equal_approx(float(game.districts.plots[index].hp), 600.0), "A barracks must start at 600 durability")
-	if not game.construction.active: await press(KEY_Y)
-	await press(KEY_2)
+	game._apply_supply_reward({"type": "building_permit", "kind": "barracks", "title": "兵营"})
 	await aim_at(Vector3(7, 5, -7.5))
 	var balance: int = game.scrap
 	var plots: int = game.districts.plots.size()
@@ -241,19 +253,35 @@ func construction_and_economy() -> void:
 	await click(Vector3(7, 5, -7.5))
 	check(game.scrap == balance and game.districts.plots.size() == plots,
 		"Failed F and mouse placement must neither charge nor create a duplicate building")
+	check(game.pending_build_permit_kind == "barracks" and game.construction.active,
+		"Invalid placement must retain the earned barracks permit and its preview")
+	check(game.hud.visible_construction_kinds() == ["barracks"],
+		"The compatibility query must expose only the current earned permit")
+	for code in [KEY_1, KEY_3, KEY_PAGEUP, KEY_PAGEDOWN]:
+		await press(code)
+		check(game.construction.kind == "barracks" and game.pending_build_permit_kind == "barracks",
+			"Number keys and page keys must not replace an earned permit with another building")
+	check(not game.hud.select_construction_slot(1) and not game.hud.select_construction_slot(2),
+		"Removed catalogue slots cannot select unearned structures")
+	game.hud.change_construction_page(1)
+	game.hud.change_construction_page(-1)
+	check(game.hud.visible_construction_kinds() == ["barracks"] and game.construction.kind == "barracks",
+		"Removed building pagination must leave the earned permit unchanged")
 	var towers: int = game.world.tower_pads.size()
 	for index in 3:
 		await click_ui(game.hud.construction_kind_rect(index))
-		check(String(game.construction.kind) == ["tower", "barracks", "workshop"][index],
-			"The actual construction type button must select its displayed structure")
+		check(String(game.construction.kind) == "barracks",
+			"The former building-card positions must not select other structures")
 		check(game.scrap == balance and game.world.tower_pads.size() == towers and game.districts.plots.size() == plots,
-			"Construction type-button clicks must not leak through into world placement or payments")
-		check(not game.selection_dragging and game.hero_path.is_empty(), "Construction panel clicks must not begin a world selection or move")
-	check(game.hud.font.get_string_size("鼠标选址 · 左键/F建造 · 右键/Esc/Y退出", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x <= 548,
+			"Permit control-rail clicks must not leak through into world placement or payments")
+		check(not game.selection_dragging and game.hero_path.is_empty(), "Permit controls must not begin a world selection or move")
+	check(game.hud.font.get_string_size("左键/F 确认  ·  右键/Esc 取消  ·  成功后自动扣费", HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 548,
 		"The Chinese construction controls must fit inside their visible panel")
-	await capture("construction-panel")
+	await capture("construction-permit")
 	await click(Vector3(8, 5, -8), MOUSE_BUTTON_RIGHT)
 	check(not game.construction.active and game.hero_path.is_empty(), "Right-click must leave building mode before issuing any unit or hero command")
+	check(game.pending_build_permit_kind == "barracks" and game.scrap == balance,
+		"Cancelling the real preview must preserve its permit and the exact wallet balance")
 
 func hud_training_buttons() -> void:
 	game.hud.toggle_details("army")
@@ -576,7 +604,9 @@ func fresh_run() -> void:
 	check(game.districts.plots.is_empty() and game.squads.squads.is_empty() and training_rows().is_empty(),
 		"A new run must discard dynamic districts, trained groups and all pending production")
 	check(game.squads.selected_count() == 0 and not game.construction.active,
-		"A new run must also reset army selection and continuous build mode")
+		"A new run must also reset army selection and permit preview")
+	check(game.pending_build_permit_kind.is_empty() and game.pending_training_order_kind.is_empty() and game.supply_reward_queue.is_empty(),
+		"An actual scene retry must clear unused permits and training rewards")
 
 func run() -> void:
 	game = load("res://scenes/nightfall.tscn").instantiate()

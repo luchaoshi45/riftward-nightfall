@@ -1,6 +1,7 @@
 extends SceneTree
 ## Artificial phase setup only; natural clearance and victory use real combat.
 const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
+const Catalog := preload("res://scripts/outpost_catalog.gd")
 ## Cross-scene production retries. Uses the real input, scene reload, exploration,
 ## expedition, construction and troop systems rather than replacing their state.
 ## --render-test captures the two endings and all three opening modes offscreen.
@@ -244,17 +245,18 @@ func exercise_refresh() -> Dictionary:
 func build_via_keys(kind: String, point: Vector3) -> void:
 	var before: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
 	game.aim = point
-	press(KEY_Y)
-	press({"tower": KEY_1, "barracks": KEY_2, "workshop": KEY_3}[kind])
+	game._apply_supply_reward({"type":"building_permit","kind":kind,
+		"title":String(Catalog.building(kind).get("title",kind))})
 	var placement: Dictionary = game.construction.snapshot()
-	check(game.construction.active and bool(placement.valid), "Real Y then the %s key must select a legal live preview" % kind)
+	check(game.construction.active and game.construction.kind == kind and bool(placement.valid), "A real %s supply permit must select a legal live preview" % kind)
 	if not bool(placement.valid): return
 	var balance: int = game.scrap
 	press(KEY_F)
 	var after: int = game.world.tower_pads.size() if kind == "tower" else game.districts.plots.size()
 	check(after == before + 1 and game.scrap == balance - int(placement.cost),
 		"Real F must build one %s and charge its displayed fee" % kind)
-	press(KEY_ESCAPE)
+	check(not game.construction.active and game.pending_build_permit_kind.is_empty(),
+		"A successful %s permit placement must close the one-shot preview" % kind)
 
 func clear_site_guards(site: Dictionary) -> void:
 	for guard in site.guards:
@@ -372,7 +374,7 @@ func dirty_run() -> void:
 	press(KEY_W)
 	check(game.mana < game.max_mana and game.cooldowns[1] > 0.0 and game.hero.shield > 0.0,
 		"Real W must leave spent energy, an active shield and cooldown")
-	press(KEY_Y)
+	game._apply_supply_reward({"type":"building_permit","kind":"tower","title":"炮塔"})
 	check(game.construction.active, "The dirty run must also leave an active construction preview")
 	check(game.districts.plots.size() == 2 and game.world.tower_pads.size() > 2,
 		"Dirty run must contain real buildings and an additional tower")

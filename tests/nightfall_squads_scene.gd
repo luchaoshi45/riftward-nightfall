@@ -1,6 +1,5 @@
 extends SceneTree
-## Independent manager in the real production terrain and reward controller.
-const SquadScript = preload("res://scripts/outpost_squads.gd")
+## Current owned manager in the real production terrain and reward controller.
 var game: Node3D
 var squads: Node3D
 var failures: Array[String] = []
@@ -28,7 +27,8 @@ func run() -> void:
 	remove_enemies()
 	game.phase = "night"; game.hero.position = Vector3(35, 0, 35)
 	game.scrap = 300
-	squads = SquadScript.new(); game.add_child(squads); squads.setup(game, true)
+	# Production rejects managers that are no longer the controller's current one.
+	squads = game.squads
 	check(squads.hire("shield").ok and squads.hire("ranged").ok and game.scrap == 150, "Mixed real-scene squad hiring must debit exactly 150")
 	for step in 65: squads.advance(.1)
 	for squad in squads.squads:
@@ -82,9 +82,9 @@ func run() -> void:
 	game.phase = "paused"
 	var member_position: Vector3 = archer.position
 	var attack_timer: float = archer.attack_timer
-	var beam_time: float = squads.shots[0].time
+	var beam_time: float = float(squads.shots[0].time) if not squads.shots.is_empty() else -1.0
 	squads.advance(20.0)
-	check(archer.position == member_position and archer.attack_timer == attack_timer and squads.shots[0].time == beam_time, "Real pause must freeze movement, attacks, and beam cleanup")
+	check(archer.position == member_position and archer.attack_timer == attack_timer and not squads.shots.is_empty() and squads.shots[0].time == beam_time, "Real pause must freeze movement, attacks, and beam cleanup")
 	game.phase = "night"; squads.advance(.20)
 	check(squads.shots.is_empty(), "Resumed beams must finish and retire")
 	squads.clear(); check(squads.snapshot().alive == 0, "Shutdown must clear remaining soldiers before scene release")

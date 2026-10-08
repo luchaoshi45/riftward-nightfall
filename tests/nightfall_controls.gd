@@ -43,14 +43,21 @@ func run() -> void:
 	game.move_goal=game.hero.position
 	await key(KEY_F)
 	assert(cache.collected and game.scrap>=35)
+	# The new world crates may have reached the fixed timer during this long
+	# input fixture. Keep this legacy tower interaction isolated from a pending
+	# one-shot permit; crate behavior is covered by nightfall_supply_crates.gd.
+	game.clear_supply_crates(true)
+	game.construction.cancel()
 	var pad: Dictionary=game.world.tower_pads[0]
 	game.hero.position=pad.position+Vector3(.5,0,.5)
 	game.move_goal=game.hero.position
 	game.scrap=60
 	await key(KEY_F)
-	assert(pad.level==1 and pad.mode=="nearest")
+	assert(pad.level>=2 and pad.mode=="nearest")
 	await key(KEY_G)
 	assert(pad.mode=="breaker")
+	await key(KEY_G)
+	assert(pad.mode=="threat")
 	await key(KEY_G)
 	assert(pad.mode=="nearest")
 	game.hero.position=Vector3(0,5,3)
@@ -66,4 +73,8 @@ func run() -> void:
 	await key(KEY_ESCAPE)
 	assert(game.phase=="night")
 	print("NIGHTFALL_CONTROLS_OK")
+	await game.prepare_shutdown()
+	game.queue_free()
+	await process_frame
+	await create_timer(.35).timeout
 	quit()
