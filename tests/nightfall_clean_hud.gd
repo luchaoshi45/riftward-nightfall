@@ -2,6 +2,7 @@ extends SceneTree
 ## Artificial phase setup only; natural clearance and victory use real combat.
 const TransitionFixture := preload("res://tests/nightfall_transition_fixture.gd")
 const CleanHud := preload("res://scripts/nightfall_clean_hud.gd")
+const CrateScript := preload("res://scripts/outpost_supply_crate.gd")
 ## Production clean-HUD regression with real viewport GUI dispatch. No hidden
 ## legacy hitboxes, automatic commands behind UI, or fixture-only train actions.
 ## --render-test records the default battlefield, details and urgent feedback.
@@ -23,12 +24,14 @@ var drawn_labels: Array[Dictionary] = []
 var all_labels: Array[String] = []
 var all_drawn_labels: Array[Dictionary] = []
 var drawn_boxes: Array[Rect2] = []
+var drawn_supply_markers: Array[Vector2] = []
 var recording_drawer := false
 func _draw() -> void:
 	drawn_labels.clear()
 	all_labels.clear()
 	all_drawn_labels.clear()
 	drawn_boxes.clear()
+	drawn_supply_markers.clear()
 	recording_drawer = false
 	super._draw()
 func box(rect: Rect2, fill: Color = Color(.022,.035,.045,.88), outline: Color = Color(\"435455\")) -> void:
@@ -46,6 +49,9 @@ func label(value: String, point: Vector2, size_px: int, color: Color = Color(\"e
 	if recording_drawer:
 		drawn_labels.append(row)
 	super.label(value,point,size_px,color,latin)
+func draw_supply_crate_marker(point: Vector2) -> void:
+	drawn_supply_markers.append(point)
+	super.draw_supply_crate_marker(point)
 """
 var game: Node3D
 var checks := 0
@@ -163,7 +169,7 @@ func default_layout(label: String) -> void:
 		label + ": the compact map affordance must retain a short readable label")
 	var supply_badge := false
 	for hud_label: String in game.hud.all_labels:
-		if hud_label.begins_with("箱"):
+		if hud_label.begins_with("补给箱"):
 			supply_badge = true
 			break
 	check("F3" in game.hud.all_labels and supply_badge,
@@ -202,6 +208,55 @@ func scene_priority_default() -> void:
 	check(not visible.has(SELECTED_SQUAD), "Scene-priority HUD must not reserve a card for an idle selection")
 	check(game.hud.minimal_display, "Scene-priority HUD flag must remain enabled during the live default layout")
 	game.hud.minimal_display=previous
+	await redraw()
+
+func supply_navigation_gui() -> void:
+	var original_size: Vector2i=root.size
+	var original_content: Vector2i=root.content_scale_size
+	var previous_minimal: bool=game.hud.minimal_display
+	game.hud.minimal_display=true
+	clear_transient_hud()
+	game.clear_supply_crates(true)
+	var crate: Node3D=CrateScript.new()
+	crate.setup(game.supply_crate_serial)
+	game.supply_crate_serial+=1
+	crate.position=Vector3(10,game.outpost_height(Vector3(10,0,8)),8)
+	game.add_child(crate)
+	game.supply_crates.append(crate)
+	for size: Vector2i in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
+		root.size=size
+		root.content_scale_size=size
+		await redraw()
+		var caption: String=game.hud.supply_crate_navigation_label()
+		var before_areas: Array=game.hud.visible_hud_rects()
+		check(caption.begins_with("补给箱 1 · 东南 ") and caption.ends_with("米")
+			and game.hud.all_labels.has(caption),"%s: the real clean HUD must show a live crate direction and distance" % size)
+		var found:=false
+		for row: Dictionary in game.hud.all_drawn_labels:
+			if String(row.text)!=caption:continue
+			found=true
+			check_text_inside(Rect2(24,816,312,20),row,"Supply navigation %s" % size)
+		check(found,"%s: supply navigation must use the actual Chinese drawing path" % size)
+		check(game.hud.drawn_supply_markers.is_empty(),"%s: hidden map must not paint permanent crate markers" % size)
+		await capture("supply-navigation-%dx%d" % [size.x,size.y])
+		await click(MAP)
+		var map_rect: Rect2=game.hud.minimap_rect()
+		var expected:=map_rect.get_center()+Vector2(0,2)+Vector2(crate.position.x,crate.position.z)*.86
+		check(game.hud.map_expanded and game.hud.drawn_supply_markers==[expected]
+			and game.hud.all_labels.has("金箱 · 补给"),"%s: clicking the real map must draw the crate at its actual map location" % size)
+		await capture("supply-map-%dx%d" % [size.x,size.y])
+		await click(MAP)
+		check(not game.hud.map_expanded and game.hud.visible_hud_rects()==before_areas,
+			"%s: supply navigation must add no permanent input exclusion region" % size)
+	crate.open()
+	await click(MAP)
+	check(game.hud.drawn_supply_markers.is_empty() and not game.hud.all_labels.has("金箱 · 补给"),
+		"Opened crates must immediately leave the actual map drawing")
+	await click(MAP)
+	game.clear_supply_crates(true)
+	root.size=original_size
+	root.content_scale_size=original_content
+	game.hud.minimal_display=previous_minimal
 	await redraw()
 
 func capture(label: String) -> void:
@@ -1423,6 +1478,7 @@ func run() -> void:
 	await capture("default-day")
 	await capture_production_default("day")
 	await scene_priority_default()
+	await supply_navigation_gui()
 	check_live_data()
 	await detail_navigation()
 	await pause_notice_priority()

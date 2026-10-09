@@ -188,6 +188,133 @@ func capture(label: String, focus: Vector3 = Vector3.INF) -> void:
 	game.camera.size = previous_size
 	game.camera_follow = previous_follow
 
+func assert_visible_nearby(crate: Node3D, context: String) -> void:
+	var planar_distance: float = Vector2(crate.position.x - game.hero.position.x, crate.position.z - game.hero.position.z).length()
+	check(planar_distance >= 6.0 - .001 and planar_distance <= 12.0 + .001, context + ": crate must spawn six to twelve metres from the hero")
+	check(game.can_traverse(game.hero.position, crate.position), context + ": the nearby crate must have a direct traversable approach")
+	var marker_point: Vector3 = game.to_global(crate.position + Vector3.UP * 1.4)
+	var viewport_size: Vector2 = game.get_viewport().get_visible_rect().size
+	var projected_point: Vector2 = game.camera.unproject_position(marker_point)
+	var safe_rect := Rect2(viewport_size * Vector2(.12, .14), viewport_size * Vector2(.76, .60))
+	check(not game.camera.is_position_behind(marker_point) and safe_rect.has_point(projected_point), context + ": the default camera must show the marker above the bottom HUD")
+	check(game._supply_crate_in_view(crate.position), context + ": the production visibility gate must agree with the rendered projection")
+	var start_cell: Vector2i = game.nearest_navigation_cell(game.hero.position, true)
+	game.supply_crates.erase(crate)
+	check(game._supply_crate_position_legal(crate.position, start_cell), context + ": full crate footprint must remain legal")
+	game.supply_crates.append(crate)
+	var pending_before: int = reward_count()
+	game.advance_supply_crates(0.0)
+	check(game.supply_crates.has(crate) and not bool(crate.opened) and reward_count() == pending_before, context + ": a newly spawned crate cannot instantly open under the hero")
+
+func settle_follow_camera() -> void:
+	# Call the actual production follow update while paused, so settling the
+	# camera does not alter game time, crate clocks or the fixture economy.
+	var prior_phase: String = game.phase
+	game.phase = "paused"
+	for _frame in 30:game._process(.1)
+	game.phase = prior_phase
+	check(game.camera.position.distance_to(game.hero.position + Vector3(0, 25, 29)) < .02, "Production camera following must settle on the relocated hero")
+
+func nearby_visibility_cases() -> void:
+	var hero_before: Vector3 = game.hero.position
+	var camera_before: Transform3D = game.camera.transform
+	var size_before: float = game.camera.size
+	var follow_before: Vector3 = game.camera_follow
+	var phase_time_before: float = game.phase_time
+	for at_perimeter: bool in [false, true]:
+		if at_perimeter:
+			# Position an isolated fixture near the outer boundary, then walk
+			# four metres through production movement before testing camera follow.
+			stand(Vector3(126, 0, 110))
+			var move_start: Vector3 = game.hero.position
+			var destination: Vector3 = ground(Vector3(130, 0, 110))
+			game.plan_hero_path(destination)
+			check(not game.hero_path.is_empty(), "The perimeter visibility fixture must have a real four-metre movement path")
+			for _step in 120:
+				game.move_hero(STEP)
+				if game.hero.position.distance_to(destination) < .2:break
+			check(game.hero.position.distance_to(move_start) > 3.5, "The hero must actually move on the perimeter before its camera is followed")
+		else:stand(hero_before)
+		settle_follow_camera()
+		for camera_size: float in [38.0, 21.0]:
+			game.camera.size = camera_size
+			for seed_value: int in [1, 17, 20261009]:
+				reset_supply()
+				game.supply_rng.seed = seed_value
+				var hostile_state: int = game.spawn_rng.state
+				game.advance_supply_crates(25.0)
+				var context: String = "%s zoom %.0f seed %d" % ["perimeter" if at_perimeter else "castle", camera_size, seed_value]
+				check(game.supply_crates.size() == 1, context + ": one due crate must appear in the nearby visible ground")
+				check(game.spawn_rng.state == hostile_state, context + ": visibility retries cannot affect hostile spawning")
+				if game.supply_crates.size() == 1:
+					var crate: Node3D = game.supply_crates[0]
+					assert_visible_nearby(crate, context)
+					if seed_value == 20261009:
+						await capture("visible-%s-zoom-%d-default-camera" % ["perimeter" if at_perimeter else "castle", int(camera_size)])
+	reset_supply()
+	stand(hero_before)
+	game.camera.transform = camera_before
+	game.camera.size = size_before
+	game.camera_follow = follow_before
+	game.phase_time = phase_time_before
+
+func blocked_delivery_retry() -> void:
+	reset_supply()
+	var old_blocks: Array[Rect2] = game.construction_blocks.duplicate()
+	var everywhere: Array[Rect2] = [Rect2(Vector2(-Layout.MAP_HALF_X - 1.0, -Layout.MAP_HALF_Z - 1.0), Vector2(Layout.MAP_HALF_X * 2.0 + 2.0, Layout.MAP_HALF_Z * 2.0 + 2.0))]
+	game.construction_blocks = everywhere
+	game.advance_supply_crates(25.0)
+	check(game.supply_crates.is_empty(), "No legal nearby ground must defer delivery rather than spawn a crate elsewhere on the map")
+	check(is_equal_approx(game.supply_crate_clock, 25.0) and is_equal_approx(game.supply_crate_retry, 1.0), "A blocked due delivery must retain its twenty-five-second clock and schedule a one-second retry")
+	var rng_after_failure: int = game.supply_rng.state
+	game.advance_supply_crates(.49)
+	game.advance_supply_crates(.49)
+	check(game.supply_rng.state == rng_after_failure and game.supply_crates.is_empty(), "Before the one-second retry delay expires, no position search may consume random values")
+	var paused_retry: float = game.supply_crate_retry
+	var paused_clock: float = game.supply_crate_clock
+	game.phase = "paused"
+	game.advance_supply_crates(10.0)
+	check(is_equal_approx(game.supply_crate_retry, paused_retry) and is_equal_approx(game.supply_crate_clock, paused_clock) and game.supply_rng.state == rng_after_failure, "Pause must freeze the deferred-delivery retry and random stream")
+	game.phase = "day"
+	game.construction_blocks = old_blocks
+	game.advance_supply_crates(.01)
+	check(game.supply_crates.is_empty() and game.supply_rng.state == rng_after_failure, "Released terrain must still respect the remainder of the original one-second retry")
+	game.advance_supply_crates(.02)
+	check(game.supply_crates.size() == 1 and game.supply_crate_retry == 0.0 and game.supply_crate_clock < 2.0, "When legal ground returns, the due crate must appear at the one-second retry without waiting another twenty-five seconds")
+	if game.supply_crates.size() == 1:assert_visible_nearby(game.supply_crates[0], "released deferred delivery")
+	reset_supply()
+	game.supply_crate_clock = 25.0
+	game.supply_crate_retry = .8
+	game.begin_day()
+	check(game.supply_crate_clock == 0.0 and game.supply_crate_retry == 0.0 and game.supply_crates.is_empty(), "A real phase transition must clear both spawn timing and the pending retry")
+	game.phase_time = 10000.0
+
+func navigation_marker_cases() -> void:
+	reset_supply()
+	var hero_before: Vector3 = game.hero.position
+	stand(Vector3(45, 0, 30))
+	var east_crate: Node3D = fixture_crate(game.hero.position + Vector3(7, 0, 0))
+	var north_crate: Node3D = fixture_crate(game.hero.position + Vector3(0, 0, -10))
+	var navigation: Dictionary = game.hud.supply_crate_navigation_snapshot()
+	check(int(navigation.get("count", -1)) == 2 and navigation.get("positions", []).size() == 2, "The real navigation snapshot must expose both live map crates as marker positions")
+	check(navigation.get("nearest_position", Vector3.INF) == east_crate.global_position and String(navigation.get("direction", "")) == "东" and int(navigation.get("distance_meters", -1)) == 7, "The real HUD must derive nearest direction and distance from the actual world crate")
+	check(String(game.hud.supply_crate_navigation_label()) == "补给箱 2 · 东 7米", "The compact HUD navigation line must name the visible crate direction and distance")
+	check(navigation.positions.has(east_crate.global_position) and navigation.positions.has(north_crate.global_position), "Expanded-map marker inputs must use exact live crate world positions")
+	east_crate.open()
+	var queued_crate: Node3D = fixture_crate(game.hero.position + Vector3(2, 0, 0))
+	queued_crate.queue_free()
+	var detached_crate: Node3D = fixture_crate(game.hero.position + Vector3(0, 0, 1))
+	game.remove_child(detached_crate)
+	root.add_child(detached_crate)
+	navigation = game.hud.supply_crate_navigation_snapshot()
+	check(int(navigation.get("count", -1)) == 1 and navigation.positions.size() == 1 and navigation.positions[0] == north_crate.global_position, "Opened, queued-for-deletion and foreign-parent crates cannot leave navigation or map markers")
+	check(String(navigation.get("direction", "")) == "北" and int(navigation.get("distance_meters", -1)) == 10 and String(game.hud.supply_crate_navigation_label()) == "补给箱 1 · 北 10米", "Navigation must advance to the next genuinely live crate")
+	root.remove_child(detached_crate)
+	game.add_child(detached_crate)
+	reset_supply()
+	stand(hero_before)
+	check(int(game.hud.supply_crate_navigation_snapshot().get("count", -1)) == 0, "Clearing crates must leave the marker snapshot empty")
+
 func new_game() -> void:
 	game = load("res://scenes/nightfall.tscn").instantiate()
 	game.archive.enabled = false
@@ -208,6 +335,22 @@ func run() -> void:
 	check(game.phase == "draft", "Run must begin in the normal draft phase")
 	check(not game.toggle_tower_construction() and not game.construction.active, "No permit can open a construction catalogue")
 	check(game.choose_card(0) and game.phase == "night", "The normal card selection must still start the night")
+	# A short real opening observation before any fixture isolation. The
+	# original wallet, hero, enemies, damage, clocks and camera all advance
+	# through production updates; this does not claim a balanced complete run.
+	var opening_night_time: float = game.phase_time
+	var opening_elapsed: float = 0.0
+	while opening_elapsed < 25.1 and game.phase == "night":
+		game._process(STEP)
+		opening_elapsed += STEP
+	check(opening_elapsed >= 25.1 and game.phase == "night" and game.phase_time <= opening_night_time - 25.0, "The unmodified first-night opening must really advance through the first twenty-five seconds")
+	check(game.hero.alive and game.hero.hp > 0.0 and game.beacon_hp > 0.0, "The standing hero and original beacon must survive the real first-night crate observation")
+	check(game.supply_crates.size() >= 1, "The original first night must deliver a real nearby crate without clearing threats or advancing its clock directly")
+	if not game.supply_crates.is_empty():
+		var opening_crate: Node3D = game.supply_crates[0]
+		assert_visible_nearby(opening_crate, "real first-night twenty-five-second delivery")
+	print("FIRST_NIGHT_SUPPLY_OBSERVATION elapsed=%.3f phase=%s hero_hp=%.3f beacon_hp=%.3f crates=%d" % [opening_elapsed, game.phase, game.hero.hp, game.beacon_hp, game.supply_crates.size()])
+	await capture("first-night-default-camera")
 	game.begin_day()
 	isolate()
 	press(KEY_Y)
@@ -230,10 +373,15 @@ func run() -> void:
 		check(game._supply_crate_position_legal(crate.position, navigation_start), "The complete crate footprint and reachable endpoint must be legal")
 		game.supply_crates.append(crate)
 		check(game.outpost_walkable(crate.position), "Spawned crates must stand on traversable ground")
+		assert_visible_nearby(crate, "first fixed-clock delivery")
+		await capture("automatically-spawned-default-camera")
 		await capture("automatically-spawned-crate", crate.position)
 	for _interval in 8:game.advance_supply_crates(game.SUPPLY_CRATE_INTERVAL)
 	check(game.supply_crates.size() == game.SUPPLY_CRATE_MAX, "Elapsed time must never exceed the simultaneous crate cap")
 	check(game.spawn_rng.state == spawn_state, "All repeated supply spawns must preserve the hostile RNG state")
+	await nearby_visibility_cases()
+	blocked_delivery_retry()
+	navigation_marker_cases()
 	reset_supply()
 	check(not game._supply_crate_position_legal(Vector3.INF, navigation_start), "Non-finite supply positions must be rejected")
 	check(not game._supply_crate_position_legal(ground(Vector3(12.8, 0, 6)), navigation_start), "A walkable center cannot allow the crate footprint to clip the wall")

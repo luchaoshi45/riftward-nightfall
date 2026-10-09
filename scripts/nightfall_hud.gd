@@ -193,6 +193,48 @@ func details_tab_rect(index: int) -> Rect2:
 func minimap_rect() -> Rect2:
 	return Rect2(1162,106,254,252) if map_expanded else Rect2(1252,106,164,164)
 
+func supply_crate_navigation_snapshot() -> Dictionary:
+	# Read the live world objects rather than the spawn clock's cached count, so
+	# opened, retired or detached crates cannot leave a navigation marker behind.
+	var positions: Array[Vector3]=[]
+	var nearest_position:=Vector3.ZERO
+	var nearest_distance:=INF
+	if not is_instance_valid(game):return {"count":0,"positions":positions}
+	var live_crates: Variant=game.get("supply_crates")
+	if not live_crates is Array:return {"count":0,"positions":positions}
+	var hero: Node3D=game.get("hero") as Node3D
+	for crate: Variant in live_crates:
+		if not is_instance_valid(crate) or not crate is Node3D:continue
+		if crate.is_queued_for_deletion() or not crate.is_inside_tree() or crate.get_parent()!=game:continue
+		if bool(crate.get("opened")):continue
+		var point: Vector3=crate.global_position
+		if not point.is_finite():continue
+		positions.append(point)
+		if not is_instance_valid(hero) or not hero.is_inside_tree():continue
+		var delta:=Vector2(point.x-hero.global_position.x,point.z-hero.global_position.z)
+		if delta.length()<nearest_distance:
+			nearest_distance=delta.length()
+			nearest_position=point
+	var result: Dictionary={"count":positions.size(),"positions":positions}
+	if not is_finite(nearest_distance):return result
+	var offset:=Vector2(nearest_position.x-hero.global_position.x,nearest_position.z-hero.global_position.z)
+	# The world map uses +X east and +Z south, independent of camera rotation.
+	var directions: Array[String]=["北","东北","东","东南","南","西南","西","西北"]
+	var direction_index: int=(roundi(atan2(offset.x,-offset.y)/(PI*.25))+8)%8
+	result["nearest_position"]=nearest_position
+	result["direction"]="脚下" if nearest_distance<.5 else directions[direction_index]
+	result["distance_meters"]=ceili(nearest_distance)
+	return result
+
+func supply_crate_navigation_label() -> String:
+	var navigation:=supply_crate_navigation_snapshot()
+	var count:=int(navigation.get("count",0))
+	if count>0 and navigation.has("direction"):
+		return "补给箱 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
+	if count>0:return "补给箱 %d · 地图可见" % count
+	var status: Dictionary=game.supply_crate_status() if is_instance_valid(game) and game.has_method("supply_crate_status") else {}
+	return "补给箱：%d秒" % ceili(float(status.get("next_seconds",0.0)))
+
 func countermeasure_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,280,160,62)
 
@@ -1057,9 +1099,22 @@ func draw_minimap() -> void:
 	draw_circle(center,5.0,amber)
 	if game.beacon_alarm_time>0:
 		draw_arc(center,11.0,0,TAU,32,Color("f16d58"),2.5)
+	var supply_navigation:=supply_crate_navigation_snapshot()
+	for point: Vector3 in supply_navigation.positions:
+		var map_point: Vector3=game.to_local(point)
+		draw_supply_crate_marker(center+Vector2(map_point.x,map_point.z)*scale)
+	if int(supply_navigation.count)>0:
+		label("金箱 · 补给",map_rect.position+Vector2(138,21),11,Color("f6cf78"))
 	draw_circle(center+Vector2(game.hero.position.x,game.hero.position.z)*scale,4.1,Color("8ee0e8"))
 	if not map_expanded:return
 	label("南门逼近%d · 夜巢%d/3" % [game.gate_pressure(),game.remaining_nests()],map_rect.position+Vector2(12,230),12,red if game.phase=="night" else muted)
+
+func draw_supply_crate_marker(marker: Vector2) -> void:
+	draw_rect(Rect2(marker-Vector2(3.5,3.5),Vector2(7,7)),Color("282d21"))
+	draw_rect(Rect2(marker-Vector2(3.5,3.5),Vector2(7,7)),Color("f6cf78"),false,1.5)
+	draw_line(marker+Vector2(0,-3.5),marker+Vector2(0,3.5),Color("f6cf78"),1.0)
+	draw_arc(marker,6.5,0,TAU,16,Color("f6cf78",.72),1.0)
+
 func training_page_rect(direction: int) -> Rect2:
 	return Rect2(456 if direction<0 else 493,188,29,26)
 

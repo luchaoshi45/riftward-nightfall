@@ -219,8 +219,12 @@ const SUPPLY_CRATE_INTERVAL := 25.0
 const SUPPLY_CRATE_MAX := 3
 const SUPPLY_CRATE_TRIGGER_RADIUS := 1.65
 const SUPPLY_CRATE_SPAWN_ATTEMPTS := 36
+const SUPPLY_CRATE_NEAR_MIN := 6.0
+const SUPPLY_CRATE_NEAR_MAX := 12.0
+const SUPPLY_CRATE_RETRY_SECONDS := 1.0
 var supply_crates: Array[Node3D] = []
 var supply_crate_clock := 0.0
+var supply_crate_retry := 0.0
 var supply_crate_serial := 0
 var supply_rng := RandomNumberGenerator.new()
 var supply_rewards_draining := false
@@ -3764,7 +3768,7 @@ func notify(message: String, duration: float=3.0) -> void:
 func supply_crate_status() -> Dictionary:
 	var remaining := maxf(0.0, SUPPLY_CRATE_INTERVAL - supply_crate_clock)
 	return {"count": supply_crates.size(), "max": SUPPLY_CRATE_MAX,
-		"next_seconds": remaining, "pending_build": pending_build_permit_kind,
+		"next_seconds": maxf(remaining,supply_crate_retry), "pending_build": pending_build_permit_kind,
 		"pending_training": pending_training_order_kind}
 
 func clear_supply_crates(clear_rewards: bool = true) -> void:
@@ -3772,6 +3776,7 @@ func clear_supply_crates(clear_rewards: bool = true) -> void:
 		if is_instance_valid(crate):crate.queue_free()
 	supply_crates.clear()
 	supply_crate_clock=0.0
+	supply_crate_retry=0.0
 	if clear_rewards:
 		pending_build_permit_kind=""
 		pending_training_order_kind=""
@@ -3789,11 +3794,15 @@ func advance_supply_crates(delta: float) -> void:
 		if crate.has_method("advance_visual"):crate.advance_visual(delta)
 	if supply_crates.size()<SUPPLY_CRATE_MAX:
 		supply_crate_clock+=delta
-		while supply_crate_clock>=SUPPLY_CRATE_INTERVAL and supply_crates.size()<SUPPLY_CRATE_MAX:
-			supply_crate_clock-=SUPPLY_CRATE_INTERVAL
+		supply_crate_retry=maxf(0.0,supply_crate_retry-delta)
+		while supply_crate_clock>=SUPPLY_CRATE_INTERVAL and supply_crate_retry<=0.0 and supply_crates.size()<SUPPLY_CRATE_MAX:
 			if not _spawn_supply_crate():
-				supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL-.01)
+				# Keep the due delivery ready, with bounded retries while the
+				# nearby ground is occupied. Do not hide it across the map.
+				supply_crate_clock=SUPPLY_CRATE_INTERVAL
+				supply_crate_retry=SUPPLY_CRATE_RETRY_SECONDS
 				break
+			supply_crate_clock-=SUPPLY_CRATE_INTERVAL
 	else:
 		supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL)
 	_try_open_supply_crates()
@@ -3816,13 +3825,24 @@ func _supply_crate_spawn_position() -> Vector3:
 	var start_cell:=nearest_navigation_cell(hero.position,true)
 	if start_cell.x==999:return Vector3.INF
 	for _attempt in SUPPLY_CRATE_SPAWN_ATTEMPTS:
-		var candidate:=Vector3(
-			supply_rng.randf_range(-Layout.MAP_HALF_X+4.0,Layout.MAP_HALF_X-4.0),
-			0.0,
-			supply_rng.randf_range(-Layout.MAP_HALF_Z+4.0,Layout.MAP_HALF_Z-4.0))
+		var angle:=supply_rng.randf_range(0.0,TAU)
+		var distance:=supply_rng.randf_range(SUPPLY_CRATE_NEAR_MIN,SUPPLY_CRATE_NEAR_MAX)
+		var candidate:=hero.position+Vector3(cos(angle)*distance,0.0,sin(angle)*distance)
+		if absf(candidate.x)>Layout.MAP_HALF_X-1.0 or absf(candidate.z)>Layout.MAP_HALF_Z-1.0:continue
 		candidate.y=outpost_height(candidate)
+		if not _supply_crate_in_view(candidate) or not can_traverse(hero.position,candidate):continue
 		if _supply_crate_position_legal(candidate,start_cell):return candidate
 	return Vector3.INF
+
+func _supply_crate_in_view(point: Vector3) -> bool:
+	if not is_instance_valid(camera):return false
+	var marker_point:=to_global(point+Vector3.UP*1.4)
+	if camera.is_position_behind(marker_point):return false
+	var view_size:=get_viewport().get_visible_rect().size
+	if view_size.x<=0.0 or view_size.y<=0.0:return false
+	# Reserve the outer edges and the bottom HUD, including at close zoom.
+	var safe_view:=Rect2(view_size*Vector2(.12,.14),view_size*Vector2(.76,.60))
+	return safe_view.has_point(camera.unproject_position(marker_point))
 
 func _supply_crate_position_legal(candidate: Vector3, start_cell: Vector2i) -> bool:
 	if not candidate.is_finite() or not is_instance_valid(hero_navigation):return false

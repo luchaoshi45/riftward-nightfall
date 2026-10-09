@@ -331,14 +331,17 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	# "地图 · 点击展开" card. The shortcut remains mouse-click only because M
 	# is reserved for music; the short label is enough to explain the glyph.
 	ui.label("地图",Vector2(210,851),11,LIVE_MUTED)
-	var supply: Dictionary=game.supply_crate_status() if game.has_method("supply_crate_status") else {}
-	var supply_count:=int(supply.get("count",0))
-	var supply_next:=ceilf(float(supply.get("next_seconds",0.0)))
-	var supply_label: String="箱%d" % supply_count if supply_count>0 else "箱0 · %02d秒" % supply_next
-	ui.label(supply_label,Vector2(278,849),11,ui.amber if supply_count>0 else LIVE_MUTED)
+	var supply_navigation: Dictionary=ui.supply_crate_navigation_snapshot()
+	var supply_count:=int(supply_navigation.get("count",0))
+	# One short line in the existing navigation rail points to a real crate;
+	# it adds no panel or mouse exclusion area over the battlefield.
+	ui.label(ui.supply_crate_navigation_label(),Vector2(24,827),11,ui.amber if supply_count>0 else LIVE_MUTED)
+	if not String(game.pending_build_permit_kind).is_empty():
+		ui.label("Y许可",Vector2(278,849),11,ui.amber)
 	ui.draw_line(Vector2(43,857),Vector2(88,857),Color(nav_tint,.42),1.0)
 	ui.draw_line(Vector2(189,857),Vector2(204,857),Color(LIVE_MUTED,.30),1.0)
-	ui.draw_line(Vector2(278,857),Vector2(293,857),Color(ui.amber,.42) if supply_count>0 else Color(LIVE_MUTED,.3),1.0)
+	if not String(game.pending_build_permit_kind).is_empty():
+		ui.draw_line(Vector2(278,857),Vector2(293,857),Color(ui.amber,.42),1.0)
 	if not is_instance_valid(game.squads):return
 	var snapshot: Dictionary=game.squads.snapshot()
 	if int(snapshot.get("selected",0))<=0:return
