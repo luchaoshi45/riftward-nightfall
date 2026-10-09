@@ -2799,6 +2799,10 @@ func choose_card(index: int) -> bool:
 		opening_night_pending=false
 		start_night()
 		notify("第 1 夜 · 两座守门塔已就位，B 布障 / R 灯焰；守住南门",6)
+		# The opening draft completes once per run. Reuse the normal delivery
+		# path so blocked ground stays due and retries on game time.
+		supply_crate_clock=SUPPLY_CRATE_INTERVAL
+		advance_supply_crates(0.0)
 	elif day_start_pending:begin_day()
 	else:phase=return_phase
 	return true

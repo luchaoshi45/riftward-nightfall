@@ -119,6 +119,9 @@ func remove_enemies() -> void:
 	game.enemies.clear()
 
 func isolate() -> void:
+	# Fixed-point permit and fee fixtures isolate construction from the random
+	# opening vehicle; natural vehicle acquisition is covered by its own test.
+	game.clear_supply_crates(true)
 	remove_enemies()
 	game.contracts.status = "idle"
 	game.phase_time = 10000.0

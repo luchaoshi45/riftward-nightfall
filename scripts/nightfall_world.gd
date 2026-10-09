@@ -5,6 +5,9 @@ const Layout = preload("res://scripts/outpost_layout.gd")
 const Grid = preload("res://scripts/construction_grid.gd")
 const FORT_HEIGHT := Layout.FORT_HEIGHT
 const LIGHT_TRANSITION_SECONDS := 6.0
+const COURTYARD_LAMP_RANGE := 19.0
+const COURTYARD_LAMP_DAY_ENERGY := 0.10
+const COURTYARD_LAMP_NIGHT_ENERGY := 2.8
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
 const DECORATION_CULL_NEAR := 104.0
 const DECORATION_CULL_FAR := 126.0
@@ -25,6 +28,9 @@ var ash_material: StandardMaterial3D
 var gate_lights: Array[OmniLight3D] = []
 var gate_spots: Array[SpotLight3D] = []
 var gate_flames: Array[MeshInstance3D] = []
+var courtyard_lamps: Array[OmniLight3D] = []
+var courtyard_globes: Array[MeshInstance3D] = []
+var courtyard_globe_material: StandardMaterial3D
 var gate_light_drain: Array[float] = [0.0,0.0]
 var gate_visual_drain: Array[float] = [0.0,0.0]
 var warning_mix := 0.0
@@ -96,6 +102,7 @@ func build() -> void:
 		for side in [-1,1]:
 			place_scene(fence_scene,Vector3(side*Layout.WALL_CENTER,FORT_HEIGHT,offset),1.45,PI*.5)
 	for side in [-1,1]:create_gate_lamp(Vector3(side*(Layout.GATE_HALF-.2),FORT_HEIGHT,Layout.WALL_CENTER-.15))
+	create_courtyard_lamps()
 	var tree_scene := load("res://assets/models/dead_tree.glb") as PackedScene
 	var ruin_scene := load("res://assets/models/ruined_house.glb") as PackedScene
 	var rock_scene := load("res://assets/models/rock_v2.glb") as PackedScene
@@ -479,6 +486,69 @@ func create_gate_lamp(point: Vector3) -> void:
 	searchlight.look_at(Vector3(point.x,terrain_height(Vector3(point.x,0,point.z+17.0)),point.z+17.0),Vector3.UP)
 	gate_spots.append(searchlight)
 
+func create_courtyard_lamps() -> void:
+	# The enlarged yard needs light along both side walls. Every fixture stays
+	# outside the buildable floor and contributes no navigation or collision.
+	var metal:=StandardMaterial3D.new()
+	metal.albedo_color=Color("353b39")
+	metal.metallic=.55
+	metal.roughness=.75
+	courtyard_globe_material=StandardMaterial3D.new()
+	courtyard_globe_material.albedo_color=Color("e99a45")
+	courtyard_globe_material.emission_enabled=true
+	courtyard_globe_material.emission=Color("ffad57")
+	courtyard_globe_material.emission_energy_multiplier=.25
+	var post_mesh:=CylinderMesh.new()
+	post_mesh.top_radius=.10
+	post_mesh.bottom_radius=.14
+	post_mesh.height=2.8
+	post_mesh.radial_segments=12
+	var arm_length: float=Layout.WALL_CENTER-(Layout.FORT_INNER+.38)
+	var arm_mesh:=BoxMesh.new()
+	arm_mesh.size=Vector3(arm_length,.10,.10)
+	var hood_mesh:=CylinderMesh.new()
+	hood_mesh.top_radius=.14
+	hood_mesh.bottom_radius=.29
+	hood_mesh.height=.16
+	hood_mesh.radial_segments=12
+	var globe_mesh:=SphereMesh.new()
+	globe_mesh.radius=.24
+	globe_mesh.height=.44
+	globe_mesh.radial_segments=16
+	globe_mesh.rings=8
+	for side: float in [-1.0,1.0]:
+		for depth: float in [-.64,0.0,.64]:
+			var fixture:=Node3D.new()
+			fixture.name="CourtyardWallLamp%d" % courtyard_lamps.size()
+			fixture.position=Vector3(side*Layout.WALL_CENTER,FORT_HEIGHT,depth*Layout.FORT_INNER)
+			add_child(fixture)
+			var inward_x: float=-side*arm_length
+			_add_courtyard_lamp_mesh(fixture,post_mesh,metal,Vector3(0,1.4,0))
+			_add_courtyard_lamp_mesh(fixture,arm_mesh,metal,Vector3(inward_x*.5,2.85,0))
+			_add_courtyard_lamp_mesh(fixture,hood_mesh,metal,Vector3(inward_x,2.91,0))
+			var globe:=_add_courtyard_lamp_mesh(fixture,globe_mesh,courtyard_globe_material,Vector3(inward_x,2.68,0))
+			courtyard_globes.append(globe)
+			var lamp:=OmniLight3D.new()
+			lamp.name="CourtyardLight"
+			lamp.position=globe.position
+			lamp.light_color=Color("ffc58b")
+			lamp.light_energy=COURTYARD_LAMP_DAY_ENERGY
+			lamp.light_specular=.15
+			lamp.omni_range=COURTYARD_LAMP_RANGE
+			lamp.omni_attenuation=.65
+			lamp.shadow_enabled=false
+			fixture.add_child(lamp)
+			courtyard_lamps.append(lamp)
+
+func _add_courtyard_lamp_mesh(parent: Node3D, mesh: Mesh, material: Material, point: Vector3) -> MeshInstance3D:
+	var part:=MeshInstance3D.new()
+	part.mesh=mesh
+	part.material_override=material
+	part.position=point
+	part.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(part)
+	return part
+
 func terrain_height(point: Vector3) -> float:
 	return Layout.terrain_height(point)
 
@@ -572,6 +642,12 @@ func apply_lighting() -> void:
 	beacon_light.omni_range=lerpf(25.0,22.0,blend)
 	hero_lantern.light_energy=blend*3.4
 	hero_lantern.visible=hero_lantern.light_energy>.001
+	# These steady wall lights share the original six-second phase fade;
+	# warnings and elapsed time never make the new courtyard lighting pulse.
+	for lamp in courtyard_lamps:
+		lamp.light_energy=lerpf(COURTYARD_LAMP_DAY_ENERGY,COURTYARD_LAMP_NIGHT_ENERGY,blend)
+	if courtyard_globe_material:
+		courtyard_globe_material.emission_energy_multiplier=lerpf(.25,2.6,blend)
 	for relay in relays:
 		(relay.light as OmniLight3D).light_energy=blend*3.2 if relay.activated else 0.0
 		(relay.light as OmniLight3D).visible=relay.light.light_energy>.001

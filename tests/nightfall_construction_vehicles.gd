@@ -13,6 +13,23 @@ var game: Node3D
 var checks := 0
 var failures: Array[String] = []
 var render_test := false
+var opening_vehicle_kind := ""
+
+class ObservedNightfall extends "res://scripts/nightfall.gd":
+	# Observe the real delivery call, including opening calls made by choose_card.
+	# The first wave legitimately consumes spawn RNG before this call, so whole
+	# card-selection before/after comparisons cannot isolate vehicle randomness.
+	var delivery_observations: Array[Dictionary] = []
+	func _spawn_supply_crate() -> bool:
+		var record := {"spawn_before": spawn_rng.state, "wallet_before": scrap,
+			"plots_before": districts.plots.size(), "towers_before": tower_count(),
+			"alive_before": int(squads.snapshot().alive)}
+		var delivered: bool = super._spawn_supply_crate()
+		record.merge({"delivered": delivered, "spawn_after": spawn_rng.state,
+			"wallet_after": scrap, "plots_after": districts.plots.size(),
+			"towers_after": tower_count(), "alive_after": int(squads.snapshot().alive)})
+		delivery_observations.append(record)
+		return delivered
 
 func _initialize() -> void:
 	render_test = "--render-test" in OS.get_cmdline_user_args()
@@ -163,9 +180,9 @@ func movement_and_build_pair() -> Array[Vector3]:
 			if game.outpost_walkable(start) and game.can_traverse(start, goal):return [start, goal]
 	return []
 
-func capture(label: String) -> void:
+func capture(label: String, settle_lighting: bool = true) -> void:
 	if not render_test or DisplayServer.get_name() == "headless":return
-	game.world._process(game.world.LIGHT_TRANSITION_SECONDS)
+	if settle_lighting:game.world._process(game.world.LIGHT_TRANSITION_SECONDS)
 	game.hud.queue_redraw()
 	for _frame in 6:
 		await process_frame
@@ -192,6 +209,15 @@ func capture_three_views(vehicle: Node3D, label: String) -> void:
 
 func new_game() -> void:
 	game = load("res://scenes/nightfall.tscn").instantiate()
+	# PackedScene construction already evaluates the base script's two Node
+	# initializers. Replacing its script initializes fresh managers; unlike
+	# RefCounted fields, the original unparented Nodes need explicit retirement.
+	for member_name: String in ["contracts", "districts"]:
+		var initial_manager: Node = game.get(member_name) as Node
+		var detached: bool = is_instance_valid(initial_manager) and not initial_manager.is_inside_tree() and initial_manager.get_parent() == null
+		check(detached, "The observer must retire only the unparented pre-ready " + member_name + " manager before replacing the scene script")
+		if detached:initial_manager.free()
+	game.set_script(ObservedNightfall)
 	root.add_child(game)
 	game.archive.enabled = false
 	current_scene = game
@@ -204,22 +230,157 @@ func close_game() -> void:
 	await process_frame
 	await create_timer(.5).timeout
 
+func check_delivery_observations(context: String) -> void:
+	var records: Array = game.delivery_observations
+	check(not records.is_empty(), context + ": the real delivery path must have executed")
+	for record: Dictionary in records:
+		check(int(record.spawn_before) == int(record.spawn_after), context + ": vehicle delivery must preserve the independent hostile RNG stream")
+		check(int(record.wallet_before) == int(record.wallet_after) and int(record.plots_before) == int(record.plots_after) and int(record.towers_before) == int(record.towers_after) and int(record.alive_before) == int(record.alive_after), context + ": delivery itself must not grant resources, buildings or troops")
+
+func courtyard_lighting() -> void:
+	var lamps: Array = game.world.courtyard_lamps
+	var globes: Array = game.world.courtyard_globes
+	check(lamps.size() == 6 and globes.size() == 6, "The enlarged main courtyard must contain six actual wall lights and six visible lamp globes")
+	var left := 0
+	var right := 0
+	for lamp: OmniLight3D in lamps:
+		check(is_instance_valid(lamp) and lamp.is_inside_tree() and game.world.is_ancestor_of(lamp), "Every courtyard light must be a live world entity")
+		if lamp.global_position.x < 0.0:left += 1
+		else:right += 1
+		check(lamp.light_color.r > lamp.light_color.g and lamp.light_color.g > lamp.light_color.b and not lamp.shadow_enabled and lamp.omni_range > 0.0, "Courtyard wall lights must use warm light without adding shadow instability")
+		var fixture: Node = lamp.get_parent()
+		check(fixture != game.world and fixture.find_children("*", "CollisionObject3D", true, false).is_empty(), "The complete wall-lamp fixture must add no unit-blocking collision body")
+	check(left == 3 and right == 3, "The authored courtyard lights must cover both side walls with three lights each")
+	game.world._process(game.world.LIGHT_TRANSITION_SECONDS)
+	for lamp: OmniLight3D in lamps:
+		check(is_equal_approx(lamp.light_energy, game.world.COURTYARD_LAMP_NIGHT_ENERGY), "Actual night transition must illuminate each courtyard lamp")
+
+func capture_opening_lighting_comparison() -> void:
+	if not render_test or DisplayServer.get_name() == "headless":return
+	# This diagnostic frame shares the production camera and original main/gate
+	# lights. Disable only the six new lamps and their shared globe emission.
+	var was_processing: bool = game.world.is_processing()
+	game.world.set_process(false)
+	var energies: Array[float] = []
+	for lamp: OmniLight3D in game.world.courtyard_lamps:
+		energies.append(lamp.light_energy)
+		lamp.light_energy = 0.0
+	var globe_material: StandardMaterial3D = game.world.courtyard_globe_material
+	var emission: float = globe_material.emission_energy_multiplier
+	globe_material.emission_energy_multiplier = 0.0
+	await capture("real-first-night-zero-seconds-courtyard-lights-off-comparison", false)
+	for index in game.world.courtyard_lamps.size():
+		game.world.courtyard_lamps[index].light_energy = energies[index]
+	globe_material.emission_energy_multiplier = emission
+	game.world.set_process(was_processing)
+	check(is_equal_approx(globe_material.emission_energy_multiplier, emission), "The comparison capture must restore the production globe emission")
+	for index in game.world.courtyard_lamps.size():
+		check(is_equal_approx(game.world.courtyard_lamps[index].light_energy, energies[index]), "The comparison capture must restore every production courtyard light")
+
 func real_opening() -> void:
+	check(game.phase == "draft" and game.supply_crates.is_empty(), "Before the opening card is chosen, the production draft must contain no construction vehicle")
+	var opening_wallet: int = game.scrap
+	var opening_plots: int = game.districts.plots.size()
+	var opening_towers: int = game.tower_count()
 	check(game.phase == "draft" and game.choose_card(0), "The production draft must start a playable first night")
+	check(game.supply_crates.size() == 1 and is_equal_approx(game.supply_crate_clock, 0.0), "Completing the opening card must immediately deliver one actual construction vehicle and begin a fresh twenty-five-second timer")
+	if game.supply_crates.size() == 1:opening_vehicle_kind = String(game.supply_crates[0].supply_kind)
+	check(game.scrap == opening_wallet and game.districts.plots.size() == opening_plots and game.tower_count() == opening_towers and game.squads.snapshot().alive == 0, "The opening vehicle must not charge or grant resources, a free building or an instant troop")
+	check_delivery_observations("Immediate opening delivery")
+	var supply_state: int = game.supply_rng.state
+	check(not game.choose_card(0) and game.supply_crates.size() == 1 and game.supply_rng.state == supply_state, "Repeated card selection outside the opening draft must not deliver another vehicle")
+	courtyard_lighting()
+	await capture("real-first-night-zero-seconds-default-camera")
+	await capture_opening_lighting_comparison()
+	var lamp_energy: Array[float] = []
+	for lamp: OmniLight3D in game.world.courtyard_lamps:lamp_energy.append(lamp.light_energy)
+	await press(KEY_ESCAPE)
+	check(game.phase == "paused", "Real Escape input must pause before any opening game time has elapsed")
+	game.advance_supply_crates(100.0)
+	game.world._process(100.0)
+	check(game.supply_crates.size() == 1 and is_equal_approx(game.supply_crate_clock, 0.0) and game.supply_rng.state == supply_state, "Pausing the immediate opening vehicle must freeze the next delivery clock and random stream")
+	for index in game.world.courtyard_lamps.size():
+		check(is_equal_approx(game.world.courtyard_lamps[index].light_energy, lamp_energy[index]), "Pause must retain steady courtyard lamp energy")
+	await press(KEY_ESCAPE)
+	check(game.phase == "night", "A second real Escape input must resume the original first night")
 	var elapsed: float = 0.0
+	while elapsed < 24.9 and game.phase == "night":
+		game._process(STEP)
+		elapsed += STEP
+	check(elapsed < 25.0 and game.supply_crates.size() == 1, "The real first night must retain only its opening vehicle before the twenty-five-second periodic delivery")
 	while elapsed < 25.1 and game.phase == "night":
 		game._process(STEP)
 		elapsed += STEP
 	check(elapsed >= 25.1 and game.phase == "night" and game.hero.alive and game.beacon_hp > 0.0, "The original first-night opening must survive through the real vehicle delivery interval")
-	check(game.supply_crates.size() >= 1, "After twenty-five real game seconds, a visible construction vehicle must arrive")
-	if not game.supply_crates.is_empty():
-		var vehicle: Node3D = game.supply_crates[0]
+	check(game.supply_crates.size() == 2, "After twenty-five real game seconds, the opening vehicle and a second timed vehicle must both exist")
+	for vehicle: Node3D in game.supply_crates:
 		check(String(vehicle.supply_kind) in Catalog.BUILDING_IDS, "Automatic vehicle deliveries must carry only a real building type")
 		var distance: float = planar(vehicle.position, game.hero.position)
 		check(distance >= 6.0 - .01 and distance <= 12.0 + .01 and game._supply_crate_in_view(vehicle.position), "A naturally delivered vehicle must remain nearby and visible in the default camera")
 		check(not bool(vehicle.opened) and not game.construction.active, "Automatic delivery must not consume the vehicle or enter a construction catalogue")
+	check_delivery_observations("Opening and first periodic delivery")
 	await capture("real-first-night-default-camera")
 	print("CONSTRUCTION_VEHICLE_OPENING elapsed=%.3f phase=%s hero_hp=%.3f beacon_hp=%.3f vehicles=%d" % [elapsed, game.phase, game.hero.hp, game.beacon_hp, game.supply_crates.size()])
+
+func blocked_opening_retry() -> void:
+	check(Session.queue_request(self, 20261009, "teaching"), "Queue a separate original-seed scene for the blocked opening precision case")
+	await new_game()
+	var old_blocks: Array[Rect2] = game.construction_blocks.duplicate()
+	var everywhere: Array[Rect2] = [Rect2(Vector2(-Layout.MAP_HALF_X - 1.0, -Layout.MAP_HALF_Z - 1.0), Vector2(Layout.MAP_HALF_X * 2.0 + 2.0, Layout.MAP_HALF_Z * 2.0 + 2.0))]
+	game.construction_blocks = everywhere
+	var balance: int = game.scrap
+	check(game.choose_card(0) and game.phase == "night", "Opening selection must still complete while all nearby delivery positions are physically blocked")
+	check(game.supply_crates.is_empty() and is_equal_approx(game.supply_crate_clock, 25.0) and is_equal_approx(game.supply_crate_retry, 1.0) and game.scrap == balance, "A blocked opening delivery must stay due with a one-second game-time retry without consuming resources")
+	check_delivery_observations("Blocked opening delivery")
+	var supply_state: int = game.supply_rng.state
+	game.advance_supply_crates(.49)
+	game.advance_supply_crates(.49)
+	check(game.supply_crates.is_empty() and game.supply_rng.state == supply_state, "The blocked opening cannot search or deliver before the original one-second retry expires")
+	var clock: float = game.supply_crate_clock
+	var retry: float = game.supply_crate_retry
+	await press(KEY_ESCAPE)
+	check(game.phase == "paused", "The blocked opening must also accept a real pause input")
+	game.advance_supply_crates(100.0)
+	check(is_equal_approx(game.supply_crate_clock, clock) and is_equal_approx(game.supply_crate_retry, retry) and game.supply_rng.state == supply_state and game.supply_crates.is_empty(), "Pause must freeze the blocked first-delivery request instead of dropping or repeating it")
+	await press(KEY_ESCAPE)
+	game.construction_blocks = old_blocks
+	game.advance_supply_crates(.01)
+	check(game.supply_crates.is_empty() and game.supply_rng.state == supply_state, "Releasing nearby terrain must preserve the remainder of the first delivery retry")
+	game.advance_supply_crates(.02)
+	check(game.supply_crates.size() == 1 and game.supply_crate_retry == 0.0 and game.supply_crate_clock < 2.0 and game.scrap == balance, "The original opening request must deliver its actual vehicle once legal ground returns without waiting another full interval")
+	check_delivery_observations("Released opening delivery")
+	game.end_defeat("Blocked opening vehicle precision defeat")
+	game.advance_supply_crates(100.0)
+	check(game.phase == "ended" and game.supply_crates.is_empty(), "A real failure must retire the opening vehicle and prevent its due request from reappearing")
+	await close_game()
+
+func parameterized_opening_deliveries() -> void:
+	for seed_value: int in [20261010, 41]:
+		for mode: String in ["teaching", "siege", "echo"]:
+			var context := "%s seed %d" % [mode, seed_value]
+			check(Session.queue_request(self, seed_value, mode), context + ": queue an independent production opening")
+			await new_game()
+			var balance: int = game.scrap
+			check(game.phase == "draft" and game.supply_crates.is_empty(), context + ": no vehicle may precede the final opening card")
+			if seed_value == 41 and mode == "teaching":
+				# A queued extra card is an explicit draft precision fixture. It
+				# still uses the real grant/choose pipeline and grants no parts.
+				game.run.grant("opening-vehicle-draft-precision")
+				var initial_supply_state: int = game.supply_rng.state
+				check(game.choose_card(0) and game.phase == "draft" and game.supply_crates.is_empty() and game.supply_rng.state == initial_supply_state, "An unfinished opening draft must not deliver a vehicle before its final queued card")
+			check(game.choose_card(0) and game.phase == "night" and game.supply_crates.size() == 1, context + ": completing the opening card must immediately create one vehicle")
+			check(game.scrap == balance and game.districts.plots.is_empty() and game.squads.snapshot().alive == 0 and is_equal_approx(game.supply_crate_clock, 0.0), context + ": an immediate vehicle cannot bypass economy or training")
+			if game.supply_crates.size() == 1:
+				var vehicle: Node3D = game.supply_crates[0]
+				check(in_roster(vehicle) and vehicle.is_inside_tree() and vehicle.get_parent() == game and not bool(vehicle.opened) and String(vehicle.supply_kind) in Catalog.BUILDING_IDS and game._supply_crate_in_view(vehicle.position), context + ": the delivered vehicle must be a live visible entity with a real building type")
+			check_delivery_observations(context)
+			var supply_state: int = game.supply_rng.state
+			check(not game.choose_card(0) and game.supply_crates.size() == 1 and game.supply_rng.state == supply_state, context + ": duplicate selection must not repeat the opening reward")
+			if seed_value == 41 and mode == "teaching":
+				game.run.grant("later-vehicle-draft-precision")
+				game.open_draft()
+				check(game.phase == "draft" and game.choose_card(0) and game.phase == "night" and game.supply_crates.size() == 1 and game.supply_rng.state == supply_state and game.scrap == balance, "Completing a later genuine card offer must not repeat the run's opening vehicle")
+			await close_game()
 
 func movement_and_payment() -> void:
 	clear_vehicles()
@@ -575,9 +736,9 @@ func lifecycle_and_no_pickup() -> void:
 	await press(KEY_D)
 	check(game.construction.active and in_roster(vehicle), "A failed live deployment must expose a preview before transition checks")
 	game.start_night()
-	check(game.phase == "night" and in_roster(vehicle) and not game.construction.active and not bool(vehicle.opened), "Day-to-night transition must retain the actual vehicle while cancelling its deployment preview")
+	check(game.phase == "night" and game.supply_crates.size() == 1 and in_roster(vehicle) and not game.construction.active and not bool(vehicle.opened) and game.supply_crate_clock == 0.0, "Day-to-night transition must retain exactly the actual vehicle without another opening delivery while cancelling its deployment preview")
 	game.begin_day()
-	check(game.phase == "day" and in_roster(vehicle) and not bool(vehicle.opened), "Night-to-day transition must retain the same undeployed vehicle identity")
+	check(game.phase == "day" and game.supply_crates.size() == 1 and in_roster(vehicle) and not bool(vehicle.opened) and game.supply_crate_clock == 0.0, "Night-to-day transition must retain exactly the same undeployed vehicle without another opening delivery")
 	game.end_defeat("Construction vehicle regression defeat")
 	check(game.phase == "ended" and not game.victory and game.supply_crates.is_empty() and not is_instance_valid(game.selected_construction_vehicle) and not is_instance_valid(game.deployment_vehicle), "The real failure path must clear vehicles, selection and bound deployment")
 	game.advance_supply_crates(100.0)
@@ -596,7 +757,13 @@ func actual_retry_and_victory() -> void:
 	game.archive.enabled = false
 	game.set_process(false)
 	check(game.phase == "draft" and game.run.seed_value == old_seed and game.supply_crates.is_empty() and not is_instance_valid(game.selected_construction_vehicle) and not is_instance_valid(game.deployment_vehicle), "A real retry must preserve the seed while recreating an empty vehicle roster")
-	game.choose_card(0)
+	var retry_wallet: int = game.scrap
+	await press(KEY_1)
+	check(game.phase == "night" and game.supply_crates.size() == 1 and is_equal_approx(game.supply_crate_clock, 0.0) and game.scrap == retry_wallet, "The real same-seed reload must deliver a new opening vehicle immediately after real card-key selection")
+	if game.supply_crates.size() == 1:
+		var retry_vehicle: Node3D = game.supply_crates[0]
+		check(in_roster(retry_vehicle) and retry_vehicle.get_parent() == game and not bool(retry_vehicle.opened) and String(retry_vehicle.supply_kind) == opening_vehicle_kind, "A same-seed retry must create a fresh live opening vehicle with the original deterministic building reward")
+	check(not game.choose_card(0) and game.supply_crates.size() == 1, "A repeated choice after the real retry cannot repeat its immediate delivery")
 	isolate()
 	fixture_vehicle("tower", Vector3(10, 0, 10))
 	game.phase = "night"
@@ -612,14 +779,23 @@ func run() -> void:
 	check(Session.queue_request(self, 20261009, "teaching"), "Create a fixed original opening seed for the vehicle observation")
 	await new_game()
 	await real_opening()
+	var opening_vehicle_count: int = game.supply_crates.size()
 	game.begin_day()
+	check(game.supply_crates.size() == opening_vehicle_count and is_equal_approx(game.supply_crate_clock, 0.0), "An ordinary dawn must preserve both actual vehicles without another opening reward")
+	game.world._process(game.world.LIGHT_TRANSITION_SECONDS)
+	for lamp: OmniLight3D in game.world.courtyard_lamps:
+		check(is_equal_approx(lamp.light_energy, game.world.COURTYARD_LAMP_DAY_ENERGY), "Actual dawn must fade the courtyard lamps to their authored daylight energy")
 	isolate()
 	var y_balance: int = game.scrap
 	await press(KEY_Y)
 	check(not game.construction.active and game.scrap == y_balance, "Y without a selected vehicle cannot open a building catalogue")
 	clear_vehicles()
+	var periodic_wallet: int = game.scrap
+	var periodic_hostile_state: int = game.spawn_rng.state
 	game.advance_supply_crates(25.0 * 8.0)
 	check(game.supply_crates.size() <= 3 and game.supply_crates.size() > 0, "Repeated delivery intervals must keep at most three real vehicles")
+	game.advance_supply_crates(25.0 * 8.0)
+	check(game.supply_crates.size() <= 3 and game.scrap == periodic_wallet and game.spawn_rng.state == periodic_hostile_state, "Further periodic deliveries must retain the three-vehicle cap, original wallet and independent enemy random stream")
 	for vehicle: Node3D in game.supply_crates:
 		check(String(vehicle.supply_kind) in Catalog.BUILDING_IDS and not bool(vehicle.opened), "All queued world deliveries must remain undeployed building vehicles")
 	await movement_and_payment()
@@ -633,6 +809,8 @@ func run() -> void:
 	await lifecycle_and_no_pickup()
 	await actual_retry_and_victory()
 	await close_game()
+	await blocked_opening_retry()
+	await parameterized_opening_deliveries()
 	if failures.is_empty():
 		print("NIGHTFALL_CONSTRUCTION_VEHICLES_OK checks=%d failures=0" % checks)
 	else:
