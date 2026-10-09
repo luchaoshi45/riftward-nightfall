@@ -38,13 +38,13 @@ const DAY_SQUAD_ALERT_RADIUS := 8.0
 # inside the raised ramp side walls so the cape and shoulders do not scrape the
 # retaining geometry while the input still slides at full speed.
 const HERO_RAMP_SIDE_CLEARANCE := 0.42
-const HERO_RAMP_SAFE_START_Z := 7.45 + Layout.EXPANSION_OFFSET
-const HERO_RAMP_SAFE_FULL_Z := 8.35 + Layout.EXPANSION_OFFSET
+const HERO_RAMP_SAFE_START_Z := (7.45 + 6.5) * Layout.CASTLE_HORIZONTAL_SCALE
+const HERO_RAMP_SAFE_FULL_Z := (8.35 + 6.5) * Layout.CASTLE_HORIZONTAL_SCALE
 # Include the imported ramp's vertical side-wall thickness when resolving a
 # cursor ray. A ray through the outer 3.9 m edge can otherwise fall onto the
 # low ground behind the ramp and send a right-click target several metres
 # backwards along the map.
-const HERO_RAMP_CLICK_OUTER_EDGE := 3.95
+const HERO_RAMP_CLICK_OUTER_EDGE := 3.95 * Layout.CASTLE_HORIZONTAL_SCALE
 # Keep the hero's visual footprint away from the raised courtyard retaining
 # walls as well as the south ramp walls. The gameplay wall follows the shared castle layout;
 # this centre-only margin prevents the cape and shoulders from scraping it.
@@ -223,6 +223,10 @@ const SUPPLY_CRATE_NEAR_MIN := 6.0
 const SUPPLY_CRATE_NEAR_MAX := 12.0
 const SUPPLY_CRATE_RETRY_SECONDS := 1.0
 var supply_crates: Array[Node3D] = []
+var deployment_d_latched := false
+var selected_construction_vehicle: Node3D
+var deployment_vehicle: Node3D
+var deployment_vehicle_id := 0
 var supply_crate_clock := 0.0
 var supply_crate_retry := 0.0
 var supply_crate_serial := 0
@@ -267,7 +271,7 @@ func _ready() -> void:
 	camera.size=38
 	# Gameplay never approaches this camera; avoid wasting depth precision at .05m.
 	camera.near=.3
-	camera.far=190
+	camera.far=320
 	camera.position=hero.position+Vector3(0,25,29)
 	camera.look_at(hero.position)
 	camera.current=true
@@ -338,7 +342,8 @@ func _process(delta: float) -> void:
 	if notice_time>0:notice_time=maxf(0,notice_time-delta)
 	if is_instance_valid(hero):
 		world.follow_ashfall(hero.position)
-		var target:=hero.position+Vector3(0,25,29)
+		var focus: Node3D=selected_construction_vehicle if _valid_construction_vehicle(selected_construction_vehicle) else hero
+		var target:=focus.position+Vector3(0,25,29)
 		# Keep the fixed camera direction and a deliberate glide on the outer
 		# ground. Once the hero reaches the raised outpost, use a faster
 		# horizontal response as well as the existing fast vertical response.
@@ -1367,6 +1372,24 @@ func settle_contract_reward() -> void:
 		while reward_toasts.size()>4:reward_toasts.remove_at(0)
 		notify("委托已交回 · +%d零件" % int(reward.scrap),3)
 
+func _resolve_enemy_spawn_point(point: Vector3) -> Vector3:
+	var direction:=Vector3(point.x,0,point.z).normalized()
+	if direction.length_squared()<.01:direction=Vector3.BACK
+	# Expansion must not leave a random spawn inside a new wall, courtyard or
+	# natural obstacle. Resolve outwards without drawing extra combat RNG.
+	for attempt in 160:
+		var candidate:=point+direction*float(attempt)*.5
+		if absf(candidate.x)>Layout.MAP_HALF_X-1.0 or absf(candidate.z)>Layout.MAP_HALF_Z-1.0:break
+		var clear:=not Layout.contains_castle(candidate) and not Layout.satellite_contains(candidate)
+		for blocks: Array in [WALK_BLOCKS,TERRAIN_BLOCKS,construction_blocks]:
+			for block: Rect2 in blocks:
+				if block.grow(.45).has_point(Vector2(candidate.x,candidate.z)):clear=false;break
+		if clear:
+			candidate.y=outpost_height(candidate)
+			return candidate
+	# Existing outer gate staging is always outside the expanded retaining wall.
+	return Vector3(0,outpost_height(Vector3(0,0,Layout.RAMP_END+3)),Layout.RAMP_END+3)
+
 func spawn_creature(night: bool, role: String="", register_veterancy: bool=true) -> BattleUnit:
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
@@ -1377,7 +1400,8 @@ func spawn_creature(night: bool, role: String="", register_veterancy: bool=true)
 	add_child(creature)
 	var angle:=spawn_rng.randf_range(0,TAU)
 	var radius:=spawn_rng.randf_range(29,98)
-	creature.position=Vector3(spawn_rng.randf_range(-10,10),0,spawn_rng.randf_range(34,54)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
+	creature.position=Vector3(spawn_rng.randf_range(-10,10),0,spawn_rng.randf_range(Layout.RAMP_END+8.5,Layout.RAMP_END+28.5)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
+	creature.position=_resolve_enemy_spawn_point(creature.position)
 	creature.set_meta("gate_lane",spawn_rng.randf_range(-1.15,1.15))
 	var roll:=spawn_rng.randf() if night else 1.0
 	if night and not role.is_empty():
@@ -1912,12 +1936,14 @@ func update_beacon_alarm(delta: float) -> void:
 	if beacon_alarm_time<=0:beacon_alarm_damage=0.0
 
 func move_hero(delta: float) -> void:
+	if _valid_construction_vehicle(selected_construction_vehicle):return
 	var old_position:=hero.position
 	var input:=Vector3.ZERO
 	if Input.is_key_pressed(KEY_Z) or Input.is_key_pressed(KEY_UP):input.z-=1
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):input.z+=1
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):input.x-=1
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):input.x+=1
+	if not Input.is_key_pressed(KEY_D):deployment_d_latched=false
+	if (Input.is_key_pressed(KEY_D) and not deployment_d_latched) or Input.is_key_pressed(KEY_RIGHT):input.x+=1
 	if input.length_squared()>0:
 		hero_keyboard_active=true
 		hero_path.clear()
@@ -2122,7 +2148,7 @@ func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vecto
 	# Standalone route goals use their own region; movement and dashes also
 	# check their origin so a blocked request cannot change sides of a wall.
 	var reference:=point if origin==Vector3.INF else origin
-	var ramp_clearance: bool=absf(reference.x)<=2.65 and reference.z>Layout.FORT_INNER and reference.z<Layout.RAMP_WALL_END
+	var ramp_clearance: bool=absf(reference.x)<=Layout.GATE_HALF and reference.z>Layout.FORT_INNER and reference.z<Layout.RAMP_WALL_END
 	var courtyard_clearance: bool=absf(reference.x)<=Layout.FORT_INNER and absf(reference.z)<=Layout.FORT_INNER
 	if absf(point.x)<=Layout.FORT_INNER and absf(point.z)<=Layout.FORT_INNER:courtyard_clearance=true
 	# The raised south ramp is only 5.2 m wide between its side walls. The
@@ -2134,7 +2160,7 @@ func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vecto
 	# beside the ramp is intentionally open; applying this to every point in
 	# the ramp's z range pulled an outer-ground hero across the retaining wall
 	# or left it unable to move along that side.
-	if ramp_clearance and point.z>HERO_RAMP_SAFE_START_Z and point.z<Layout.RAMP_WALL_END and absf(point.x)<3.9:
+	if ramp_clearance and point.z>HERO_RAMP_SAFE_START_Z and point.z<Layout.RAMP_WALL_END and absf(point.x)<Layout.RAMP_OUTER_HALF:
 		var limit:=hero_ramp_side_limit(point.z)
 		point.x=clampf(point.x,-limit,limit)
 	# The raised courtyard has three solid retaining walls. Apply the same
@@ -2146,7 +2172,7 @@ func hero_safe_destination(point: Vector3, origin: Vector3=Vector3.INF) -> Vecto
 	for _pass in 2:
 		if absf(point.z)<=Layout.FORT_INNER and absf(point.x)<=Layout.FORT_INNER:
 			point.x=clampf(point.x,-HERO_FORT_SAFE_EDGE,HERO_FORT_SAFE_EDGE)
-		if absf(point.x)<2.65 and point.z>HERO_FORT_SAFE_EDGE and point.z<Layout.FORT_OUTER:
+		if absf(point.x)<Layout.GATE_HALF and point.z>HERO_FORT_SAFE_EDGE and point.z<Layout.FORT_OUTER:
 			continue
 		if absf(point.x)<=Layout.FORT_INNER and point.z>=HERO_FORT_SAFE_EDGE and point.z<Layout.FORT_OUTER:
 			point.z=minf(point.z,HERO_FORT_SAFE_EDGE)
@@ -2159,25 +2185,25 @@ func hero_ramp_motion(origin: Vector3, target: Vector3) -> bool:
 	# every point in that band as ramp motion makes a diagonal approach to the
 	# raised courtyard wall skip the normal tangent slide and lose most of a
 	# frame.  Only the walkable ramp corridor needs ramp-specific projection.
-	return ((origin.z>HERO_RAMP_SAFE_START_Z-.75 and origin.z<Layout.RAMP_WALL_END) or (target.z>HERO_RAMP_SAFE_START_Z-.75 and target.z<Layout.RAMP_WALL_END)) and (absf(origin.x)<3.9 or absf(target.x)<3.9)
+	return ((origin.z>HERO_RAMP_SAFE_START_Z-.75 and origin.z<Layout.RAMP_WALL_END) or (target.z>HERO_RAMP_SAFE_START_Z-.75 and target.z<Layout.RAMP_WALL_END)) and (absf(origin.x)<Layout.RAMP_OUTER_HALF or absf(target.x)<Layout.RAMP_OUTER_HALF)
 
 func hero_ramp_side_limit(z: float) -> float:
 	# Bring the visual clearance in over the raised platform lip. A hard
 	# threshold at the ramp lip made the first frame on the ramp pull the hero sideways.
 	# Smoothstep keeps the correction below one visible movement step while
 	# retaining the full 0.42 m margin on the actual sloped section.
-	if z<=HERO_RAMP_SAFE_START_Z or z>=Layout.RAMP_WALL_END:return 2.65
+	if z<=HERO_RAMP_SAFE_START_Z or z>=Layout.RAMP_WALL_END:return Layout.GATE_HALF
 	var blend:=clampf((z-HERO_RAMP_SAFE_START_Z)/(HERO_RAMP_SAFE_FULL_Z-HERO_RAMP_SAFE_START_Z),0.0,1.0)
 	blend=blend*blend*(3.0-2.0*blend)
-	return lerpf(2.65,2.65-HERO_RAMP_SIDE_CLEARANCE,blend)
+	return lerpf(Layout.GATE_HALF,Layout.GATE_HALF-HERO_RAMP_SIDE_CLEARANCE,blend)
 
 func raised_ramp_corner_escape(origin: Vector3, delta: Vector3, step_distance: float) -> Vector3:
 	if step_distance<=.0001 or delta.z<=.0001:return Vector3.INF
 	if origin.z<Layout.FORT_INNER-.05 or origin.z>Layout.RAMP_WALL_START+.05:return Vector3.INF
 	var side:=signf(origin.x)
-	if absf(origin.x)<2.52 or side==0.0 or signf(delta.x)!=side:return Vector3.INF
+	if absf(origin.x)<Layout.RAMP_INNER_HALF-.08 or side==0.0 or signf(delta.x)!=side:return Vector3.INF
 	# Keep the whole corrective step inside the 2.6 m walkable ramp width.
-	var inward_limit:=maxf(0.0,absf(origin.x)-2.54)
+	var inward_limit:=maxf(0.0,absf(origin.x)-(Layout.RAMP_INNER_HALF-.06))
 	var inward:=minf(step_distance*.75,inward_limit)
 	if inward<.0001:return Vector3.INF
 	var downhill:=sqrt(maxf(0.0,step_distance*step_distance-inward*inward))
@@ -3251,7 +3277,7 @@ func toggle_tower_construction() -> bool:
 		construction.cancel()
 		return true
 	if pending_build_permit_kind.is_empty():
-		notify("暂无建筑许可 · 补给箱会自动带来可放置许可",2.4)
+		notify("选择建筑车 · 右键移动，D展开",2.4)
 		return false
 	if not construction.begin(pending_build_permit_kind):return false
 	hud.dismiss_details()
@@ -3261,9 +3287,14 @@ func toggle_tower_construction() -> bool:
 
 func build_structure_at(point: Vector3, kind: String) -> bool:
 	if phase not in ["day","night"] or not is_instance_valid(construction):return false
+	if deployment_vehicle_id!=0:
+		if not _valid_construction_vehicle(deployment_vehicle) or deployment_vehicle.get_instance_id()!=deployment_vehicle_id or kind!=String(deployment_vehicle.supply_kind):return false
+		var vehicle_point: Vector3=Grid.placement(deployment_vehicle.position,kind).point
+		if Vector2(point.x,point.z).distance_to(Vector2(vehicle_point.x,vehicle_point.z))>.01:return false
 	if kind=="tower":
 		var tower_built:=build_tower_at(point)
 		if tower_built and pending_build_permit_kind==kind:
+			_consume_deployment_vehicle()
 			pending_build_permit_kind=""
 			construction.cancel()
 			notify("建筑已部署",3.0)
@@ -3276,6 +3307,7 @@ func build_structure_at(point: Vector3, kind: String) -> bool:
 	var result: Dictionary=districts.build_at(placement.point,kind)
 	if not bool(result.ok):notify(String(result.reason),2);return false
 	if pending_build_permit_kind==kind:
+		_consume_deployment_vehicle()
 		pending_build_permit_kind=""
 		construction.cancel()
 		notify("建筑已部署",3.0)
@@ -3517,14 +3549,14 @@ func resolve_ramp_click(flat_seed: Vector3, sampled: Variant) -> Vector3:
 	# nearest walkable ramp edge while leaving clicks on the outer ground alone.
 	if sampled is Vector3 and (sampled as Vector3).z<Layout.FORT_INNER:return Vector3.INF
 	if sampled is Vector3 and (sampled as Vector3).z>Layout.RAMP_END+1.0:return Vector3.INF
-	if absf(flat_seed.x)<2.77 or absf(flat_seed.x)>HERO_RAMP_CLICK_OUTER_EDGE:return Vector3.INF
-	if sampled is Vector3 and outpost_walkable(sampled) and absf((sampled as Vector3).x)<2.77:return Vector3.INF
+	if absf(flat_seed.x)<Layout.GATE_HALF+.12 or absf(flat_seed.x)>HERO_RAMP_CLICK_OUTER_EDGE:return Vector3.INF
+	if sampled is Vector3 and outpost_walkable(sampled) and absf((sampled as Vector3).x)<Layout.GATE_HALF+.12:return Vector3.INF
 	var side: float=signf(flat_seed.x)
 	# Preserve the cursor's forward position whenever possible. The y=0 ray
 	# can land well before the ramp at the steep lower lip, so clamp only that
 	# ambiguous part to the entrance instead of searching the whole ramp and
 	# accidentally sending a click several metres uphill.
-	var z: float=clampf(flat_seed.z,7.5+Layout.EXPANSION_OFFSET,Layout.RAMP_WALL_END-.05)
+	var z: float=clampf(flat_seed.z,14.0*Layout.CASTLE_HORIZONTAL_SCALE,Layout.RAMP_WALL_END-.05)
 	var candidate_x: float=side*hero_ramp_side_limit(z)
 	var candidate: Vector3=Vector3(candidate_x,outpost_height(Vector3(candidate_x,0,z)),z)
 	return candidate if not camera.is_position_behind(candidate) else Vector3.INF
@@ -3588,11 +3620,26 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 			selection_dragging=false
 			selection_end=event.position
 			if selection_start.distance_to(selection_end)<8.0:
-				squads.select_at(ground_point(event.position),selection_additive)
+				var vehicle:=construction_vehicle_under_cursor(event.position)
+				if is_instance_valid(vehicle):select_construction_vehicle(vehicle)
+				else:
+					select_construction_vehicle(null)
+					squads.select_at(ground_point(event.position),selection_additive)
 			else:
-				squads.select_rect(camera,Rect2(selection_start,selection_end-selection_start).abs(),selection_additive)
+				var rect:=Rect2(selection_start,selection_end-selection_start).abs()
+				var vehicle: Node3D
+				for candidate: Node3D in supply_crates:
+					if _valid_construction_vehicle(candidate) and not camera.is_position_behind(candidate.global_position) and rect.has_point(camera.unproject_position(candidate.global_position)):
+						vehicle=candidate;break
+				select_construction_vehicle(vehicle)
+				if not is_instance_valid(vehicle):squads.select_rect(camera,rect,selection_additive)
 		return true
 	if not event.pressed:return true
+	if _valid_construction_vehicle(selected_construction_vehicle):
+		selection_dragging=false
+		var moved: bool=selected_construction_vehicle.command_move(ground_point(event.position),self)
+		notify("建筑车移动中 · D在当前位置展开" if moved else "建筑车无法到达这里",2.0)
+		return true
 	if event.alt_pressed:
 		var escort_result: Dictionary=squads.command_escort(hauler_under_cursor(event.position))
 		if bool(escort_result.ok):selection_dragging=false
@@ -3664,7 +3711,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode==KEY_ESCAPE and construction and construction.active and phase in ["day","night"]:
 			construction.cancel()
 			return
-		if event.keycode==KEY_ESCAPE and phase in ["day","night"] and (selection_dragging or squads.selected_count()>0):
+		if event.keycode==KEY_ESCAPE and phase in ["day","night"] and (selection_dragging or squads.selected_count()>0 or _valid_construction_vehicle(selected_construction_vehicle)):
+			select_construction_vehicle(null)
 			selection_dragging=false;squads.cancel_selection()
 			return
 		if music_credits_open:return
@@ -3698,6 +3746,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			var slot:=int(event.keycode)-KEY_1+1
 			var saving: bool=event.ctrl_pressed
+			if not saving:select_construction_vehicle(null)
 			var result: Dictionary=control_groups.save(slot) if saving else control_groups.select(slot,event.shift_pressed)
 			if bool(result.ok):
 				var verb: String="已保存" if saving else ("追加选择" if event.shift_pressed else "已选中")
@@ -3734,7 +3783,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I:hire_ranged_squad()
 			KEY_N:train_troop("engineer")
 			KEY_TAB:
-				if phase in ["day","night"]:squads.select_all()
+				if phase in ["day","night"]:
+					select_construction_vehicle(null)
+					squads.select_all()
 			KEY_O:
 				if event.alt_pressed:recall_selected_squads()
 				else:toggle_squad_order()
@@ -3743,6 +3794,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_V:request_upgrade()
 			KEY_J:choose_tower_specialization("piercing")
 			KEY_K:choose_tower_specialization("control")
+			KEY_D:
+				if _valid_construction_vehicle(selected_construction_vehicle):
+					deployment_d_latched=true
+					deploy_selected_vehicle()
 			KEY_Y:toggle_tower_construction()
 			KEY_F:interact()
 			KEY_G:toggle_tower_mode()
@@ -3772,26 +3827,36 @@ func supply_crate_status() -> Dictionary:
 		"pending_training": pending_training_order_kind}
 
 func clear_supply_crates(clear_rewards: bool = true) -> void:
+	# Player vehicles survive the day/night transition. Only unfinished
+	# deployment is cancelled; terminal/retry cleanup retires the roster.
+	if is_instance_valid(deployment_vehicle) and is_instance_valid(construction):construction.cancel()
+	supply_crate_clock=0.0
+	supply_crate_retry=0.0
+	if not clear_rewards:return
+	select_construction_vehicle(null)
 	for crate: Node3D in supply_crates:
 		if is_instance_valid(crate):crate.queue_free()
 	supply_crates.clear()
-	supply_crate_clock=0.0
-	supply_crate_retry=0.0
-	if clear_rewards:
-		pending_build_permit_kind=""
-		pending_training_order_kind=""
-		supply_reward_queue.clear()
-		supply_training_reason=""
-		if is_instance_valid(construction):construction.cancel()
+	deployment_vehicle=null
+	deployment_vehicle_id=0
+	pending_build_permit_kind=""
+	pending_training_order_kind=""
+	supply_reward_queue.clear()
+	supply_training_reason=""
+	if is_instance_valid(construction):construction.cancel()
 
 func advance_supply_crates(delta: float) -> void:
 	if phase not in ["day", "night"] or quitting or restart_pending or shutting_down:return
+	if deployment_vehicle_id!=0 and not _valid_construction_vehicle(deployment_vehicle):construction.cancel()
+	if not _valid_construction_vehicle(selected_construction_vehicle):selected_construction_vehicle=null
 	for index in range(supply_crates.size()-1,-1,-1):
 		var crate:=supply_crates[index]
 		if not is_instance_valid(crate) or crate.is_queued_for_deletion():
 			supply_crates.remove_at(index)
 			continue
-		if crate.has_method("advance_visual"):crate.advance_visual(delta)
+		if _valid_construction_vehicle(crate):
+			if crate.has_method("advance_visual"):crate.advance_visual(delta)
+			if not is_same(crate,deployment_vehicle):crate.advance_movement(delta,self)
 	if supply_crates.size()<SUPPLY_CRATE_MAX:
 		supply_crate_clock+=delta
 		supply_crate_retry=maxf(0.0,supply_crate_retry-delta)
@@ -3805,19 +3870,19 @@ func advance_supply_crates(delta: float) -> void:
 			supply_crate_clock-=SUPPLY_CRATE_INTERVAL
 	else:
 		supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL)
-	_try_open_supply_crates()
 	_drain_supply_rewards()
 
 func _spawn_supply_crate() -> bool:
 	var point:=_supply_crate_spawn_position()
 	if not point.is_finite():return false
 	var crate:=SupplyCrateScript.new() as Node3D
-	if crate.has_method("setup"):crate.setup(supply_crate_serial)
+	var reward:=_roll_supply_reward()
+	if crate.has_method("setup"):crate.setup(supply_crate_serial,String(reward.kind),String(reward.title))
 	supply_crate_serial+=1
 	crate.position=point
 	add_child(crate)
 	supply_crates.append(crate)
-	notify("发现补给箱",2.4)
+	notify("建筑车抵达：%s · 左键选中，右键移动，D展开" % String(reward.title),3.0)
 	return true
 
 func _supply_crate_spawn_position() -> Vector3:
@@ -3850,7 +3915,7 @@ func _supply_crate_position_legal(candidate: Vector3, start_cell: Vector2i) -> b
 	var center:=Vector2(candidate.x,candidate.z)
 	if center.length()<7.0:return false
 	# Reserve the whole visible box/ring, with clearance from walls and terrain.
-	var clearance:=0.95
+	var clearance:=1.12
 	for blocks: Array in [WALK_BLOCKS,TERRAIN_BLOCKS,construction_blocks]:
 		for block: Rect2 in blocks:
 			if block.grow(clearance).has_point(center):return false
@@ -3886,45 +3951,80 @@ func _supply_opener_valid(unit: Variant) -> bool:
 	return false
 
 func _try_open_supply_crates() -> void:
-	if phase not in ["day", "night"] or quitting or restart_pending or shutting_down:return
-	var targets: Array[Node3D]=[]
-	if _supply_opener_valid(hero):targets.append(hero)
-	if is_instance_valid(squads):
-		for squad: Dictionary in squads.squads:
-			for member: Variant in squad.members:
-				if _supply_opener_valid(member):targets.append(member)
-	for index in range(supply_crates.size()-1,-1,-1):
-		var crate:=supply_crates[index]
-		if not is_instance_valid(crate) or crate.is_queued_for_deletion() or not crate.is_inside_tree():continue
-		var opener: Node3D
-		for target: Node3D in targets:
-			if not _supply_opener_valid(target):continue
-			if target.global_position.distance_to(crate.global_position)<=SUPPLY_CRATE_TRIGGER_RADIUS and can_traverse(to_local(target.global_position),crate.position):
-				opener=target
-				break
-		if not is_instance_valid(opener):continue
-		if not crate.has_method("open") or not bool(crate.call("open")):continue
-		supply_crates.remove_at(index)
-		crate.queue_free()
-		_apply_supply_reward(_roll_supply_reward())
+	# Legacy helper retained for older fixtures. Contact no longer consumes a
+	# vehicle; selecting, moving and deploying it is an explicit RTS command.
+	pass
 
 func _roll_supply_reward() -> Dictionary:
-	var building_candidates: Array[String]=[]
+	var candidates: Array[String]=[]
 	for kind: String in Catalog.BUILDING_IDS:
-		var eligibility: Dictionary=districts.build_eligibility(kind)
-		if bool(eligibility.get("available",false)):building_candidates.append(kind)
-	var troop_candidates: Array[String]=[]
-	if is_instance_valid(squads):
-		for kind: String in Catalog.TROOP_IDS:
-			var eligibility: Dictionary=squads.training_eligibility(kind)
-			if bool(eligibility.get("available",false)):troop_candidates.append(kind)
-	if building_candidates.is_empty() and troop_candidates.is_empty():return {"type":"building_permit","kind":"tower","title":"防御塔"}
-	var use_building:=building_candidates.size()>0 and (troop_candidates.is_empty() or supply_rng.randf()<.62)
-	if use_building:
-		var kind:=building_candidates[supply_rng.randi_range(0,building_candidates.size()-1)]
-		return {"type":"building_permit","kind":kind,"title":String(Catalog.building(kind).get("title",kind))}
-	var troop_kind:=troop_candidates[supply_rng.randi_range(0,troop_candidates.size()-1)]
-	return {"type":"training_order","kind":troop_kind,"title":String(Catalog.troop(troop_kind).get("title",troop_kind))}
+		if bool(districts.build_eligibility(kind).get("available",false)):candidates.append(kind)
+	var kind: String="tower" if candidates.is_empty() else candidates[supply_rng.randi_range(0,candidates.size()-1)]
+	return {"type":"building_permit","kind":kind,"title":String(Catalog.building(kind).get("title",kind))}
+
+func _valid_construction_vehicle(vehicle: Variant) -> bool:
+	return is_instance_valid(vehicle) and vehicle is OutpostSupplyCrate and vehicle in supply_crates and vehicle.get_parent()==self and vehicle.is_inside_tree() and not vehicle.is_queued_for_deletion() and not bool(vehicle.get("opened"))
+
+func select_construction_vehicle(vehicle: Node3D) -> bool:
+	if is_instance_valid(vehicle) and (phase not in ["day","night"] or not _valid_construction_vehicle(vehicle)):return false
+	if is_instance_valid(deployment_vehicle) and is_instance_valid(construction):construction.cancel()
+	if is_instance_valid(selected_construction_vehicle):selected_construction_vehicle.set_selected(false)
+	selected_construction_vehicle=vehicle
+	if _valid_construction_vehicle(vehicle):
+		vehicle.set_selected(true)
+		squads.cancel_selection()
+		hero_path.clear();move_goal=hero.position;hero_keyboard_active=false
+		hud.dismiss_details()
+	return true
+
+func construction_vehicle_under_cursor(screen: Vector2) -> Node3D:
+	var chosen: Node3D
+	var distance:=22.0*get_viewport().get_visible_rect().size.x/1440.0
+	for vehicle: Node3D in supply_crates:
+		if not _valid_construction_vehicle(vehicle) or camera.is_position_behind(vehicle.global_position):continue
+		var feet:=camera.unproject_position(vehicle.global_position)
+		var head:=camera.unproject_position(vehicle.global_position+Vector3.UP*1.8)
+		var delta:=Geometry2D.get_closest_point_to_segment(screen,feet,head).distance_to(screen)
+		if delta<distance:chosen=vehicle;distance=delta
+	return chosen
+
+func construction_placement_point() -> Vector3:
+	if deployment_vehicle_id==0:return aim
+	return deployment_vehicle.position if _valid_construction_vehicle(deployment_vehicle) else Vector3.INF
+
+func cancel_vehicle_deployment() -> void:
+	if deployment_vehicle_id!=0:pending_build_permit_kind=""
+	deployment_vehicle=null
+	deployment_vehicle_id=0
+
+func deploy_selected_vehicle() -> bool:
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or not _valid_construction_vehicle(selected_construction_vehicle):return false
+	var vehicle:=selected_construction_vehicle
+	if not pending_build_permit_kind.is_empty() and not is_same(deployment_vehicle,vehicle):
+		notify("请先完成或取消当前许可",2.0);return false
+	if is_instance_valid(rally):rally.cancel_setting()
+	vehicle.path_points.clear()
+	deployment_vehicle=vehicle
+	deployment_vehicle_id=vehicle.get_instance_id()
+	pending_build_permit_kind=String(vehicle.supply_kind)
+	aim=vehicle.position;aim_sample_pending=false;selection_dragging=false
+	if not construction.begin(pending_build_permit_kind):cancel_vehicle_deployment();return false
+	hud.dismiss_details()
+	var placement: Dictionary=construction.snapshot()
+	if not bool(placement.valid):
+		notify("无法展开：%s · 右键取消后移车" % String(placement.reason),3.0)
+		return false
+	return construction.confirm()
+
+func _consume_deployment_vehicle() -> void:
+	var vehicle:=deployment_vehicle
+	deployment_vehicle=null
+	deployment_vehicle_id=0
+	if not _valid_construction_vehicle(vehicle):return
+	vehicle.open()
+	supply_crates.erase(vehicle)
+	if is_same(selected_construction_vehicle,vehicle):selected_construction_vehicle=null
+	vehicle.queue_free()
 
 func _apply_supply_reward(reward: Dictionary) -> void:
 	if phase not in ["day","night"] or quitting or restart_pending or shutting_down:return

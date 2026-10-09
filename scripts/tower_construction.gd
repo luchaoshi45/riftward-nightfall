@@ -57,6 +57,7 @@ func select_kind(structure_kind: String) -> bool:
 	return begin(structure_kind)
 
 func cancel() -> void:
+	if is_instance_valid(game) and game.has_method("cancel_vehicle_deployment"):game.cancel_vehicle_deployment()
 	active = false
 	sell_mode = false
 	repair_mode = false
@@ -117,7 +118,7 @@ func tick(_delta: float) -> void:
 			grid_preview.show_placement(quote)
 		else: grid_preview.hide()
 		return
-	var placement := validity(game.aim, -1, kind)
+	var placement := validity(_placement_point(), -1, kind)
 	var point: Vector3 = placement.point
 	if not point.is_finite() or (placement.cells as Array).is_empty():
 		ghost.visible = false
@@ -141,7 +142,9 @@ func tick(_delta: float) -> void:
 		ring_material.emission = tint
 
 func snapshot() -> Dictionary:
-	var point: Vector3 = game.aim if is_instance_valid(game) else Vector3.ZERO
+	var point := Vector3.ZERO
+	if is_instance_valid(game):
+		point = game.aim if repair_mode or sell_mode else _placement_point()
 	var placement: Dictionary
 	if repair_mode and is_instance_valid(game): placement = game.repairs.quote_at(point)
 	elif sell_mode and is_instance_valid(game): placement = game.demolition_at(point)
@@ -183,14 +186,15 @@ func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String
 		var reason := ""
 		var rect := Grid.cell_rect(cell)
 		var center := rect.get_center()
-		if not Grid.CASTLE_CELLS.has_point(cell): reason = "占地格超出城内或覆盖城墙"
-		elif not is_finite(height) or absf(height - Layout.FORT_HEIGHT) > .05: reason = "需要城内平坦地面"
+		if not bool(result.inside): reason = "占地格超出城内或覆盖城墙"
+		elif not is_finite(height) or not is_finite(Layout.buildable_height(point)) or absf(height - Layout.buildable_height(point)) > .05: reason = "需要城内平坦地面"
+		elif absf(game.outpost_height(Vector3(center.x,0,center.y))-height)>.05 or not game.outpost_walkable(Vector3(center.x,height,center.y)):reason="占地格覆盖城墙或地形"
 		elif occupied.has(cell): reason = String(occupied[cell])
 		else:
 			for unit: Node3D in units:
 				var position := unit.position
 				if absf(position.y - height) > 1.0: continue
-				if _overlaps(center, Vector2.ONE * (Grid.CELL_SIZE * .5 + NAVIGATION_MARGIN), false, Vector2(position.x, position.z), Vector2.ONE * UNIT_BODY_RADIUS, true):
+				if _overlaps(center, Vector2.ONE * (Grid.CELL_SIZE * .5 + NAVIGATION_MARGIN), false, Vector2(position.x, position.z), Vector2.ONE * (float(unit.BODY_CLEARANCE) if unit is OutpostSupplyCrate else UNIT_BODY_RADIUS), true):
 					reason = "占地格有正在这里的单位"
 					break
 		cell_states.append({"cell": cell, "space_valid": reason.is_empty(), "reason": reason})
@@ -292,7 +296,7 @@ func confirm() -> bool:
 		if not game.sell_structure_at(game.aim): return false
 		tick(0.0)
 		return true
-	var placement := validity(game.aim, -1, kind)
+	var placement := validity(_placement_point(), -1, kind)
 	if not bool(placement.valid): return false
 	if not game.build_structure_at(placement.point, kind): return false
 	tick(0.0)
@@ -326,6 +330,10 @@ func _living_units() -> Array[Node3D]:
 			for camp: Dictionary in expeditions.get("camps"):
 				var scout: Variant = camp.get("npc")
 				if is_instance_valid(scout) and scout is Node3D and _unit_alive(scout): units.append(scout)
+	var vehicles: Variant=game.get("supply_crates") if game.has_method("_valid_construction_vehicle") else null
+	if vehicles is Array:
+		for vehicle: Node3D in vehicles:
+			if game._valid_construction_vehicle(vehicle) and not is_same(vehicle,game.get("deployment_vehicle")):units.append(vehicle)
 	return units
 
 func _unit_alive(unit: Node3D) -> bool:
@@ -390,3 +398,6 @@ func _ensure_preview() -> void:
 	(ring.mesh as TorusMesh).outer_radius = radius + 0.04
 	_preview_kind = kind
 	_preview_state = -1
+
+func _placement_point() -> Vector3:
+	return game.construction_placement_point() if game.has_method("construction_placement_point") else game.aim

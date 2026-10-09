@@ -18,6 +18,25 @@ func remove_enemies() -> void:
 		if is_instance_valid(unit): unit.queue_free()
 	game.enemies.clear()
 
+func advance_to_stations() -> void:
+	# The expanded gate is farther away. Wait for real movement to finish;
+	# interception deliberately rejects defenders that are still marching.
+	var arrived := false
+	for step in 200:
+		squads.advance(.1)
+		arrived = true
+		for squad: Dictionary in squads.squads:
+			for member: BattleUnit in squad.members:
+				if is_instance_valid(member) and member.alive and member.moving: arrived = false
+		if arrived: break
+	check(arrived, "Real squads must finish their gate march within twenty seconds")
+	for squad: Dictionary in squads.squads:
+		for slot in squad.members.size():
+			var member: BattleUnit = squad.members[slot]
+			if not is_instance_valid(member) or not member.alive: continue
+			var station: Vector3 = squads._station(squad, slot, String(squad.order))
+			check(member.position.distance_to(station) <= .17, "Every real soldier must reach its actual expanded-gate station")
+
 func run() -> void:
 	game = load("res://scenes/nightfall.tscn").instantiate()
 	root.add_child(game); current_scene = game
@@ -30,7 +49,7 @@ func run() -> void:
 	# Production rejects managers that are no longer the controller's current one.
 	squads = game.squads
 	check(squads.hire("shield").ok and squads.hire("ranged").ok and game.scrap == 150, "Mixed real-scene squad hiring must debit exactly 150")
-	for step in 65: squads.advance(.1)
+	advance_to_stations()
 	for squad in squads.squads:
 		for member: BattleUnit in squad.members:
 			check(game.outpost_walkable(member.position), "Every real station must lie in traversable south-gate ground")
@@ -61,7 +80,7 @@ func run() -> void:
 	check(squads.refill().ok and game.scrap == 100 - cost and squads.snapshot().alive == 6, "Actual daytime replacement must consume the announced fee")
 	remove_enemies()
 	game.phase = "night"; squads.on_night()
-	for step in 65: squads.advance(.1)
+	advance_to_stations()
 	var archer: BattleUnit = squads.squads[1].members[1]
 	var victim: BattleUnit = game.spawn_creature(true)
 	victim.position = archer.position + Vector3(0, 0, 2.0)

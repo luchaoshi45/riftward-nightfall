@@ -4,23 +4,31 @@ extends RefCounted
 ## read these dimensions instead of carrying separate gate coordinates.
 
 const FORT_HEIGHT := 5.0
-const FORT_INNER := 13.0
-const FORT_OUTER := 14.6
-const WALL_CENTER := 13.8
-const GATE_HALF := 2.65
-const RAMP_INNER_HALF := 2.6
-const RAMP_OUTER_HALF := 3.9
-const RAMP_SURFACE_HALF := 3.2
-const RAMP_TOP := 13.5
-const RAMP_WALL_START := 14.5
-const RAMP_WALL_END := 25.1
-const RAMP_END := 25.5
-const FORT_TERRAIN_EDGE := 16.0
-const EXPANSION_OFFSET := 6.5
-# The castle remains the authored 26 m core. The surrounding wilderness now
-# has a wider play envelope so the camera can reveal landmarks before culling.
-const MAP_HALF_X := 148.0
-const MAP_HALF_Z := 128.0
+const FORT_INNER := 22.0
+const CASTLE_HORIZONTAL_SCALE := FORT_INNER / 13.0
+const FORT_OUTER := 24.70769230769231
+const WALL_CENTER := 23.35384615384615
+const GATE_HALF := 4.484615384615385
+const RAMP_INNER_HALF := 4.4
+const RAMP_OUTER_HALF := 6.6
+const RAMP_SURFACE_HALF := 5.415384615384616
+const RAMP_TOP := 22.84615384615385
+const RAMP_WALL_START := 24.53846153846154
+const RAMP_WALL_END := 42.47692307692308
+const RAMP_END := 43.15384615384615
+const FORT_TERRAIN_EDGE := 27.07692307692308
+const EXPANSION_OFFSET := 15.5
+# X/Z dimensions match the horizontally enlarged authored ground; Y remains
+# five metres. The wider wilderness contains three open satellite castles.
+const MAP_HALF_X := 190.0
+const MAP_HALF_Z := 160.0
+const SATELLITE_WALL_WIDTH := 1.35
+const SATELLITE_WALL_HEIGHT := 3.4
+const SATELLITE_CASTLES: Array[Dictionary] = [
+	{"name":"西北石堡", "position":Vector3(-90.0,0.0,-65.0), "half_extent":16.0, "gate_half":3.5},
+	{"name":"东北旧堡", "position":Vector3(100.0,0.0,-45.0), "half_extent":17.0, "gate_half":3.5},
+	{"name":"南部边堡", "position":Vector3(-75.0,0.0,105.0), "half_extent":15.0, "gate_half":3.5},
+]
 
 # Natural obstacles are deliberately placed in the far perimeter. They make
 # route choice matter without sealing the south gate, contract staging area or
@@ -56,7 +64,7 @@ static func wall_blocks() -> Array[Rect2]:
 	var south_length := FORT_OUTER-GATE_HALF
 	var ramp_width := RAMP_OUTER_HALF-RAMP_INNER_HALF
 	var ramp_length := RAMP_WALL_END-RAMP_WALL_START
-	return [
+	var blocks: Array[Rect2] = [
 		Rect2(-FORT_OUTER,-FORT_OUTER,wall_width,side_length),
 		Rect2(FORT_INNER,-FORT_OUTER,wall_width,side_length),
 		Rect2(-FORT_OUTER,-FORT_OUTER,side_length,wall_width),
@@ -65,6 +73,39 @@ static func wall_blocks() -> Array[Rect2]:
 		Rect2(-RAMP_OUTER_HALF,RAMP_WALL_START,ramp_width,ramp_length),
 		Rect2(RAMP_INNER_HALF,RAMP_WALL_START,ramp_width,ramp_length),
 	]
+	for castle: Dictionary in SATELLITE_CASTLES:
+		blocks.append_array(satellite_wall_blocks(castle))
+	return blocks
+
+static func satellite_wall_blocks(castle: Dictionary) -> Array[Rect2]:
+	var point: Vector3 = castle.position
+	var inner: float = float(castle.half_extent)
+	var outer := inner + SATELLITE_WALL_WIDTH
+	var gate: float = float(castle.gate_half)
+	var corner := Vector2(point.x,point.z)
+	# A seven-metre south opening is genuine free navigation space. The stone
+	# is represented by these same rectangles for rendering and traversal.
+	return [
+		Rect2(corner+Vector2(-outer,-outer),Vector2(SATELLITE_WALL_WIDTH,outer*2.0)),
+		Rect2(corner+Vector2(inner,-outer),Vector2(SATELLITE_WALL_WIDTH,outer*2.0)),
+		Rect2(corner+Vector2(-outer,-outer),Vector2(outer*2.0,SATELLITE_WALL_WIDTH)),
+		Rect2(corner+Vector2(-outer,inner),Vector2(outer-gate,SATELLITE_WALL_WIDTH)),
+		Rect2(corner+Vector2(gate,inner),Vector2(outer-gate,SATELLITE_WALL_WIDTH)),
+	]
+
+static func satellite_contains(point: Vector3, margin: float=0.0) -> bool:
+	if not point.is_finite():return false
+	for castle: Dictionary in SATELLITE_CASTLES:
+		var center: Vector3 = castle.position
+		var limit := float(castle.half_extent) + margin
+		if absf(point.x-center.x)<=limit and absf(point.z-center.z)<=limit:return true
+	return false
+
+static func buildable_height(point: Vector3) -> float:
+	if not point.is_finite():return INF
+	if contains_castle(point):return FORT_HEIGHT
+	if satellite_contains(point):return 0.0
+	return INF
 
 static func terrain_height(point: Vector3) -> float:
 	var edge := maxf(absf(point.x),absf(point.z))

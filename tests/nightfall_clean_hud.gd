@@ -169,7 +169,7 @@ func default_layout(label: String) -> void:
 		label + ": the compact map affordance must retain a short readable label")
 	var supply_badge := false
 	for hud_label: String in game.hud.all_labels:
-		if hud_label.begins_with("补给箱"):
+		if hud_label.begins_with("建筑车"):
 			supply_badge = true
 			break
 	check("F3" in game.hud.all_labels and supply_badge,
@@ -229,7 +229,7 @@ func supply_navigation_gui() -> void:
 		await redraw()
 		var caption: String=game.hud.supply_crate_navigation_label()
 		var before_areas: Array=game.hud.visible_hud_rects()
-		check(caption.begins_with("补给箱 1 · 东南 ") and caption.ends_with("米")
+		check(caption.begins_with("建筑车 1 · 东南 ") and caption.ends_with("米")
 			and game.hud.all_labels.has(caption),"%s: the real clean HUD must show a live crate direction and distance" % size)
 		var found:=false
 		for row: Dictionary in game.hud.all_drawn_labels:
@@ -241,16 +241,17 @@ func supply_navigation_gui() -> void:
 		await capture("supply-navigation-%dx%d" % [size.x,size.y])
 		await click(MAP)
 		var map_rect: Rect2=game.hud.minimap_rect()
-		var expected:=map_rect.get_center()+Vector2(0,2)+Vector2(crate.position.x,crate.position.z)*.86
+		var map_scale:=minf((map_rect.size.x-28.0)/(OutpostLayout.MAP_HALF_X*2.0),(map_rect.size.y-64.0)/(OutpostLayout.MAP_HALF_Z*2.0))
+		var expected:=map_rect.get_center()+Vector2(0,2)+Vector2(crate.position.x,crate.position.z)*map_scale
 		check(game.hud.map_expanded and game.hud.drawn_supply_markers==[expected]
-			and game.hud.all_labels.has("金箱 · 补给"),"%s: clicking the real map must draw the crate at its actual map location" % size)
+			and game.hud.all_labels.has("金车 · 建造"),"%s: clicking the real map must draw the crate at its actual map location" % size)
 		await capture("supply-map-%dx%d" % [size.x,size.y])
 		await click(MAP)
 		check(not game.hud.map_expanded and game.hud.visible_hud_rects()==before_areas,
 			"%s: supply navigation must add no permanent input exclusion region" % size)
 	crate.open()
 	await click(MAP)
-	check(game.hud.drawn_supply_markers.is_empty() and not game.hud.all_labels.has("金箱 · 补给"),
+	check(game.hud.drawn_supply_markers.is_empty() and not game.hud.all_labels.has("金车 · 建造"),
 		"Opened crates must immediately leave the actual map drawing")
 	await click(MAP)
 	game.clear_supply_crates(true)

@@ -2,8 +2,9 @@ class_name ConstructionGrid
 extends RefCounted
 ## Shared one-metre building cells, independent of rendering and game state.
 const CELL_SIZE := 1.0
-const ORIGIN := Vector2(-13.0, -13.0)
-const CASTLE_CELLS := Rect2i(0, 0, 26, 26)
+const Layout := preload("res://scripts/outpost_layout.gd")
+const ORIGIN := Vector2(-Layout.FORT_INNER, -Layout.FORT_INNER)
+const CASTLE_CELLS := Rect2i(0, 0, int(Layout.FORT_INNER * 2.0 / CELL_SIZE), int(Layout.FORT_INNER * 2.0 / CELL_SIZE))
 const MAX_GRID_INDEX := 1073741820
 const MAX_RASTER_CELLS := 65536
 const Catalog := preload("res://scripts/outpost_catalog.gd")
@@ -12,6 +13,30 @@ const CORE_SIZE := Vector2i(6, 6)
 static func sizes(kind: String) -> Vector2i:
 	if kind == "core": return CORE_SIZE
 	return Catalog.building(kind).get("size", Vector2i.ZERO)
+
+static func build_regions() -> Array[Rect2i]:
+	var regions: Array[Rect2i] = [CASTLE_CELLS]
+	for castle: Dictionary in Layout.SATELLITE_CASTLES:
+		var center: Vector3=castle.position
+		var half: float=float(castle.half_extent)
+		var corner := (Vector2(center.x-half,center.z-half)-ORIGIN)/CELL_SIZE
+		var span := int(half*2.0/CELL_SIZE)
+		regions.append(Rect2i(Vector2i(roundi(corner.x),roundi(corner.y)),Vector2i(span,span)))
+	return regions
+
+static func region_at(point: Vector3) -> Rect2i:
+	if not point.is_finite():return Rect2i()
+	var flat := (Vector2(point.x,point.z)-ORIGIN)/CELL_SIZE
+	if not _indexable(flat):return Rect2i()
+	var cell := Vector2i(floori(flat.x),floori(flat.y))
+	for region: Rect2i in build_regions():
+		if region.has_point(cell):return region
+	return Rect2i()
+
+static func buildable_cell(cell: Vector2i) -> bool:
+	for region: Rect2i in build_regions():
+		if region.has_point(cell):return true
+	return false
 
 static func placement(point: Vector3, kind: String) -> Dictionary:
 	var cells: Array[Vector2i] = []
@@ -32,7 +57,10 @@ static func placement(point: Vector3, kind: String) -> Dictionary:
 	result.anchor = anchor
 	result.size = size
 	result.rect = Rect2(corner, dimensions)
-	result.inside = CASTLE_CELLS.encloses(occupied)
+	for region: Rect2i in build_regions():
+		if region.encloses(occupied):
+			result.inside = true
+			break
 	return result
 
 static func cells_for_rect(rect: Rect2) -> Array[Vector2i]:

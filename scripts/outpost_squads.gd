@@ -397,7 +397,7 @@ func _station(squad: Dictionary, slot: int, order: String) -> Vector3:
 	var id := int(squad.id)
 	var z := 3.9 + float(id % 5) * .9
 	if order == HOLD:
-		z = ((13.4 - float(id % 4) * 2.3) if squad.kind == "shield" else (5.0 + float(id % 5) * .85)) + Layout.EXPANSION_OFFSET
+		z = (((13.4 - float(id % 4) * 2.3) if squad.kind == "shield" else (5.0 + float(id % 5) * .85)) + 6.5) * Layout.CASTLE_HORIZONTAL_SCALE
 		if id >= 4: x += float(int(id / 4) % 3 - 1) * 2.8
 	return _resolve_destination(Vector3(x, 0, z))
 

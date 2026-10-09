@@ -43,7 +43,11 @@ func setup(owner_game: Node3D) -> void:
 	_generator_guards.clear()
 	generators.clear(); camps.clear()
 	game=owner_game
-	for point in [Vector3(-17,0,24),Vector3(18,0,25),Vector3(25,0,7)]:
+
+	# The east site uses the outer flank, clear of the unchanged northeast
+	# relay. Scaling its former z=7 would overlap that interactive relay.
+	for original: Vector3 in [Vector3(-17,0,24),Vector3(18,0,25),Vector3(25,0,0)]:
+		var point:=original*Vector3(OutpostLayout.CASTLE_HORIZONTAL_SCALE,1,OutpostLayout.CASTLE_HORIZONTAL_SCALE)
 		point.y=game.outpost_height(point)
 		clear_expedition_space(point,3.4)
 		var model: Node3D=game.world.place("res://assets/models/day_generator.glb",point,1.0,0)

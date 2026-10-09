@@ -126,21 +126,44 @@ func run() -> void:
 	game.world.set_process(false)
 	game.phase = "day"
 	game.hero.speed = 8.4
+	check(Layout.MAP_HALF_X==190.0 and Layout.MAP_HALF_Z==160.0, "Expanded map exposes its real shared movement envelope")
+	check(game.world.terrain.scale==Vector3(Layout.CASTLE_HORIZONTAL_SCALE,1.0,Layout.CASTLE_HORIZONTAL_SCALE), "Authored ground, retaining walls and ramp share horizontal geometry scale")
+	check(game.world.satellite_castles.size()==3, "Three new castles exist as actual world geometry")
+	var northwest_angle:=atan2(-65.0,-90.0)
+	var old_fallback:=Vector3(cos(northwest_angle)*115.0,0,sin(northwest_angle)*115.0)
+	check(Layout.satellite_contains(old_fallback,4.0), "Original twelve-step radial fallback would still occupy the northwest castle")
+	var resolved: Vector3=game.world.outskirts_point(northwest_angle,91.0)
+	check(resolved.is_finite() and not Layout.satellite_contains(resolved,4.0) and game.outpost_walkable(resolved), "Long satellite radial crossing exits its reserved courtyard before placing scenery")
+	for edge: Vector3 in [Vector3(Layout.MAP_HALF_X+1,0,0),Vector3(-Layout.MAP_HALF_X-1,0,0),Vector3(0,0,Layout.MAP_HALF_Z+1),Vector3(0,0,-Layout.MAP_HALF_Z-1),
+		Vector3(Layout.MAP_HALF_X,0,Layout.MAP_HALF_Z),Vector3(-Layout.MAP_HALF_X,0,Layout.MAP_HALF_Z),Vector3(Layout.MAP_HALF_X,0,-Layout.MAP_HALF_Z),Vector3(-Layout.MAP_HALF_X,0,-Layout.MAP_HALF_Z)]:
+		var recovered: Vector3=game.world.outskirts_point(atan2(edge.z,edge.x),Vector2(edge.x,edge.z).length())
+		check(recovered.is_finite() and absf(recovered.x)<=Layout.MAP_HALF_X-4.0 and absf(recovered.z)<=Layout.MAP_HALF_Z-4.0 and game.outpost_walkable(recovered), "Outer edge scenery request resolves to a real interior point with footprint clearance")
+		check(not Layout.satellite_contains(recovered,4.0) and not Layout.contains_castle(recovered,-2.4), "Outer edge fallback preserves each city's reserved courtyard")
+	for castle: Dictionary in Layout.SATELLITE_CASTLES:
+		var center: Vector3=castle.position
+		var half: float=float(castle.half_extent)
+		var gate := center+Vector3(0,0,half+Layout.SATELLITE_WALL_WIDTH*.5)
+		check(game.outpost_walkable(center) and game.outpost_walkable(gate), "Satellite courtyard and open gate are genuinely traversable")
+		for wall: Rect2 in Layout.satellite_wall_blocks(castle):
+			var point := wall.get_center()
+			check(not game.outpost_walkable(Vector3(point.x,0,point.y)), "Every rendered satellite wall blocks real navigation")
+		check(not game.can_traverse(center,center+Vector3(half+5.0,0,0)), "Satellite wall rejects direct movement through its stone")
+		route_probe(center+Vector3(0,0,half+6.0),center+Vector3(0,0,-half+4.0),60.0,"Satellite castle actual entrance "+String(castle.name))
 	# These two exterior diagonals previously travelled .14 m of substeps but
 	# advanced only .02 m on the third frame, including a backwards correction.
 	for fps in [30.0, 60.0, 144.0]:
 		for side in [-1.0, 1.0]:
-			keyboard_probe(Vector3((Layout.FORT_INNER-.6)*side,0,8.2+Layout.EXPANSION_OFFSET), Vector2(side, -1), fps, true, "outer south wall %.0f fps side %.0f" % [fps, side])
-			keyboard_probe(Vector3(4.0*side,0,10+Layout.EXPANSION_OFFSET), Vector2(side, -1), fps, true, "outer slope %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3((Layout.FORT_INNER-.6)*side,0,14.7*Layout.CASTLE_HORIZONTAL_SCALE), Vector2(side, -1), fps, true, "outer south wall %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(4.0*Layout.CASTLE_HORIZONTAL_SCALE*side,0,16.5*Layout.CASTLE_HORIZONTAL_SCALE), Vector2(side, -1), fps, true, "outer slope %.0f fps side %.0f" % [fps, side])
 			# These genuine closed corners previously generated 70–83 resolver
 			# calls in a single 60-FPS frame. Stopping at the wall is legitimate;
 			# taking an unbounded series of tiny corrections is not.
-			keyboard_probe(Vector3(3.95*side,0,8.2+Layout.EXPANSION_OFFSET), Vector2(-side, -1), fps, false, "blocked ramp corner %.0f fps side %.0f" % [fps, side])
-			keyboard_probe(Vector3(4.0*side,0,10+Layout.EXPANSION_OFFSET), Vector2(-side, -1), fps, false, "blocked slope approach %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(3.95*Layout.CASTLE_HORIZONTAL_SCALE*side,0,14.7*Layout.CASTLE_HORIZONTAL_SCALE), Vector2(-side, -1), fps, false, "blocked ramp corner %.0f fps side %.0f" % [fps, side])
+			keyboard_probe(Vector3(4.0*Layout.CASTLE_HORIZONTAL_SCALE*side,0,16.5*Layout.CASTLE_HORIZONTAL_SCALE), Vector2(-side, -1), fps, false, "blocked slope approach %.0f fps side %.0f" % [fps, side])
 	var routes := [
-		[Vector3(11.14113+Layout.EXPANSION_OFFSET,0,7.402695+Layout.EXPANSION_OFFSET), Vector3(-3.955423,0,11.92685+Layout.EXPANSION_OFFSET)],
-		[Vector3(-9.305244,0,19.52816+Layout.EXPANSION_OFFSET), Vector3(4.283041,0,10.1293+Layout.EXPANSION_OFFSET)],
-		[Vector3(2.518933, 5, -3.192418), Vector3(4.175524,0,18.20419+Layout.EXPANSION_OFFSET)],
+		[Vector3(17.64113,0,13.902695)*Layout.CASTLE_HORIZONTAL_SCALE, Vector3(-3.955423,0,18.42685)*Layout.CASTLE_HORIZONTAL_SCALE],
+		[Vector3(-9.305244,0,26.02816)*Layout.CASTLE_HORIZONTAL_SCALE, Vector3(4.283041,0,16.6293)*Layout.CASTLE_HORIZONTAL_SCALE],
+		[Vector3(2.518933*Layout.CASTLE_HORIZONTAL_SCALE, 5, -3.192418*Layout.CASTLE_HORIZONTAL_SCALE), Vector3(4.175524,0,24.70419)*Layout.CASTLE_HORIZONTAL_SCALE],
 	]
 	# Captured production routes previously oscillated forever at x=±2.23.
 	# Check both directions and slow/fast frame clocks through the south gate.
@@ -153,9 +176,28 @@ func run() -> void:
 				goal.x *= side
 				route_probe(start, goal, fps, "route %d %.0f fps side %.0f" % [index, fps, side])
 	if DisplayServer.get_name() != "headless":
+		DirAccess.make_dir_recursive_absolute("res://build/castle-expansion")
+		for index in Layout.SATELLITE_CASTLES.size():
+			var castle: Dictionary=Layout.SATELLITE_CASTLES[index]
+			var center: Vector3=castle.position
+			reset_hero(center)
+			game.world.follow_ashfall(center)
+			game.camera_follow=center+Vector3(0,25,29)
+			game.camera.position=game.camera_follow
+			game.camera.look_at(center)
+			game.world.night_mix=0.0
+			game.world.set_night(false)
+			game.hud.queue_redraw()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			var castle_image: Image=root.get_texture().get_image()
+			check(not castle_image.is_empty(), "Actual renderer draws satellite castle "+String(castle.name))
+			var path: String="res://build/castle-expansion/castle-%d.png" % index
+			check(castle_image.save_png(path)==OK, "Save actual satellite castle walls, gate and Chinese landmark "+String(castle.name))
+			print("NIGHTFALL_SATELLITE_CASTLE_CAPTURE index=%d name=%s path=%s" % [index,String(castle.name),path])
 		# Hidden Forward+ execution still exercises the real terrain and unit
 		# renderer; do not replace that validation with a headless OK line.
-		reset_hero(Vector3(Layout.FORT_INNER-.6,0,8.2+Layout.EXPANSION_OFFSET))
+		reset_hero(Vector3(Layout.FORT_INNER-.6,0,14.7*Layout.CASTLE_HORIZONTAL_SCALE))
 		game.camera_follow = game.hero.position+Vector3(0, 25, 29)
 		game.camera.position = game.camera_follow
 		game.camera.look_at(game.camera_follow-Vector3(0, 25, 29))

@@ -34,6 +34,7 @@ var decoration_cull_origin := Vector3(INF, INF, INF)
 var decoration_cull_time := 0.0
 var decoration_visible_count := 0
 var terrain_feature_nodes: Array[Node3D] = []
+var satellite_castles: Array[Dictionary] = []
 var night_active:=false
 var night_mix:=0.0
 var wave_warning:=false
@@ -57,6 +58,9 @@ func _process(delta: float) -> void:
 func build() -> void:
 	create_outer_ground()
 	terrain = (load("res://assets/models/castle_ground.glb") as PackedScene).instantiate() as Node3D
+	# Every authored wall, ramp and slab moves with its ground. Only X/Z grow;
+	# the shared terrain sampler still places units on the five-metre courtyard.
+	terrain.scale=Vector3(Layout.CASTLE_HORIZONTAL_SCALE,1.0,Layout.CASTLE_HORIZONTAL_SCALE)
 	add_child(terrain)
 	var masonry_shader:=load("res://assets/shaders/outpost_masonry.gdshader") as Shader
 	var masonry_materials: Dictionary = {}
@@ -80,15 +84,18 @@ func build() -> void:
 				surface.set_surface_override_material(index,masonry_materials[original])
 	create_outer_courtyard()
 	create_terrain_features()
+	create_satellite_castles()
 	beacon=place("res://assets/models/watch_beacon.glb",Vector3(0,FORT_HEIGHT,0),1.0,0)
 	var fence_scene := load("res://assets/models/barricade.glb") as PackedScene
-	for offset in [-11.45,-8.2,-4.9,-1.6,1.6,4.9,8.2,11.45]:
+	var fence_count:=int(ceil(Layout.WALL_CENTER*2.0/3.25))
+	for index in range(fence_count):
+		var offset: float=lerpf(-Layout.WALL_CENTER+1.6,Layout.WALL_CENTER-1.6,float(index)/float(fence_count-1))
 		place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,-Layout.WALL_CENTER),1.45,0)
-		if absf(offset)>3.6:
+		if absf(offset)>Layout.GATE_HALF+1.0:
 			place_scene(fence_scene,Vector3(offset,FORT_HEIGHT,Layout.WALL_CENTER),1.45,0)
 		for side in [-1,1]:
 			place_scene(fence_scene,Vector3(side*Layout.WALL_CENTER,FORT_HEIGHT,offset),1.45,PI*.5)
-	for side in [-1,1]:create_gate_lamp(Vector3(side*2.45,FORT_HEIGHT,Layout.WALL_CENTER-.15))
+	for side in [-1,1]:create_gate_lamp(Vector3(side*(Layout.GATE_HALF-.2),FORT_HEIGHT,Layout.WALL_CENTER-.15))
 	var tree_scene := load("res://assets/models/dead_tree.glb") as PackedScene
 	var ruin_scene := load("res://assets/models/ruined_house.glb") as PackedScene
 	var rock_scene := load("res://assets/models/rock_v2.glb") as PackedScene
@@ -98,15 +105,15 @@ func build() -> void:
 	var rng := RandomNumberGenerator.new();rng.seed=99431
 	for i in range(210):
 		var angle := rng.randf_range(0,TAU)
-		var radius := rng.randf_range(29,104)
+		var radius := rng.randf_range(36,163)
 		place_scene(tree_scene,outskirts_point(angle,radius),rng.randf_range(.74,1.35),angle,true)
 	for i in range(48):
 		var angle := TAU*i/48.0+rng.randf_range(-.18,.18)
-		var radius := rng.randf_range(30,102)
+		var radius := rng.randf_range(37,162)
 		place_scene(ruin_scene,outskirts_point(angle,radius),rng.randf_range(.8,1.18),angle,true)
 	for i in range(160):
 		var angle := rng.randf_range(0,TAU)
-		var radius := rng.randf_range(29,104)
+		var radius := rng.randf_range(36,163)
 		place_scene(rock_scene,outskirts_point(angle,radius),rng.randf_range(.25,.68),angle,true)
 	for i in range(8):
 		var angle := TAU*i/8.0+.26
@@ -157,6 +164,7 @@ func build() -> void:
 		if i%6==1:radius=40.0
 		var point := outskirts_point(angle,radius)
 		var crate := place_scene(salvage_scene,point,1.0,angle)
+		if not is_instance_valid(crate):continue
 		salvage.append({"node":crate,"position":point,"collected":false,"amount":35+int(i%5==0)*25})
 	environment=WorldEnvironment.new()
 	var env := Environment.new()
@@ -210,9 +218,7 @@ func build() -> void:
 	set_night(false)
 
 func create_outer_ground() -> void:
-	# The authored castle mesh ends close to the old wilderness boundary. A
-	# quiet underlay keeps the expanded perimeter continuous without touching
-	# the castle mesh or its height sampling.
+	# A quiet underlay keeps all expanded wilderness edges continuous.
 	var ground:=MeshInstance3D.new()
 	ground.name="ExpandedWildernessUnderlay"
 	var mesh:=PlaneMesh.new()
@@ -226,26 +232,90 @@ func create_outer_ground() -> void:
 	add_child(ground)
 
 func create_outer_courtyard() -> void:
-	# Four low annex pads visually extend the outpost footprint while the
-	# original inner grid remains the precise construction authority.
+	# Low outer paths stay beyond the raised embankment; placing the old annex
+	# coordinates in the enlarged inner courtyard would bury them under it.
 	var material:=StandardMaterial3D.new()
 	material.albedo_color=Color("3b4840")
 	material.roughness=.86
+	var distance: float=Layout.FORT_TERRAIN_EDGE+3.2
+	var span: float=distance*2.0+6.0
 	for data: Dictionary in [
-		{"position":Vector3(-18.2,.05,0),"size":Vector3(6.0,.12,42.0)},
-		{"position":Vector3(18.2,.05,0),"size":Vector3(6.0,.12,42.0)},
-		{"position":Vector3(0,.05,-18.2),"size":Vector3(30.4,.12,6.0)},
-		{"position":Vector3(0,.05,18.2),"size":Vector3(5.0,.12,6.0)},
+		{"position":Vector3(-distance,.008,0),"size":Vector3(6.0,.04,span)},
+		{"position":Vector3(distance,.008,0),"size":Vector3(6.0,.04,span)},
+		{"position":Vector3(0,.008,-distance),"size":Vector3(distance*2.0-6.0,.04,6.0)},
+		{"position":Vector3(0,.008,Layout.RAMP_END+3.0),"size":Vector3(Layout.GATE_HALF*2.0,.04,6.0)},
 	]:
 		var pad:=MeshInstance3D.new()
 		var mesh:=BoxMesh.new();mesh.size=data.size
 		pad.mesh=mesh;pad.material_override=material;pad.position=data.position
 		add_child(pad);terrain_feature_nodes.append(pad)
-	for point: Vector3 in [Vector3(-20,.12,-20),Vector3(20,.12,-20),Vector3(-20,.12,20),Vector3(20,.12,20)]:
+	for point: Vector3 in [Vector3(-distance,0,-distance),Vector3(distance,0,-distance),Vector3(-distance,0,distance),Vector3(distance,0,distance)]:
 		var bastion:=MeshInstance3D.new()
-		var mesh:=CylinderMesh.new();mesh.top_radius=1.55;mesh.bottom_radius=1.95;mesh.height=1.0
-		bastion.mesh=mesh;bastion.material_override=material;bastion.position=point
+		var mesh:=CylinderMesh.new();mesh.top_radius=1.55;mesh.bottom_radius=1.95;mesh.height=.06
+		bastion.mesh=mesh;bastion.material_override=material;bastion.position=point+Vector3(0,-.002,0)
 		add_child(bastion);terrain_feature_nodes.append(bastion)
+
+func create_satellite_castles() -> void:
+	var stone:=StandardMaterial3D.new()
+	stone.albedo_color=Color("5a655c");stone.roughness=.95
+	var crown:=StandardMaterial3D.new()
+	crown.albedo_color=Color("838878");crown.roughness=.85
+	var floor_material:=StandardMaterial3D.new()
+	floor_material.albedo_color=Color("455044");floor_material.roughness=.94
+	var iron:=StandardMaterial3D.new()
+	iron.albedo_color=Color("3a4542");iron.metallic=.45;iron.roughness=.72
+	var marker_material:=StandardMaterial3D.new()
+	marker_material.albedo_color=Color("b5d9c1")
+	marker_material.emission_enabled=true;marker_material.emission=Color("7fa793")
+	marker_material.emission_energy_multiplier=.55
+	for data: Dictionary in Layout.SATELLITE_CASTLES:
+		var center: Vector3=data.position
+		var half: float=float(data.half_extent)
+		var castle:=Node3D.new();castle.name="SatelliteCastle%d" % satellite_castles.size()
+		castle.position=center;add_child(castle)
+		var floor_node:=MeshInstance3D.new();floor_node.name="OpenCourtyard"
+		var floor_mesh:=PlaneMesh.new();floor_mesh.size=Vector2.ONE*half*2.0
+		floor_node.mesh=floor_mesh;floor_node.material_override=floor_material
+		# Centimetre separation from authored roads/ground avoids z fighting;
+		# no fake raised platform or invisible obstacle crosses the entrance.
+		floor_node.position.y=.028;castle.add_child(floor_node)
+		var walls: Array[Rect2]=Layout.satellite_wall_blocks(data)
+		for index in walls.size():
+			var area: Rect2=walls[index]
+			var point:=area.get_center()-Vector2(center.x,center.z)
+			var wall:=MeshInstance3D.new();wall.name="Wall%d" % index
+			var mesh:=BoxMesh.new();mesh.size=Vector3(area.size.x,Layout.SATELLITE_WALL_HEIGHT,area.size.y)
+			wall.mesh=mesh;wall.material_override=stone;wall.position=Vector3(point.x,Layout.SATELLITE_WALL_HEIGHT*.5,point.y)
+			castle.add_child(wall)
+			var cap:=MeshInstance3D.new();cap.name="Parapet%d" % index
+			var cap_mesh:=BoxMesh.new();cap_mesh.size=Vector3(area.size.x,.18,area.size.y)
+			cap.mesh=cap_mesh;cap.material_override=crown
+			cap.position=Vector3(point.x,Layout.SATELLITE_WALL_HEIGHT+.09,point.y);castle.add_child(cap)
+		for side_x in [-1.0,1.0]:
+			for side_z in [-1.0,1.0]:
+				var tower:=MeshInstance3D.new();tower.name="CornerBastion"
+				var tower_mesh:=BoxMesh.new();tower_mesh.size=Vector3(Layout.SATELLITE_WALL_WIDTH,4.35,Layout.SATELLITE_WALL_WIDTH)
+				tower.mesh=tower_mesh;tower.material_override=crown
+				tower.position=Vector3(side_x*(half+Layout.SATELLITE_WALL_WIDTH*.5),2.175,side_z*(half+Layout.SATELLITE_WALL_WIDTH*.5));castle.add_child(tower)
+		for side in [-1.0,1.0]:
+			var post:=MeshInstance3D.new();post.name="GateMarker"
+			var post_mesh:=BoxMesh.new();post_mesh.size=Vector3(.28,3.15,.28)
+			post.mesh=post_mesh;post.material_override=iron
+			post.position=Vector3(side*(float(data.gate_half)+.25),1.575,half+Layout.SATELLITE_WALL_WIDTH*.5);castle.add_child(post)
+			var lamp:=MeshInstance3D.new()
+			var lamp_mesh:=SphereMesh.new();lamp_mesh.radius=.3;lamp_mesh.height=.6
+			lamp.mesh=lamp_mesh;lamp.material_override=marker_material;lamp.position=post.position+Vector3(0,1.8,0);castle.add_child(lamp)
+		var label:=Label3D.new();label.name="CastleLandmark"
+		label.text=String(data.name)
+		var font:=SystemFont.new()
+		font.font_names=PackedStringArray(["Hiragino Sans GB","Heiti SC","Microsoft YaHei","Noto Sans CJK SC"])
+		font.allow_system_fallback=true;label.font=font
+		label.font_size=34;label.outline_size=5;label.pixel_size=.02
+		label.modulate=Color("bfd7c6");label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+		label.position=Vector3(0,4.7,-half-Layout.SATELLITE_WALL_WIDTH*.5)
+		label.no_depth_test=false;castle.add_child(label)
+		satellite_castles.append({"node":castle,"name":String(data.name),"position":center,"half_extent":half,"walls":walls})
+		terrain_feature_nodes.append(castle)
 
 func create_terrain_features() -> void:
 	var water_shader:=load("res://assets/shaders/water.gdshader") as Shader
@@ -438,19 +508,36 @@ func outskirts_point(angle: float, radius: float) -> Vector3:
 	# Keep large tree/ruin footprints away from both the expanded embankment
 	# and the only southern approach. These are decorations, not obstructions.
 	var point:=Vector3(cos(angle)*radius,0.0,sin(angle)*radius)
-	for _attempt in 12:
-		var raised:=false
-		for offset in [Vector3.ZERO,Vector3(2.4,0,0),Vector3(-2.4,0,0),Vector3(0,0,2.4),Vector3(0,0,-2.4)]:
-			if terrain_height(point+offset)>.01 or Layout.terrain_blocked(point+offset,2.4):raised=true;break
-		if not raised and not Layout.contains_castle(point,-2.4):return point
+	for _attempt in 64:
+		if _outskirts_point_clear(point):return point
+		if not point.is_finite() or absf(point.x)>Layout.MAP_HALF_X-4.0 or absf(point.z)>Layout.MAP_HALF_Z-4.0:break
 		radius+=2.0
 		point=Vector3(cos(angle)*radius,0.0,sin(angle)*radius)
-	return point
+	# A radial ray can reach the edge before clearing an obstacle. Use bounded
+	# deterministic alternatives, without consuming scenery or combat RNG.
+	for fallback: Vector3 in [Vector3(-Layout.FORT_TERRAIN_EDGE-12.0,0,0),Vector3(Layout.FORT_TERRAIN_EDGE+12.0,0,0),
+		Vector3(0,0,-Layout.FORT_TERRAIN_EDGE-12.0),Vector3(0,0,Layout.RAMP_END+8.0)]:
+		if _outskirts_point_clear(fallback):return fallback
+	for z in range(-int(Layout.MAP_HALF_Z)+8,int(Layout.MAP_HALF_Z)-7,8):
+		for x in range(-int(Layout.MAP_HALF_X)+8,int(Layout.MAP_HALF_X)-7,8):
+			var fallback:=Vector3(x,0,z)
+			if _outskirts_point_clear(fallback):return fallback
+	# A completely reserved world has no place to render a prop. The caller
+	# skips that node and does not publish a phantom salvage entry.
+	return Vector3.INF
+
+func _outskirts_point_clear(point: Vector3) -> bool:
+	if not point.is_finite() or absf(point.x)>Layout.MAP_HALF_X-4.0 or absf(point.z)>Layout.MAP_HALF_Z-4.0:return false
+	if Layout.contains_castle(point,-2.4) or Layout.satellite_contains(point,4.0):return false
+	for offset: Vector3 in [Vector3.ZERO,Vector3(2.4,0,0),Vector3(-2.4,0,0),Vector3(0,0,2.4),Vector3(0,0,-2.4)]:
+		if terrain_height(point+offset)>.01 or Layout.terrain_blocked(point+offset,2.4):return false
+	return true
 
 func place(path: String, point: Vector3, size_factor: float, angle: float) -> Node3D:
 	return place_scene(load(path) as PackedScene,point,size_factor,angle)
 
 func place_scene(scene: PackedScene, point: Vector3, size_factor: float, angle: float, decorative: bool=false) -> Node3D:
+	if not point.is_finite():return null
 	var node := scene.instantiate() as Node3D
 	add_child(node)
 	node.position=point

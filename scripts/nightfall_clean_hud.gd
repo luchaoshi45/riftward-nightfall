@@ -335,9 +335,12 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	var supply_count:=int(supply_navigation.get("count",0))
 	# One short line in the existing navigation rail points to a real crate;
 	# it adds no panel or mouse exclusion area over the battlefield.
-	ui.label(ui.supply_crate_navigation_label(),Vector2(24,827),11,ui.amber if supply_count>0 else LIVE_MUTED)
+	var vehicle: Node3D=game.selected_construction_vehicle
+	var vehicle_selected: bool=game._valid_construction_vehicle(vehicle)
+	var supply_label: String="%s车 · 右键移动 · D展开" % String(vehicle.display_name) if vehicle_selected else ui.supply_crate_navigation_label()
+	ui.label(supply_label,Vector2(24,827),11,ui.amber if supply_count>0 else LIVE_MUTED)
 	if not String(game.pending_build_permit_kind).is_empty():
-		ui.label("Y许可",Vector2(278,849),11,ui.amber)
+		ui.label("D展开" if vehicle_selected else "Y许可",Vector2(278,849),11,ui.amber)
 	ui.draw_line(Vector2(43,857),Vector2(88,857),Color(nav_tint,.42),1.0)
 	ui.draw_line(Vector2(189,857),Vector2(204,857),Color(LIVE_MUTED,.30),1.0)
 	if not String(game.pending_build_permit_kind).is_empty():
@@ -397,7 +400,7 @@ static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 	if float(game.notice_time)<=0.0 or String(game.notice).strip_edges().is_empty():return Rect2()
 	if game.construction.active:
 		var supply_feedback:=false
-		for prefix: String in ["发现补给箱","获得建筑许可：","建筑许可：","建筑已部署","训练订单"]:
+		for prefix: String in ["建筑车抵达：","无法展开：","发现补给箱","获得建筑许可：","建筑许可：","建筑已部署","训练订单"]:
 			if String(game.notice).begins_with(prefix):supply_feedback=true;break
 		if not supply_feedback:return Rect2()
 	var lines:=_wrap(ui,String(game.notice),716,15)
@@ -745,7 +748,7 @@ static func _draw_help(ui: Control) -> void:
 		var shortcuts: Array[String]=[
 			"移动   ZASD / 方向键 · 未选部队时右键寻路",
 			"探索   P 指路 · F 互动 · 4/5/6 委托",
-			"建设/维修   补给箱许可自动进格子 · H维修 · 右键/Esc取消",
+			"建设/维修   选建筑车 · 右键移动 · D原地展开 · H维修",
 			"英雄   Q / W / E / R / X 技能 · V 强化",
 			"生产   U 盾卫 · I 弩手 · N 工程员 · F3 更多",
 			"编队   Ctrl+1/2/3 保存 · 数字召回 · Tab 全选",
@@ -763,7 +766,7 @@ static func _draw_help(ui: Control) -> void:
 	var groups: Array[String]=[
 		"移动：ZASD / 方向键；未选部队时右键寻路。W 用于屏障。",
 		"技能：Q 斩光 / W 屏障 / E 突进 / R 灯焰 / X 治疗。",
-		"建设：补给箱许可自动进入格子预览。左键/F确认；H维修；Del拆卖；右键/Esc取消；Y不打开目录。",
+		"建设：左键选建筑车，右键移动，D在当前位置展开并扣原费用。失败看格子原因，右键/Esc取消后移车；H维修；Del拆卖。",
 		"科技：工坊→回收/中转；兵营+工坊→研究所。\n研究所→重弩；研究所+工坊→军械厂→迫击炮/指挥中继站。\n中转→采运；兵营→救护站→医护；中继站训练时长×0.9/×0.8。",
 		"互动：F搜集、修灯、升级与重建；普通H修近塔。",
 		"塔防：G 目标模式，C 集火，J/K 二级塔专精；T 机关，B 路障。",

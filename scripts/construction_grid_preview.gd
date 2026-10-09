@@ -27,6 +27,7 @@ var current_cells: Array[Vector2i] = []
 var current_states: Array[bool] = []
 var _space_signature := ""
 var _border_signature := ""
+var _grid_region: Rect2i = Rect2i()
 
 func setup() -> void:
 	_ensure_nodes()
@@ -39,6 +40,9 @@ func show_placement(placement: Dictionary) -> void:
 	if cells.is_empty() or not point.is_finite():
 		hide()
 		return
+	var region := Grid.region_at(point)
+	if not region.has_area():region=Grid.CASTLE_CELLS
+	_update_grid(region)
 	var states: Dictionary = {}
 	for state: Dictionary in placement.get("cell_states", []):
 		if state.get("cell") is Vector2i:
@@ -67,12 +71,17 @@ func _ensure_nodes() -> void:
 	grid_node = _mesh_node("CastleConstructionGrid", -2)
 	footprint_node = _mesh_node("ConstructionCellFill", -1)
 	border_node = _mesh_node("ConstructionCellEdges", 0)
+	_update_grid(Grid.CASTLE_CELLS)
+
+func _update_grid(region: Rect2i) -> void:
+	if region==_grid_region:return
+	_grid_region=region
 	var vertices := PackedVector3Array()
 	var colors := PackedColorArray()
-	var region: Rect2i = Grid.CASTLE_CELLS
 	var corner: Vector2 = Grid.ORIGIN + Vector2(region.position) * Grid.CELL_SIZE
 	var end: Vector2 = corner + Vector2(region.size) * Grid.CELL_SIZE
-	# The entire city is flat. Cache its 27 horizontal and 27 vertical lines once.
+	# Cache the active castle's one-metre lines. Moving a deployment vehicle
+	# to another castle changes this background; footprints stay authoritative.
 	for x in range(region.size.x + 1):
 		var coordinate := corner.x + float(x) * Grid.CELL_SIZE
 		_append_strip(vertices, colors, Vector2(coordinate, corner.y), Vector2(coordinate, end.y), GRID_WIDTH, GRID_LIFT, GRID_COLOR, false)
@@ -103,7 +112,7 @@ func _update_fill() -> void:
 	for index in current_cells.size():
 		var rect: Rect2 = Grid.cell_rect(current_cells[index]).grow(-0.045)
 		var color := FREE_FILL if current_states[index] else BLOCKED_FILL
-		var divisions := 1 if Grid.CASTLE_CELLS.has_point(current_cells[index]) else 4
+		var divisions := 1 if Grid.buildable_cell(current_cells[index]) else 4
 		for z in divisions:
 			for x in divisions:
 				var start := rect.position + Vector2(x, z) * rect.size / float(divisions)

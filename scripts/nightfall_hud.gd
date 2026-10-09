@@ -230,10 +230,10 @@ func supply_crate_navigation_label() -> String:
 	var navigation:=supply_crate_navigation_snapshot()
 	var count:=int(navigation.get("count",0))
 	if count>0 and navigation.has("direction"):
-		return "补给箱 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
-	if count>0:return "补给箱 %d · 地图可见" % count
+		return "建筑车 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
+	if count>0:return "建筑车 %d · 地图可见" % count
 	var status: Dictionary=game.supply_crate_status() if is_instance_valid(game) and game.has_method("supply_crate_status") else {}
-	return "补给箱：%d秒" % ceili(float(status.get("next_seconds",0.0)))
+	return "建筑车：%d秒" % ceili(float(status.get("next_seconds",0.0)))
 
 func countermeasure_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,280,160,62)
@@ -545,7 +545,10 @@ func draw_construction() -> void:
 	var reason:=String(placement.reason)
 	if reason.is_empty() and not repairing and not selling:reason="移动鼠标选择合法格子"
 	label(reason,Vector2(457,718),14,tint if not bool(placement.valid) else muted)
-	label("左键/F 确认  ·  右键/Esc 取消  ·  成功后自动扣费",Vector2(457,744),13,amber)
+	var operation_hint := "左键/F 确认  ·  右键/Esc 取消  ·  成功后自动扣费"
+	if repairing or selling:operation_hint="指向建筑 · 左键/F确认 · 右键/Esc退出"
+	elif is_instance_valid(game.deployment_vehicle):operation_hint="D/F/左键 原地展开 · 右键/Esc 取消后移车"
+	label(operation_hint,Vector2(457,744),13,amber)
 	box(REPAIR_BUTTON_RECT,Color(.045,.13,.09,.82) if repairing else Color(.015,.03,.033,.38),Color("85d5a5") if repairing else Color(muted,.5))
 	label("H 退出维修" if repairing else "H 维修",REPAIR_BUTTON_RECT.position+Vector2(13,18),13,Color("85d5a5") if repairing else ink)
 	box(DEMOLITION_BUTTON_RECT,Color(.13,.045,.035,.84) if selling else Color(.015,.03,.033,.38),red if selling else Color(muted,.5))
@@ -981,9 +984,13 @@ func draw_minimap() -> void:
 		box(map_rect,Color(.018,.034,.041,.72),Color("66624d",.82))
 		label("地图 · 点击收起",map_rect.position+Vector2(12,21),12,Color(muted,.86))
 	var center:=map_rect.get_center()+Vector2(0,2)
-	var scale:=.86 if map_expanded else .52
+	var scale:=minf((map_rect.size.x-28.0)/(Layout.MAP_HALF_X*2.0),(map_rect.size.y-64.0)/(Layout.MAP_HALF_Z*2.0)) if map_expanded else .52
 	if map_expanded:
 		draw_rect(Rect2(center-Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale,Vector2(Layout.MAP_HALF_X,Layout.MAP_HALF_Z)*scale*2),Color(.075,.085,.079,.72))
+		for castle: Dictionary in Layout.SATELLITE_CASTLES:
+			var point: Vector3=castle.position
+			var half: float=castle.half_extent
+			draw_rect(Rect2(center+Vector2(point.x-half,point.z-half)*scale,Vector2.ONE*half*2*scale),Color("667765",.36))
 		for wall: Rect2 in Layout.wall_blocks():
 			draw_rect(Rect2(center+wall.position*scale,wall.size*scale),Color("a0a398",.82))
 	if compact:
@@ -1104,7 +1111,7 @@ func draw_minimap() -> void:
 		var map_point: Vector3=game.to_local(point)
 		draw_supply_crate_marker(center+Vector2(map_point.x,map_point.z)*scale)
 	if int(supply_navigation.count)>0:
-		label("金箱 · 补给",map_rect.position+Vector2(138,21),11,Color("f6cf78"))
+		label("金车 · 建造",map_rect.position+Vector2(138,21),11,Color("f6cf78"))
 	draw_circle(center+Vector2(game.hero.position.x,game.hero.position.z)*scale,4.1,Color("8ee0e8"))
 	if not map_expanded:return
 	label("南门逼近%d · 夜巢%d/3" % [game.gate_pressure(),game.remaining_nests()],map_rect.position+Vector2(12,230),12,red if game.phase=="night" else muted)
@@ -1351,7 +1358,7 @@ func growth_lines(snapshot: Dictionary) -> Array[String]:
 	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","零件可用于维修、城区或小队","塔改装与城区选择均由你决定"]
 	var action: String={"build":"建造一级","place":"自由建造","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
 	var state: String="可负担" if bool(tower.affordable) else "还差%d" % int(tower.shortfall)
-	var operation: String="补给箱许可" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
+	var operation: String="建筑车部署" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
 	return ["防线：%s · %s" % [String(tower.label),action],
 		"%d零件 · %s · %s" % [int(tower.cost),state,operation],String(tower.benefit)]
 

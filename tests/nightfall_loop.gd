@@ -24,7 +24,7 @@ func verify_close_building_approach(game: Node3D) -> void:
 	game.hero.position=Vector3(80,0,80)
 	game.move_goal=game.hero.position
 	game.scrap=1000
-	var wall_point: Vector3=Grid.placement(Vector3(11.5,5,-7.5),"tower").point
+	var wall_point: Vector3=Grid.placement(Vector3(Layout.FORT_INNER-1.5,5,-7.5),"tower").point
 	assert(game.build_tower_at(wall_point))
 	var wall_index: int=game.world.tower_pads.size()-1
 	assert(game.build_tower_at(wall_point-Vector3(3,0,0)))
@@ -35,7 +35,7 @@ func verify_close_building_approach(game: Node3D) -> void:
 	assert(not game.outpost_walkable(wall_point+Vector3(half.x+.35,0,0)),"Nearest east face is inside the castle wall")
 	assert(not game.outpost_walkable(wall_point-Vector3(half.x+.35,0,0)),"Nearest west face is inside the neighbouring tower")
 	var hunter: BattleUnit=game.spawn_creature(true,"sapper")
-	hunter.position=Vector3(19,0,-8)
+	hunter.position=Vector3(Layout.FORT_OUTER+4.4,0,-8)
 	var approach: Vector3=game.building_approach_position(hunter.position,wall_point,"tower")
 	assert(game.outpost_walkable(approach) and game.can_attack_line(approach,wall_point),"Blocked nearest face must choose a real accessible surface")
 	var starting_hp: float=game.world.tower_pads[wall_index].hp+game.world.tower_pads[neighbour_index].hp
@@ -70,7 +70,7 @@ func run() -> void:
 	assert(game.world.beacon.position.y==5.0)
 	var ramp_middle := (Layout.RAMP_TOP+Layout.RAMP_END)*.5
 	assert(game.outpost_height(Vector3(0,0,0))>game.outpost_height(Vector3(0,0,ramp_middle)))
-	assert(game.outpost_height(Vector3(0,0,ramp_middle))>game.outpost_height(Vector3(5,0,ramp_middle))+2.0)
+	assert(game.outpost_height(Vector3(0,0,ramp_middle))>game.outpost_height(Vector3(Layout.RAMP_OUTER_HALF+1.1,0,ramp_middle))+2.0)
 	assert(game.phase=="draft" and game.run.offer.size()==3)
 	assert(game.choose_card(0))
 	assert(game.phase=="night" and game.tower_count()==2)
@@ -86,7 +86,7 @@ func run() -> void:
 	assert(game.world.tower_pads.size()==2)
 	assert(game.outpost_walkable(Vector3(115,0,95)))
 	assert(game.outpost_walkable(Vector3(127,0,0)))
-	assert(not game.outpost_walkable(Vector3(149,0,0)))
+	assert(not game.outpost_walkable(Vector3(Layout.MAP_HALF_X+1.0,0,0)))
 	assert(not game.outpost_walkable(Vector3(82,0,-78)))
 	assert(not game.outpost_walkable(Vector3(-99,0,72)))
 	assert(not game.outpost_walkable(Vector3(-124,0,-76)))

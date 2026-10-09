@@ -1,6 +1,7 @@
 extends SceneTree
 ## Isolated lifecycle/economy/targeting checks using real BattleUnit assets.
 const SquadScript = preload("res://scripts/outpost_squads.gd")
+const Layout = preload("res://scripts/outpost_layout.gd")
 var failures: Array[String] = []
 var game: FixtureGame
 var squads: Node3D
@@ -10,8 +11,7 @@ var checks := 0
 class FixtureWorld extends Node3D:
 	var tower_pads: Array[Dictionary] = []
 	func terrain_height(point: Vector3) -> float:
-		var rise := clampf((19.0 - point.z) / 12.0, 0, 1)
-		return 5.0 * rise * rise * (3.0 - 2.0 * rise)
+		return Layout.terrain_height(point)
 
 class FixtureDistricts extends Node3D:
 	var plots: Array[Dictionary] = [
@@ -34,7 +34,7 @@ class FixtureGame extends Node3D:
 	var districts: FixtureDistricts
 	func outpost_height(point: Vector3) -> float: return world.terrain_height(point)
 	func can_traverse(_from: Vector3, to: Vector3) -> bool:
-		return absf(to.x) <= 2.5 and to.z >= 3.0 and to.z <= 20.0
+		return to.is_finite() and absf(to.x) <= Layout.RAMP_INNER_HALF and to.z >= 3.0 and to.z <= Layout.RAMP_END + 8.5
 
 class BirthResetProbe extends RefCounted:
 	var mode := "clear"
@@ -81,7 +81,23 @@ func remove_enemies() -> void:
 func _flat_distance(a: Vector3, b: Vector3) -> float: return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
 
 func settle() -> void:
-	for step in 50: squads.advance(.1)
+	for step in 200:
+		squads.advance(.1)
+		var settled := true
+		for squad: Dictionary in squads.squads:
+			for slot in squad.members.size():
+				var member: BattleUnit = squad.members[slot]
+				if not is_instance_valid(member) or not member.alive: continue
+				var station: Vector3 = squads._station(squad, slot, String(squad.order))
+				if member.moving or _flat_distance(member.position, station) > .160001:
+					settled = false
+		if settled: break
+	for squad: Dictionary in squads.squads:
+		for slot in squad.members.size():
+			var member: BattleUnit = squad.members[slot]
+			if not is_instance_valid(member) or not member.alive: continue
+			var station: Vector3 = squads._station(squad, slot, String(squad.order))
+			check(not member.moving and _flat_distance(member.position, station) <= .160001, "Real movement must reach the authored station within twenty seconds")
 
 func synchronous_birth_reset() -> void:
 	for mode: String in ["clear","setup"]:
@@ -196,9 +212,9 @@ func run() -> void:
 	check(heavy.hp == 1000.0 and archer.attack_windup == queued_delay, "Drafting freezes ranged windup and damage")
 	game.phase = "night"; squads.advance(.27)
 	check(heavy.hp < 1000.0 and weak.hp == 1000.0 and not squads.shots.is_empty(), "Ranged commits damage with a beam to its selected target")
-	var shot_time: float = squads.shots[0].time
+	var shot_time := -1.0 if squads.shots.is_empty() else float(squads.shots[0].time)
 	squads.advance(9.0, false)
-	check(squads.shots[0].time == shot_time, "Explicit inactive advance must also freeze beam lifetime")
+	check(not squads.shots.is_empty() and float(squads.shots[0].time) == shot_time, "Explicit inactive advance must also freeze beam lifetime")
 	heavy.hp = 1.0
 	for member: BattleUnit in squads.squads[0].members: member.attack_timer = 0.0
 	squads.advance(.01); squads.advance(.27)
