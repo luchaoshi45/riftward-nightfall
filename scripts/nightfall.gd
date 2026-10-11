@@ -1,5 +1,6 @@
 extends Node3D
 ## Playable outpost survival slice: scavenge at dusk, protect the beacon at night.
+const TowerAnimation = preload("res://scripts/tower_animation.gd")
 const Layout = preload("res://scripts/outpost_layout.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
 const Grid = preload("res://scripts/construction_grid.gd")
@@ -327,6 +328,7 @@ func prepare_opening_defenses() -> void:
 		var pad: Dictionary=world.tower_pads[index]
 		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
 		pad.level=1;pad.max_hp=280.0;pad.hp=280.0
+		configure_tower_animation(pad)
 		pad["paid_investment"]=0
 		pad["free_built"]=true
 		pad.damage_ring=BattleVisuals.ring(world,pad.position+Vector3(0,.12,0),1.26,Color("d75f58"),.06)
@@ -2411,10 +2413,24 @@ func segment_crosses_wall(origin: Vector2, direction: Vector2, block: Rect2) -> 
 			if enter>=leave or leave<=0.0 or enter>=1.0:return false
 	return leave>0 and enter<1
 
+func configure_tower_animation(pad: Dictionary) -> void:
+	if not is_instance_valid(pad.turret):return
+	var ornament=pad.turret.get_node_or_null("TowerMechanism")
+	if ornament==null:
+		ornament=TowerAnimation.new()
+		ornament.name="TowerMechanism"
+		pad.turret.add_child(ornament)
+	ornament.configure(int(pad.level),String(pad.get("specialization","standard")))
+
 func update_towers(delta: float) -> void:
 	var relay_bonus:=relay_count()
 	for pad in world.tower_pads:
 		if pad.level<=0:continue
+		if is_instance_valid(pad.turret):
+			var mechanism=pad.turret.get_node_or_null("TowerMechanism")
+			if mechanism!=null:
+				if mechanism.variant!=String(pad.get("specialization","standard")):configure_tower_animation(pad)
+				mechanism.advance(delta)
 		pad.cooldown=maxf(0.0,float(pad.cooldown)-delta)
 		if pad.cooldown>0:continue
 		var selected: BattleUnit
@@ -2453,6 +2469,8 @@ func update_towers(delta: float) -> void:
 		pad.cooldown=maxf(.38,1.05-float(pad.level)*.18)*specializations.cooldown_multiplier(pad)
 		var tower: Node3D=pad.turret
 		tower.look_at(Vector3(selected.position.x,tower.position.y,selected.position.z),Vector3.UP)
+		var mechanism=tower.get_node_or_null("TowerMechanism")
+		if mechanism!=null:mechanism.fire()
 		var impact:=selected.position
 		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
 		if countermeasure_tower_time>0.0:damage*=COUNTERMEASURE_TOWER_MULTIPLIER
@@ -3315,8 +3333,7 @@ func build_structure_at(point: Vector3, kind: String) -> bool:
 			for pad: Dictionary in world.tower_pads:
 				if int(pad.level)>0 and (pad.position as Vector3).distance_to(point)<.01:
 					pad.specialization=deployment_vehicle.tower_variant
-					var color: Color={"piercing":Color("d791ff"),"control":Color("79ccff"),"flame":Color("ff824e"),"chain":Color("a1f5e4")}[String(pad.specialization)]
-					BattleVisuals.box(pad.turret,Vector3(0,2.3,0),Vector3(.35,.45,.35),BattleVisuals.material(color,.8)).name="TowerVariantSignal"
+					configure_tower_animation(pad)
 					pad.paid_investment=int(pad.get("paid_investment",0))+branch_cost
 					scrap-=branch_cost
 					break
@@ -3399,6 +3416,7 @@ func build_or_upgrade_tower(index: int) -> bool:
 	repairs.stop("tower",index)
 	if is_instance_valid(pad.damage_ring):pad.damage_ring.visible=false
 	(pad.turret as Node3D).scale=Vector3.ONE*(1.0+float(level)*.12)
+	configure_tower_animation(pad)
 	pad["free_built"]=true
 	if level==0:refresh_construction_navigation()
 	BattleVisuals.burst(effects,pad.position,2.3,Color("e3ac62"),.35)
@@ -3615,10 +3633,7 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 		if selection_dragging:selection_end=event.position
 		return false
 	if not event is InputEventMouseButton:return false
-	if event.button_index==MOUSE_BUTTON_WHEEL_UP and event.pressed:
-		camera.size=maxf(21,camera.size-1.5);return true
-	if event.button_index==MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
-		camera.size=minf(52,camera.size+1.5);return true
+	if event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN]:return true
 	if event.button_index not in [MOUSE_BUTTON_LEFT,MOUSE_BUTTON_RIGHT]:return false
 	if rally and rally.active:
 		selection_dragging=false
@@ -3844,7 +3859,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E:cast(2,true)
 			KEY_R:cast(3,true)
 			KEY_X:cast(4,true)
-			KEY_SPACE:camera.size=38
+			KEY_SPACE:pass
 			KEY_ESCAPE:
 				if phase=="paused":phase=paused_from
 				elif phase=="day" or phase=="night":selection_dragging=false;paused_from=phase;phase="paused"

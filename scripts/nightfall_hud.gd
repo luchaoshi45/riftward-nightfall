@@ -23,6 +23,7 @@ const SQUAD_PANEL_RECT := CleanHud.DRAWER_RECT
 const RESULT_RETRY_RECT := Rect2(397,648,304,52)
 const RESULT_NEW_RECT := Rect2(739,648,304,52)
 const OPENING_CONTRACT_RECT := Rect2(205,700,1025,38)
+var camera_slider: HSlider
 var game: Node3D
 var font: SystemFont
 var display_font: SystemFont
@@ -76,12 +77,35 @@ var rally_feedback := ""
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_PASS
+	camera_slider=HSlider.new()
+	camera_slider.name="CameraViewSlider"
+	camera_slider.min_value=21
+	camera_slider.max_value=52
+	camera_slider.step=.5
+	camera_slider.value=38
+	camera_slider.scrollable=false
+	camera_slider.visible=false
+	add_child(camera_slider)
+	camera_slider.value_changed.connect(_set_camera_view)
 	font=SystemFont.new()
 	font.font_names=PackedStringArray(_ui_font_names())
 	font.allow_system_fallback=true
 	display_font=SystemFont.new()
 	display_font.font_names=PackedStringArray(_display_font_names())
 	display_font.allow_system_fallback=true
+
+func _set_camera_view(value: float) -> void:
+	if is_instance_valid(game) and game.phase=="paused" and is_instance_valid(game.camera):
+		game.camera.size=clampf(value,21,52)
+		queue_redraw()
+
+func update_camera_slider() -> void:
+	if camera_slider==null:return
+	camera_slider.visible=is_instance_valid(game) and game.phase=="paused" and detail_tab.is_empty() and not map_expanded and not game.music_credits_open
+	var factor:=get_viewport_rect().size/Vector2(1440,900)
+	camera_slider.position=Vector2(530,557)*factor
+	camera_slider.size=Vector2(380,28)*factor
+	if camera_slider.visible:camera_slider.set_value_no_signal(game.camera.size)
 
 func _ui_font_names() -> Array[String]:
 	match OS.get_name():
@@ -129,6 +153,7 @@ func progress(rect: Rect2,ratio: float,color: Color) -> void:
 	draw_rect(Rect2(rect.position,Vector2(rect.size.x*clampf(ratio,0,1),rect.size.y)),color)
 
 func _process(delta: float) -> void:
+	update_camera_slider()
 	if not is_instance_valid(game):return
 	if game.construction.active:construction_page=maxi(0,Catalog.BUILDING_IDS.find(String(game.construction.kind)))/CATALOG_PAGE_SIZE
 	if game.construction.active and (not detail_tab.is_empty() or map_expanded):dismiss_details()
@@ -478,8 +503,8 @@ func draw_pause() -> void:
 		label("配乐  %s  ·  音量 %d%%" % ["静音" if game.music.muted else "开启",roundi(game.music.get_volume()*100)],Vector2(526,415),18,ink)
 		label("M 开关配乐  ·  [ 降低音量  ·  ] 提高音量",Vector2(502,452),16,muted)
 	if is_instance_valid(game.combat):label("F2  震动与闪光：%s" % ("已减弱" if game.combat.reduced_effects else "完整反馈"),Vector2(570,494),16,Color("8dcfc3"))
-	label("F1  配乐来源与许可",Vector2(603,543),16,amber)
-	label("Music by Rusted Music Studio / Fabien C.",Vector2(497,600),14,muted,true)
+	label("视角设置 · 近景                         远景",Vector2(530,542),16,amber)
+	label("拖动滑动条调整 · 滚轮不改变视角",Vector2(551,614),14,muted)
 
 func construction_kind_rect(index: int) -> Rect2:
 	return Rect2(457+index*175,658,166,31)

@@ -327,11 +327,11 @@ func real_simulation_gate() -> void:
 
 func advanced_range_and_secondary_damage() -> void:
 	await reset_case("nearest")
-	game.scrap = 50
+	game.scrap = game.TOWER_COSTS[1]
 	check(game.build_or_upgrade_tower(game.world.tower_pads.size() - 1) and int(pad.level) == 2 and game.scrap == 0,
 		"The actual paid upgrade establishes the real second-level tower")
 	await strict_boundary(17.0, "level-two")
-	game.scrap = 75
+	game.scrap = game.TOWER_COSTS[2]
 	check(game.build_or_upgrade_tower(game.world.tower_pads.size() - 1) and int(pad.level) == 3 and game.scrap == 0,
 		"The actual paid upgrade establishes the real third-level tower")
 	await strict_boundary(18.5, "level-three")
