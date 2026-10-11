@@ -403,14 +403,15 @@ static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 		for prefix: String in ["补给揭晓：","无法展开：","发现补给箱","获得建筑许可：","建筑许可：","建筑已部署","训练订单"]:
 			if String(game.notice).begins_with(prefix):supply_feedback=true;break
 		if not supply_feedback:return Rect2()
-	var lines:=_wrap(ui,String(game.notice),716,15)
+	var size_px:=20 if String(game.notice).begins_with("补给揭晓：") or String(game.notice).begins_with("获得建筑许可：") else 15
+	var lines:=_wrap(ui,String(game.notice),716,size_px)
 	var count:=mini(2,lines.size())
 	var font: Font=ui.get("font") as Font
 	var width:=152.0
 	for index in count:
-		width=maxf(width,font.get_string_size(lines[index],HORIZONTAL_ALIGNMENT_LEFT,-1,15).x+36.0)
+		width=maxf(width,font.get_string_size(lines[index],HORIZONTAL_ALIGNMENT_LEFT,-1,size_px).x+36.0)
 	width=minf(752.0,width)
-	var height:=34.0+(count-1)*20.0
+	var height:=float(size_px+19)+(count-1)*float(size_px+5)
 	# Supply receipts remain visible above the automatically opened preview.
 	# Ordinary notices still yield during construction, with no extra panel.
 	var bottom: float=ui.CONSTRUCTION_PANEL_RECT.position.y-10.0 if game.construction.active else 788.0
@@ -419,13 +420,14 @@ static func notice_rect(ui: Control, game: Node3D) -> Rect2:
 static func _draw_notice(ui: Control, game: Node3D) -> void:
 	var rect:=notice_rect(ui,game)
 	if not rect.has_area():return
-	var lines:=_wrap(ui,String(game.notice),716,15)
+	var size_px:=20 if String(game.notice).begins_with("补给揭晓：") or String(game.notice).begins_with("获得建筑许可：") else 15
+	var lines:=_wrap(ui,String(game.notice),716,size_px)
 	# Keep the existing logical footprint for click interception and recorder
 	# coverage while leaving the visual layer cardless.
 	ui.box(rect,Color(0,0,0,0),Color(0,0,0,0))
 	ui.draw_line(rect.position,rect.position+Vector2(minf(rect.size.x,96.0),0),Color("b18c59",.64),1.0)
 	for index in mini(2,lines.size()):
-		ui.label(lines[index],rect.position+Vector2(18,22+index*20),15,ui.ink)
+		ui.label(lines[index],rect.position+Vector2(18,size_px+7+index*(size_px+5)),size_px,ui.ink)
 
 static func _active_tags_text(game: Node3D) -> String:
 	if not is_instance_valid(game.exploration):return ""

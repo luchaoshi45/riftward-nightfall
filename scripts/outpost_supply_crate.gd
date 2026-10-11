@@ -111,8 +111,8 @@ func setup(crate_serial: int, kind: String = "tower", label: String = "炮塔") 
 	font.font_names = PackedStringArray(["Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Arial Unicode MS"])
 	font.allow_system_fallback = true
 	caption.font = font
-	caption.font_size = 28
-	caption.pixel_size = .009
+	caption.font_size = 44
+	caption.pixel_size = .012
 	caption.outline_size = 5
 	caption.modulate = Color("f4d889")
 	caption.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -165,6 +165,8 @@ func set_selected(value: bool) -> void:
 
 func _update_caption() -> void:
 	if not is_instance_valid(caption):return
+	# Revealed rewards are drawn in the HUD at a constant screen font size.
+	caption.transparency = 1.0 if revealed else 0.0
 	caption.text = (display_name + " · D展开" if selected else display_name) if revealed else "神秘补给 · 靠近开启"
 	caption.visible = not opened and (selected or arrival_hint_time > 0.0)
 

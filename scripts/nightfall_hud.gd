@@ -1,5 +1,7 @@
 extends Control
 ## Compact dark-fantasy HUD for the outpost loop.
+const ProductionSidebar = preload("res://scripts/nightfall_production_sidebar.gd")
+var production_sidebar = ProductionSidebar.new()
 const Layout = preload("res://scripts/outpost_layout.gd")
 const CleanHud = preload("res://scripts/nightfall_clean_hud.gd")
 const Catalog = preload("res://scripts/outpost_catalog.gd")
@@ -82,7 +84,7 @@ func _ready() -> void:
 	camera_slider.min_value=21
 	camera_slider.max_value=52
 	camera_slider.step=.5
-	camera_slider.value=38
+	camera_slider.value=45
 	camera_slider.scrollable=false
 	camera_slider.visible=false
 	add_child(camera_slider)
@@ -346,6 +348,7 @@ func live_panel_rects() -> Array[Rect2]:
 	var pending:=int(game.run.pending) if is_instance_valid(game.run) else 0
 	var upgrade_ready: bool=is_instance_valid(game.run) and (pending>0 or (game.run.has_available_upgrade() and int(game.scrap)>=game.run.memory_cost()))
 	if not minimal_display or upgrade_ready:areas.append(MEMORY_BUTTON_RECT)
+	if production_sidebar.visible(self):areas.append(ProductionSidebar.PANEL)
 	if not minimal_display or map_expanded:areas.append(minimap_rect())
 	if game.construction.active and game.phase in ["day","night"]:areas.append(CONSTRUCTION_PANEL_RECT)
 	elif rally_setting() and game.phase in ["day","night"]:areas.append(RALLY_PROMPT_RECT)
@@ -471,6 +474,7 @@ func _draw() -> void:
 	if game.phase=="ended":
 		draw_result()
 		return
+	draw_supply_reward_labels()
 	draw_combat_floats()
 	_draw_live_with_event_priority()
 	if not minimal_display or map_expanded:draw_minimap()
@@ -488,11 +492,40 @@ func _draw() -> void:
 	draw_shellguard_armor()
 	draw_veterancy_labels()
 	draw_building_repairs()
+	production_sidebar.draw(self)
 	if game.phase=="paused":
 		if not detail_tab.is_empty() or map_expanded:
 			box(Rect2(584,742,352,40),panel,amber)
 			label("已暂停 · Esc 先收起详情",Vector2(626,768),16,amber)
 		else:draw_pause()
+
+func supply_reward_labels() -> Array[Dictionary]:
+	var rows: Array[Dictionary]=[]
+	if not is_instance_valid(game) or game.phase not in ["day","night"] or game.music_credits_open or not detail_tab.is_empty() or map_expanded:return rows
+	var occupied:=live_panel_rects()
+	for crate: Node3D in game.supply_crates:
+		if not game._valid_construction_vehicle(crate) or not crate.revealed or game.camera.is_position_behind(crate.global_position):continue
+		var point: Vector2=game.camera.unproject_position(crate.global_position+Vector3(0,2.2,0))*Vector2(1440,900)/get_viewport_rect().size
+		var title:=String(crate.display_name)
+		var width:=maxf(166,font.get_string_size(title,HORIZONTAL_ALIGNMENT_LEFT,-1,22).x+28)
+		var footprint:=Rect2(point-Vector2(width/2,58),Vector2(width,58))
+		if not Rect2(0,0,1440,900).has_point(point):continue
+		footprint.position.x=clampf(footprint.position.x,8,1152-width)
+		footprint.position.y=clampf(footprint.position.y,100,706)
+		var covered:=false
+		for area: Rect2 in occupied:
+			if area.intersects(footprint):covered=true;break
+		if covered:continue
+		rows.append({"rect":footprint,"title":title,"selected":crate.selected})
+		occupied.append(footprint)
+	return rows
+
+func draw_supply_reward_labels() -> void:
+	for row: Dictionary in supply_reward_labels():
+		var rect: Rect2=row.rect
+		box(rect,Color("101b22",.91),Color("bba469"))
+		label(String(row.title),rect.position+Vector2(14,25),22,ink)
+		label("D展开" if bool(row.selected) else "选中 · 移动后D展开",rect.position+Vector2(14,47),14,amber)
 
 func draw_pause() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.58))
@@ -1542,6 +1575,8 @@ func _gui_input(event: InputEvent) -> void:
 	var point:=Vector2.ZERO
 	if event is InputEventMouseButton or event is InputEventMouseMotion:
 		point=event.position*Vector2(1440,900)/get_viewport_rect().size
+	if production_sidebar.handle(self,event,point):
+		accept_event();return
 	if game.music_credits_open:
 		if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
 			var sources:=["https://rustedstudio.itch.io/free-music-dark-ambient-piano","https://rustedstudio.itch.io/free-music-apocalypse-z","https://rustedstudio.itch.io/free-music-orchestral-fantasy-war","https://creativecommons.org/licenses/by/4.0/"]

@@ -271,7 +271,7 @@ func _ready() -> void:
 	move_goal=hero.position
 	camera=Camera3D.new();add_child(camera)
 	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
-	camera.size=38
+	camera.size=45
 	# Gameplay never approaches this camera; avoid wasting depth precision at .05m.
 	camera.near=.3
 	camera.far=320
@@ -3626,6 +3626,13 @@ func hauler_under_cursor(screen: Vector2) -> BattleUnit:
 	return chosen
 
 func handle_strategy_mouse(event: InputEvent) -> bool:
+	if is_instance_valid(hud) and (event is InputEventMouseButton or event is InputEventMouseMotion):
+		var ui_point: Vector2=event.position*Vector2(1440,900)/get_viewport().get_visible_rect().size
+		if hud.production_sidebar.visible(hud) and hud.production_sidebar.PANEL.has_point(ui_point):
+			if event is InputEventMouseButton and not event.pressed:
+				selection_dragging=false
+				vehicle_drag_source=null
+			return true
 	if quitting or restart_pending or phase not in ["day","night"] or music_credits_open:return false
 	if event is InputEventMouseMotion:
 		pending_aim_screen=event.position
@@ -3997,7 +4004,10 @@ func _supply_crate_in_view(point: Vector3) -> bool:
 	if view_size.x<=0.0 or view_size.y<=0.0:return false
 	# Reserve the outer edges and the bottom HUD, including at close zoom.
 	var safe_view:=Rect2(view_size*Vector2(.12,.14),view_size*Vector2(.76,.60))
-	return safe_view.has_point(camera.unproject_position(marker_point))
+	var pixel:=camera.unproject_position(marker_point)
+	# Reserve the production rail even during draft, before it becomes visible.
+	if is_instance_valid(hud) and hud.minimal_display and pixel.x/view_size.x*1440.0>1136:return false
+	return safe_view.has_point(pixel)
 
 func _supply_crate_position_legal(candidate: Vector3, start_cell: Vector2i) -> bool:
 	if not candidate.is_finite() or not is_instance_valid(hero_navigation):return false
