@@ -130,7 +130,7 @@ func _activate(entry: Dictionary) -> Dictionary:
 	else:
 		reason = _binding_reason(entry)
 		if reason.is_empty(): reason = _technology_reason()
-		if reason.is_empty() and int(_property("scrap")) < COST: reason = "夜采装配需要20零件"
+		if reason.is_empty() and int(_property("scrap")) < COST: reason = "夜采装配需要20光"
 	entry.planned = false
 	if not reason.is_empty():
 		entry.active = false; entry.reason = reason
@@ -265,13 +265,13 @@ func selection() -> Dictionary:
 			reason = "本队当夜已装配 · 停止后不可重启" if _phase() == "night" and bool(row.used) else _target_reason(int(row.id))
 			if reason.is_empty() and _phase() == "night":
 				reason = _technology_reason()
-				if reason.is_empty() and budget < COST: reason = "夜采装配需要20零件"
+				if reason.is_empty() and budget < COST: reason = "夜采装配需要20光"
 				if reason.is_empty(): budget -= COST; payable += 1
 		row.available = reason.is_empty()
 		row.reason = reason if not reason.is_empty() else String(row.reason)
 		available = available or bool(row.available)
 		if first_reason.is_empty() and not reason.is_empty(): first_reason = reason
-	var title := "取消准备 / 停止夜采" if action == "stop" else ("准备夜采 · 日落每队20零件" if action == "prepare" else "装配夜采 · 每队20零件")
+	var title := "取消准备 / 停止夜采" if action == "stop" else ("准备夜采 · 日落每队20光" if action == "prepare" else "装配夜采 · 每队20光")
 	return {"count": ids.size(), "cost": COST, "total_cost": (ids.size() - active - planned) * COST if action != "stop" else 0,
 		"payable_count": payable, "planned_count": planned, "active_count": active, "used_count": used,
 		"all_enabled": all_enabled, "available": available, "action": action, "reason": title if available else first_reason, "teams": rows}
@@ -285,7 +285,7 @@ func prepare_selected() -> Dictionary:
 		if bool(old.get("planned", false)) and _binding_reason(old).is_empty(): count += 1; continue
 		var entry := _bind(id)
 		if entry.is_empty(): rejected.append({"id": id, "reason": _target_reason(id)}); continue
-		entry.planned = true; entry.reason = "已准备 · 日落检查科技和20零件"
+		entry.planned = true; entry.reason = "已准备 · 日落检查科技和20光"
 		_entries[id] = entry; count += 1
 	return _result(count, 0, "prepare", rejected)
 
@@ -322,7 +322,7 @@ func stop_selected() -> Dictionary:
 
 func _result(count: int, charged: int, action: String, rejected: Array[Dictionary]) -> Dictionary:
 	var reason := "请选择存活采运工队"
-	if count > 0: reason = "%d队%s" % [count, "准备夜采 · 日落检查20零件" if action == "prepare" else ("停止夜采 · 载货保留" if action == "stop" else "夜采装配生效")]
+	if count > 0: reason = "%d队%s" % [count, "准备夜采 · 日落检查20光" if action == "prepare" else ("停止夜采 · 载货保留" if action == "stop" else "夜采装配生效")]
 	elif not rejected.is_empty(): reason = String(rejected[0].reason)
 	if count > 0 and not rejected.is_empty(): reason += " · 部分工队未启用"
 	return {"ok": count > 0, "count": count, "charged_count": charged, "spent": charged * COST,

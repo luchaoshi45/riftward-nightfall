@@ -305,7 +305,7 @@ func offer_summary(index: int) -> String:
 	var risk_label: String=["稳妥", "加码", "孤注"][clampi(int(offer.get("risk", index)),0,2)]
 	var risk_text := "%s · 无额外追猎" % risk_label if risk_count <= 0 else "%s · 额外追猎%d" % [risk_label,risk_count]
 	if risk_seconds > 0.0:risk_text += " · 提前%d秒截止" % risk_seconds
-	return "%s · +%d零件 · %s" % [String(offer.get("name", "方案%d" % (index + 1))), int(offer.get("scrap", REWARD_SCRAP)), risk_text]
+	return "%s · +%d光 · %s" % [String(offer.get("name", "方案%d" % (index + 1))), int(offer.get("scrap", REWARD_SCRAP)), risk_text]
 
 func primary_budget(offer_index: int = -1) -> Dictionary:
 	return RouteBudget.evaluate(self, offer_index)
@@ -548,7 +548,7 @@ func bonus_summary() -> String:
 		if status=="bonus_offer" and not _bonus_selection.is_empty():return "所选%s已失效 · 重选路线或4返家" % BONUS_TITLES.get(String(_bonus_selection.kind),"追加目标")
 		return "4 立即返家保底 · 暂无可达追加补给"
 	var title: String=BONUS_TITLES.get(String(candidate.kind),"追加补给")
-	return "%s%s · +%d零件" % ["5 贪一笔：" if status=="bonus_offer" else "追加 ",title,int(candidate.scrap)]
+	return "%s%s · +%d光" % ["5 贪一笔：" if status=="bonus_offer" else "追加 ",title,int(candidate.scrap)]
 
 func return_budget() -> Dictionary:
 	# Cache only route geometry. Time left, actual movement speed and the
@@ -729,7 +729,7 @@ func progress_text() -> String:
 			instruction += " · 哨兵跟随中"
 	var reward_text: String=offer_summary(selected_offer)
 	var switch_hint := " · "+choice_hint() if offers.size()>1 else (" · 方案已锁定" if progress_started else "")
-	return "可选 · 方案%d/%d · %s %d/%d · %s · %s · 日落前交回，提前15秒再+10零件%s" % [selected_offer+1,offers.size(),TITLES[kind], done.size(), targets.size(), instruction, reward_text, switch_hint]
+	return "可选 · 方案%d/%d · %s %d/%d · %s · %s · 日落前交回，提前15秒再+10光%s" % [selected_offer+1,offers.size(),TITLES[kind], done.size(), targets.size(), instruction, reward_text, switch_hint]
 
 func emit_progress() -> void:
 	var value := progress_text()

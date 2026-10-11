@@ -256,7 +256,7 @@ func milestone(kills: int, scrap_gain: int) -> void:
 
 func kill_reward_text(count: int, scrap_gain: int) -> String:
 	var text: String="击败×%d" % count
-	if scrap_gain>0:text+="  +%d 零件" % scrap_gain
+	if scrap_gain>0:text+="  +%d 光" % scrap_gain
 	return text
 
 func camera_offset() -> Vector3:

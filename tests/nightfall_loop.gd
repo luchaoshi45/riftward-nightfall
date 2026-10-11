@@ -110,7 +110,7 @@ func run() -> void:
 	game.hero.position=first.position+Vector3(1.0,0,0)
 	assert(game.interact())
 	assert(game.scrap>=35 and first.collected)
-	game.scrap=120
+	game.scrap=140
 	var selected_tower: Vector3=Grid.placement(Vector3(-8,5,-8),"tower").point
 	game.hero.position=selected_tower+Vector3(0,0,2.2)
 	game.move_goal=game.hero.position
@@ -124,7 +124,7 @@ func run() -> void:
 	var target_hp: float=tower_target.hp
 	game.update_towers(1.2)
 	assert(tower_target.hp<target_hp,"Constructed tower must damage approaching enemies")
-	game.scrap=75
+	game.scrap=game.districts.tower_cost(game.TOWER_COSTS[2])
 	assert(game.interact() and pad.level==3)
 	for old_enemy in game.enemies:
 		if is_instance_valid(old_enemy):old_enemy.queue_free()

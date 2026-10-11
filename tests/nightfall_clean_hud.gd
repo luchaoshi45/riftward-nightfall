@@ -169,7 +169,7 @@ func default_layout(label: String) -> void:
 		label + ": the compact map affordance must retain a short readable label")
 	var supply_badge := false
 	for hud_label: String in game.hud.all_labels:
-		if hud_label.begins_with("建筑车"):
+		if hud_label.begins_with("补给"):
 			supply_badge = true
 			break
 	check("F3" in game.hud.all_labels and supply_badge,
@@ -229,7 +229,7 @@ func supply_navigation_gui() -> void:
 		await redraw()
 		var caption: String=game.hud.supply_crate_navigation_label()
 		var before_areas: Array=game.hud.visible_hud_rects()
-		check(caption.begins_with("建筑车 1 · 东南 ") and caption.ends_with("米")
+		check(caption.begins_with("补给 1 · 东南 ") and caption.ends_with("米")
 			and game.hud.all_labels.has(caption),"%s: the real clean HUD must show a live crate direction and distance" % size)
 		var found:=false
 		for row: Dictionary in game.hud.all_drawn_labels:
@@ -428,12 +428,12 @@ func help_mode_bounds(label: String, full: bool) -> void:
 				check(game.hud.font.has_char(code),label + ": actual help font must resolve Chinese glyph " + character)
 	if full:
 		check(body.size() > 12,label + ": expanded help must actually restore the longer production explanations")
-		for required in ["科技", "研究所", "医护默认停疗", "每次2零件", "集结", "PgUp"]:
+		for required in ["科技", "研究所", "医护默认停疗", "每次2光", "集结", "PgUp"]:
 			check(required in text,label + ": detailed help must preserve the real rule " + required)
 	else:
 		check(body.size() == 12 and shortcuts.size() == 10,
 			label + ": default help must render one heading, one introduction and exactly ten quick-operation lines")
-		check("常用操作" in text and "科技：" not in text and "每次2零件" not in text,
+		check("常用操作" in text and "科技：" not in text and "每次2光" not in text,
 			label + ": the quick view must defer the long technology and treatment rules to explicit expansion")
 		var repair_seen := false
 		var advance_seen := false
@@ -772,7 +772,7 @@ func compact_notice_inputs() -> void:
 	var saved := tag_command_snapshot()
 	var free_point := Vector2(352,772)
 	var old_notice := Rect2(344,740,752,48)
-	var long_text := "训练完成后可以选中部队，右键前往指定位置并守住南门。白昼探索获得零件，返回城堡后建设防线，入夜优先处理威胁最大的敌人，再保护受伤队员回到安全位置。"
+	var long_text := "训练完成后可以选中部队，右键前往指定位置并守住南门。白昼探索获得光，返回城堡后建设防线，入夜优先处理威胁最大的敌人，再保护受伤队员回到安全位置。"
 	for size in [Vector2i(1920,1200),Vector2i(1920,1080),Vector2i(1440,900)]:
 		root.size = size
 		root.content_scale_size = size
@@ -1045,7 +1045,7 @@ func build_barracks() -> void:
 	game.scrap = 1600
 	stand(HOME)
 	game.hud.toggle_details("help")
-	game._apply_supply_reward({"type":"building_permit","kind":"barracks","title":"兵营"})
+	game._apply_supply_reward({"type":"building_permit","kind":"barracks","title":"国旗基地"})
 	await redraw()
 	check(game.construction.active and game.construction.kind == "barracks" and game.hud.detail_tab == "", "A crate permit must dismiss details and enter the real construction preview")
 	check(game.hud.visible_hud_rects().has(CONSTRUCTION), "Only active construction must report the live placement bar")

@@ -476,4 +476,4 @@ func _refresh_marker() -> void:
 	if is_instance_valid(marker): marker.visible = visible
 	if is_instance_valid(label):
 		label.visible = visible
-		label.text = "守卫 %d/2 · 清后3秒\n46零件" % int(state.remaining) if bool(state.day_active) else "日落未清 · 次日再试\n封锁 %d/2" % int(state.remaining)
+		label.text = "守卫 %d/2 · 清后3秒\n46光" % int(state.remaining) if bool(state.day_active) else "日落未清 · 次日再试\n封锁 %d/2" % int(state.remaining)

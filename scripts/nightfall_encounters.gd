@@ -13,7 +13,7 @@ const BURSTLING_ADVICE := "爆裂体停步蓄爆1.4秒、固定圈2.4米；分�
 const BOUNTY_ID := "shellguard_pack"
 const BOUNTY_REWARD := 48
 const BOUNTY_WAVE_INDEX := 2
-const BOUNTY_ADVICE := "悬赏：多2甲壳，本夜清波另奖48零件。"
+const BOUNTY_ADVICE := "悬赏：多2甲壳，本夜清波另奖48光。"
 
 func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -> Array[Dictionary]:
 	var night: int = clampi(night_index, 1, 4)
@@ -35,6 +35,7 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 		for role in specialists:
 			roles.append(String(role))
 		var base_count: int = 8 + night * 3 if index == 0 else 8 + night * 2 + index * 2
+		base_count+=1 if selected_mode=="teaching" else 2+night
 		# 巢穴只削减普通随从，不能暗中更换已经预告的主要威胁。
 		var reduction: int = mini(clampi(nest_count, 0, 3) * 2, MAX_NEST_REDUCTION)
 		var count: int = maxi(maxi(MIN_WAVE_COUNT, roles.size()), base_count - reduction)

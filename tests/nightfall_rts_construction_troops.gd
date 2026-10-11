@@ -246,7 +246,7 @@ func construction_and_economy() -> void:
 		check(game.districts.tower_cost(60) == 48, "A second-level workshop must apply the actual bounded 20% tower discount")
 	for index: int in barracks:
 		if index >= 0:
-			check(is_equal_approx(float(game.districts.plots[index].hp), 600.0), "A barracks must start at 600 durability")
+			check(is_equal_approx(float(game.districts.plots[index].hp), float(Catalog.building("barracks").hp)), "Flag durability must match shared catalog")
 	game._apply_supply_reward({"type": "building_permit", "kind": "barracks", "title": "兵营"})
 	await aim_at(Vector3(7, 5, -7.5))
 	var balance: int = game.scrap

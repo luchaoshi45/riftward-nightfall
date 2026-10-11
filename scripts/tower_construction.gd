@@ -166,6 +166,9 @@ func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String
 		result.reason = "未知建筑"
 		return result
 	result.cost = game.districts.tower_cost(int(definition.cost)) if structure_kind == "tower" else int(definition.cost)
+	var vehicle: Variant=game.get("deployment_vehicle")
+	if structure_kind=="tower" and is_instance_valid(vehicle) and game._valid_construction_vehicle(vehicle) and vehicle.revealed and vehicle.tower_variant!="standard":
+		result.cost=int(result.cost)+45
 	var technology: Dictionary = game.districts.build_eligibility(structure_kind)
 	result.tech_valid = bool(technology.available)
 	result.missing = technology.missing
@@ -208,7 +211,7 @@ func validity(point: Vector3, ignore_pad_index: int = -1, structure_kind: String
 		result.reason = String(technology.reason)
 		return result
 	if int(game.scrap) < int(result.cost):
-		result.reason = "零件不足 · 需要%d" % int(result.cost)
+		result.reason = "光不足 · 需要%d" % int(result.cost)
 		return result
 	result.valid = true
 	result.reason = "可建造%s · %d×%d格" % [String(result.title), Grid.sizes(structure_kind).x, Grid.sizes(structure_kind).y]

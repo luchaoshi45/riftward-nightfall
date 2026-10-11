@@ -147,6 +147,21 @@ func assert_clean_opening(mode: String, label: String) -> void:
 		label + ": city buildings, troops, training and selections are cleared")
 	check(not game.construction.active and not game.selection_dragging and game.enemies.is_empty(),
 		label + ": old previews, selection drags and enemies are cleared")
+	check(game.supply_crates.size() == 1 and game.opening_supply_delivered
+		and game.supply_crate_clock == 0.0,
+		label + ": the opening draft must already contain exactly one delivered vehicle with a frozen fresh clock")
+	if game.supply_crates.size() == 1:
+		var vehicle: Node3D = game.supply_crates[0]
+		check(game._valid_construction_vehicle(vehicle),
+			label + ": the opening vehicle must belong to this live controller and remain unconsumed")
+		if is_instance_valid(vehicle):
+			check(String(vehicle.supply_kind) in Catalog.BUILDING_IDS and not vehicle.selected
+				and vehicle.path_points.is_empty(),
+				label + ": the opening vehicle must carry a legal building type without a selection or movement order")
+	check(not is_instance_valid(game.selected_construction_vehicle)
+		and not is_instance_valid(game.deployment_vehicle) and game.deployment_vehicle_id == 0
+		and game.pending_build_permit_kind.is_empty(),
+		label + ": opening delivery must not select the vehicle or bind a deployment preview")
 	check(game.generator_cells == 0 and game.survivors_rescued == 0 and game.cleansed_nests() == 0,
 		label + ": expedition and nest progress reset")
 	for generator: Dictionary in game.expeditions.generators:
@@ -480,6 +495,9 @@ func run() -> void:
 	current_scene = game
 	await process_frame
 	freeze_current()
+	# Let the production _ready deferred delivery finish before checking draft
+	# state, without calling any spawn helper or advancing the gameplay clock.
+	await process_frame
 	if not game.has_method("request_run_restart"):
 		check(false, "Production request_run_restart is missing; this regression cannot claim retry support")
 		await cleanup()

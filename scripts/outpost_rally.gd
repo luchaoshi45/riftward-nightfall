@@ -84,7 +84,7 @@ func snapshot() -> Dictionary:
 	var id := selection_id()
 	var destination := destination_for(id)
 	return {"barracks_id": id, "configured": bool(destination.enabled), "point": destination.point,
-		"active": active, "title": "自动选营" if id < 0 else "兵营%d" % (id + 1)}
+		"active": active, "title": "自动选营" if id < 0 else "国旗基地%d" % (id + 1)}
 
 func _result(ok: bool, reason: String) -> Dictionary:
 	return {"ok": ok, "reason": reason}
@@ -94,7 +94,7 @@ func begin_setting() -> Dictionary:
 	var rows := _barracks()
 	_sync(rows)
 	var row := _row(_selected, rows)
-	if row.is_empty(): return _result(false, "先选择一座存活兵营")
+	if row.is_empty(): return _result(false, "先选择一座存活国旗基地")
 	_setting_id = _selected
 	_setting_token = int(row.token)
 	active = true
@@ -151,17 +151,17 @@ func _validation(row: Dictionary, point: Vector3) -> Dictionary:
 	if not is_instance_valid(squads): return _result(false, "部队系统尚未初始化")
 	var births: Array[Vector3] = squads.call("rally_spawn_points", row.position)
 	var stations: Array[Vector3] = squads.call("rally_station_points", grounded)
-	if births.size() != 3 or stations.size() != 3: return _result(false, "兵营出生站位无效")
+	if births.size() != 3 or stations.size() != 3: return _result(false, "国旗基地出生站位无效")
 	for slot in stations.size():
 		var birth: Vector3 = births[slot]
 		var station: Vector3 = stations[slot]
 		if not _on_map(birth) or not _on_map(station): return _result(false, "三员集结站位必须位于地图内")
 		if not bool(game.call("outpost_walkable", birth)) or not bool(game.call("outpost_walkable", station)):
-			return _result(false, "兵营出口或三员集结站位被建筑阻挡")
+			return _result(false, "国旗基地出口或三员集结站位被建筑阻挡")
 		if absf(birth.y - _ground_height(birth)) > HEIGHT_TOLERANCE or absf(station.y - _ground_height(station)) > HEIGHT_TOLERANCE:
 			return _result(false, "出生与集结站位必须贴合真实地面")
 		if not _movement_route_reaches(birth, station):
-			return _result(false, "该兵营三员无法沿真实路径抵达集结点")
+			return _result(false, "该国旗基地三员无法沿真实路径抵达集结点")
 	return {"ok": true, "reason": "", "point": grounded}
 
 func commit(point: Vector3) -> Dictionary:
@@ -171,7 +171,7 @@ func commit(point: Vector3) -> Dictionary:
 	if row.is_empty() or int(row.token) != _setting_token:
 		cancel_setting()
 		_sync(rows)
-		return _result(false, "原兵营已失效，请重新选择")
+		return _result(false, "原国旗基地已失效，请重新选择")
 	if not _can_change(): return _result(false, "暂停或选卡时不能设置集结点")
 	var validation := _validation(row, point)
 	if not bool(validation.ok): return validation
@@ -182,7 +182,7 @@ func commit(point: Vector3) -> Dictionary:
 func reset_selected() -> Dictionary:
 	if not _can_change(): return _result(false, "暂停或选卡时不能恢复默认集结")
 	var id := selection_id()
-	if id < 0: return _result(false, "先选择一座存活兵营")
+	if id < 0: return _result(false, "先选择一座存活国旗基地")
 	_destinations.erase(id)
 	cancel_setting()
 	return _result(true, "该营后续出兵恢复默认 · 已出部队命令保留")

@@ -8,6 +8,8 @@ extends RefCounted
 const STANDARD := "standard"
 const PIERCING := "piercing"
 const CONTROL := "control"
+const FLAME := "flame"
+const CHAIN := "chain"
 const COST := 45
 const RADIUS := 3.2
 const TARGET_CAP := 5
@@ -31,7 +33,7 @@ func choose(pad: Dictionary, requested: String, scrap: int, phase: String, froze
 	elif requested not in [PIERCING, CONTROL]: reason = "未知分支"
 	elif int(pad.get("level", 0)) < 2 or float(pad.get("hp", 0)) <= 0: reason = "需要存活的二级塔"
 	elif branch(pad) != STANDARD: reason = "本次建造已选择分支"
-	elif scrap < COST: reason = "需要45零件"
+	elif scrap < COST: reason = "需要45光"
 	if not reason.is_empty(): return {"ok": false, "scrap": scrap, "reason": reason}
 	pad["specialization"] = requested
 	pad["paid_investment"] = maxi(0, int(pad.get("paid_investment", 0))) + COST
@@ -62,13 +64,26 @@ func net_remaining(enemy: BattleUnit) -> float:
 	return maxf(0.0, float(effect.get("remaining", 0.0)))
 
 func cooldown_multiplier(pad: Dictionary) -> float:
-	return 1.25 if branch(pad) == CONTROL else 1.0
+	return 1.25 if branch(pad) in [CONTROL, FLAME] else 1.0
 
 func resolve_shot(pad: Dictionary, selected: BattleUnit, enemies: Array, base_damage: float, source: BattleUnit) -> Array[Dictionary]:
 	var hits: Array[Dictionary] = []
 	if int(pad.get("level", 0)) <= 0 or float(pad.get("hp", 0)) <= 0 or not eligible(selected): return hits
 	var kind := branch(pad)
 	var impact := selected.position
+	if kind in [FLAME, CHAIN]:
+		_hit(selected, base_damage * (1.1 if kind == FLAME else .9), source, hits, false)
+		var nearby: Array[BattleUnit] = []
+		for candidate in enemies:
+			if candidate != selected and eligible(candidate) and _distance(candidate.position, impact) <= (2.8 if kind == FLAME else 4.0):
+				if candidate not in nearby:nearby.append(candidate)
+		nearby.sort_custom(func(a: BattleUnit,b: BattleUnit) -> bool:
+			var da := _distance(a.position,impact)
+			var db := _distance(b.position,impact)
+			return da<db if not is_equal_approx(da,db) else a.get_instance_id()<b.get_instance_id())
+		for i in mini(4 if kind == FLAME else 2,nearby.size()):
+			_hit(nearby[i],base_damage*(.45 if kind == FLAME else pow(.65,i+1)),source,hits,false)
+		return hits
 	if kind == PIERCING:
 		# 重敌1.65倍，其他0.75倍；仅此弹忽略50%正护甲，不给其他伤害破甲增益。
 		var amount := base_damage * (1.65 if heavy(selected) else .75)
@@ -147,6 +162,8 @@ func reset_effects() -> void:
 
 func description(pad: Dictionary) -> String:
 	match branch(pad):
+		FLAME: return "灯焰：主伤×1.1，2.8米最多4个副目标×0.45，间隔×1.25"
+		CHAIN: return "连锁：主伤×0.9，4米最多2个副目标，伤害逐次×0.65"
 		PIERCING: return "破甲：重敌×1.65 / 其余×0.75，忽略50%护甲，无溅射"
 		CONTROL: return "牵制：主伤×0.55 / 群伤×0.22，3.2米最多5敌，减速30%（重敌15%）1.2秒，间隔×1.25"
-	return "通用：保留原伤害与三级溅射；二级可花45零件选一次分支"
+	return "通用：保留原伤害与三级溅射；二级可花45光选一次分支"

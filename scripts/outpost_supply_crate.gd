@@ -10,15 +10,22 @@ const MAX_MOVEMENT_STEP := .12
 
 var serial: int = -1
 var opened := false
+var revealed := false
+var tower_variant := "standard"
+var sealed_body: MeshInstance3D
 var supply_kind := "tower"
 var display_name := "炮塔"
 var selected := false
 var path_points: Array[Vector3] = []
 var move_speed := 5.0
 var pulse_time := 0.0
+var arrival_hint_time := 8.0
 var body: MeshInstance3D
 var lid: MeshInstance3D
 var marker: MeshInstance3D
+var flash_ring: MeshInstance3D
+var flash_time := .8
+var flash_duration := .8
 var ring: MeshInstance3D
 var glow: OmniLight3D
 var chassis: Node3D
@@ -85,6 +92,12 @@ func setup(crate_serial: int, kind: String = "tower", label: String = "炮塔") 
 	ring_material = _material(Color("d8c16c"), Color("f0bc55"))
 	ring.material_override = ring_material
 	add_child(ring)
+	flash_ring=MeshInstance3D.new()
+	flash_ring.name="SupplyArrivalRevealEffect"
+	flash_ring.mesh=ring_mesh
+	flash_ring.material_override=_material(Color("f4d889"),Color("f4d889"))
+	flash_ring.position.y=.12
+	add_child(flash_ring)
 	glow = OmniLight3D.new()
 	glow.name = "VehicleSignalGlow"
 	glow.light_color = Color("e7bb69")
@@ -94,7 +107,6 @@ func setup(crate_serial: int, kind: String = "tower", label: String = "炮塔") 
 	add_child(glow)
 	caption = Label3D.new()
 	caption.name = "SelectedBuildingLabel"
-	caption.text = display_name + "部署车"
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Arial Unicode MS"])
 	font.allow_system_fallback = true
@@ -106,7 +118,22 @@ func setup(crate_serial: int, kind: String = "tower", label: String = "炮塔") 
 	caption.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	caption.position = Vector3(0, 1.96, 0)
 	add_child(caption)
+	chassis.visible = false
+	sealed_body = _box(self, "SealedSupply", Vector3(.85, .75, .85), Vector3(0, .42, 0), cargo_material)
+	_box(sealed_body, "SupplyRibbon", Vector3(.92, .08, .92), Vector3(0, .25, 0), gold_material)
 	set_selected(false)
+
+func reveal() -> bool:
+	if revealed or opened or is_queued_for_deletion():return false
+	revealed = true
+	flash_time=1.0
+	flash_duration=1.0
+	flash_ring.material_override=_material(Color("8ce1bc"),Color("8ce1bc"))
+	sealed_body.visible = false
+	chassis.visible = true
+	arrival_hint_time = 8.0
+	_update_caption()
+	return true
 
 func _box(parent: Node3D, part_name: String, size: Vector3, offset: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
@@ -129,22 +156,36 @@ func _material(albedo: Color, emission: Color) -> StandardMaterial3D:
 	return material
 
 func set_selected(value: bool) -> void:
-	selected = value and not opened
-	if is_instance_valid(caption):caption.visible = selected
+	selected = value and revealed and not opened
+	_update_caption()
 	if is_instance_valid(ring_material):
 		ring_material.albedo_color = Color("8ce1bc") if selected else Color("c6a354")
 		ring_material.emission = Color("70d4a2") if selected else Color("a88232")
 		ring_material.emission_energy_multiplier = .6 if selected else .22
 
+func _update_caption() -> void:
+	if not is_instance_valid(caption):return
+	caption.text = (display_name + " · D展开" if selected else display_name) if revealed else "神秘补给 · 靠近开启"
+	caption.visible = not opened and (selected or arrival_hint_time > 0.0)
+
 func advance_visual(delta: float) -> void:
 	if opened:return
-	pulse_time += maxf(0.0, delta)
+	# The controller advances visuals only while playing, so this arrival
+	# label shares the same pause and phase freeze as movement and delivery.
+	var game_delta := maxf(0.0, delta)
+	arrival_hint_time = maxf(0.0, arrival_hint_time - game_delta)
+	_update_caption()
+	flash_time=maxf(0.0,flash_time-game_delta)
+	flash_ring.visible=flash_time>0.0
+	var expansion:=.15+(1.0-flash_time/flash_duration)*2.3
+	flash_ring.scale=Vector3(expansion,1,expansion)
+	pulse_time += game_delta
 	var pulse := 1.0 + sin(pulse_time * 2.7) * .035
 	if is_instance_valid(ring):ring.scale = Vector3.ONE * pulse
 	if is_instance_valid(glow):glow.light_energy = .65 + (sin(pulse_time * 2.7) + 1.0) * .12
 
 func _movement_active(controller: Node3D) -> bool:
-	return not opened and not is_queued_for_deletion() and is_inside_tree() \
+	return revealed and not opened and not is_queued_for_deletion() and is_inside_tree() \
 		and is_instance_valid(controller) and not controller.is_queued_for_deletion() \
 		and get_parent() == controller and controller.get("phase") in ["day", "night"] \
 		and not controller.quitting and not controller.restart_pending and not controller.shutting_down \
@@ -281,6 +322,7 @@ func advance_movement(delta: float, controller: Node3D) -> void:
 func open() -> bool:
 	if opened:return false
 	opened = true
+	arrival_hint_time = 0.0
 	path_points.clear()
 	set_selected(false)
 	visible = false

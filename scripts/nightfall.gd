@@ -55,7 +55,7 @@ const CAMERA_HIGH_GROUND_FOLLOW_RATE := 11.5
 const CAMERA_HIGH_GROUND_THRESHOLD := 1.0
 const WAVES_PER_NIGHT := 5
 const BEACON_MAX := 1200.0
-const TOWER_COSTS := [60,50,75]
+const TOWER_COSTS := [60,80,140]
 const GATE_TRAP_COST := 45
 const GATE_TRAP_MAX := 3
 const BARRICADE_COST := 65
@@ -88,6 +88,7 @@ var repairs = RepairsScript.new()
 var construction_blocks: Array[Rect2] = []
 var building_approach_cache: Dictionary = {}
 var selection_dragging := false
+var vehicle_drag_source: Node3D
 var selection_start := Vector2.ZERO
 var selection_end := Vector2.ZERO
 var selection_additive := false
@@ -231,6 +232,7 @@ var supply_crate_clock := 0.0
 var supply_crate_retry := 0.0
 var supply_crate_serial := 0
 var supply_rng := RandomNumberGenerator.new()
+var opening_supply_delivered := false
 var supply_rewards_draining := false
 var supply_training_reason := ""
 var pending_build_permit_kind := ""
@@ -316,6 +318,9 @@ func _ready() -> void:
 	deaths.name="DeathEffects";add_child(deaths);deaths.setup(self)
 	skill_lights=load("res://scripts/skill_lighting.gd").new()
 	skill_lights.name="SkillLighting";add_child(skill_lights);skill_lights.setup(self)
+	# Let the initial camera/viewport finish entering the tree, then deliver
+	# while the opening card screen is still paused over the battlefield.
+	call_deferred("_ensure_opening_supply")
 
 func prepare_opening_defenses() -> void:
 	for index in [0,1]:
@@ -709,7 +714,7 @@ func place_wave_wager(index: int) -> Dictionary:
 		return {"ok": false, "reason": "not_available", "wallet_delta": 0}
 	var result: Dictionary = wave_wager.place_risk(index, day_number, wave_wager_target_options(), scrap)
 	if bool(result.get("ok", false)):
-		notify("夜战押注 · %s档已锁定目标 · 天黑时扣除%d零件" % [String(result.get("tier_id", "")), int(result.get("stake", 0))], 3)
+		notify("夜战押注 · %s档已锁定目标 · 天黑时扣除%d光" % [String(result.get("tier_id", "")), int(result.get("stake", 0))], 3)
 	else:
 		notify("夜战押注 · " + String(result.get("reason", "不可用")), 2)
 	return result
@@ -725,7 +730,7 @@ func _lock_wave_wager_for_night() -> void:
 	var result: Dictionary = wave_wager.lock(String(state.get("plan_signature", "")), int(state.get("target_reward_id", -1)), int(state.get("target_count", 0)), scrap)
 	if bool(result.get("ok", false)):
 		scrap += int(result.get("wallet_delta", 0))
-		notify("夜战押注已入场 · 风险档投入%d零件 · 清波派彩%d" % [int(result.get("stake", 0)), int(result.get("reward", 0))], 4)
+		notify("夜战押注已入场 · 风险档投入%d光 · 清波派彩%d" % [int(result.get("stake", 0)), int(result.get("reward", 0))], 4)
 	else:
 		wave_wager.expire(String(result.get("reason", "lock_failed")))
 		notify("夜战押注未能入场 · " + String(result.get("reason", "不可用")), 3)
@@ -1094,7 +1099,7 @@ func select_bounty() -> bool:
 	night_plan=selected_plan
 	_refresh_wave_wager_offer()
 	countermeasure_selected=-1
-	notify("已选甲壳悬赏 · 放弃免费反制，第三波清完额外+48零件",3)
+	notify("已选甲壳悬赏 · 放弃免费反制，第三波清完额外+48光",3)
 	return true
 
 func countermeasure_count() -> int:
@@ -1365,12 +1370,12 @@ func settle_contract_reward() -> void:
 		scrap+=int(reward.scrap)
 		if exploration and reward.has("affinity"):
 			exploration.arm_contract_affinity(reward.affinity)
-		var reward_detail: String="+%d零件" % int(reward.scrap)
+		var reward_detail: String="+%d光" % int(reward.scrap)
 		if bool(reward.get("bonus",false)):reward_detail+=" · 追加补给已兑现"
 		elif bool(reward.get("early_return",false)):reward_detail+=" · 提前返家奖励"
 		reward_toasts.append({"title":"委托交付 · 同伴接回物资","detail":reward_detail,"time":3.5,"color":Color("e8bc76")})
 		while reward_toasts.size()>4:reward_toasts.remove_at(0)
-		notify("委托已交回 · +%d零件" % int(reward.scrap),3)
+		notify("委托已交回 · +%d光" % int(reward.scrap),3)
 
 func _resolve_enemy_spawn_point(point: Vector3) -> Vector3:
 	var direction:=Vector3(point.x,0,point.z).normalized()
@@ -1649,7 +1654,7 @@ func update_creature(creature: BattleUnit, delta: float) -> void:
 						var raid: Dictionary=logistics.raid_member(target_token,victim,int(selected.get("squad_id",-1)),2)
 						var raided_amount:=int(raid.get("amount",0))
 						if raided_amount>0:
-							notify("劫运体掠走 %d 零件 · 载货工队受袭" % raided_amount,3)
+							notify("劫运体掠走 %d 光 · 载货工队受袭" % raided_amount,3)
 					var victim_hp_before:=victim.hp
 					var victim_shield_before:=victim.shield
 					victim.hurt(creature.damage,creature)
@@ -2452,11 +2457,16 @@ func update_towers(delta: float) -> void:
 		var damage:=42.0+float(pad.level)*17.0+float(relay_bonus)*2.5
 		if countermeasure_tower_time>0.0:damage*=COUNTERMEASURE_TOWER_MULTIPLIER
 		BattleVisuals.tower_shot(effects,pad.position+Vector3(0,2.1,0),impact+Vector3(0,1,0),pad.level)
+		if specializations.branch(pad)=="flame":BattleVisuals.burst(effects,impact+Vector3.UP,2.0,Color("ff824e"),.25)
+		if specializations.branch(pad)=="piercing":BattleVisuals.burst(effects,impact+Vector3.UP,.65,Color("d791ff"),.18)
 		var hits: Array[Dictionary]=specializations.resolve_shot(pad,selected,enemies,damage,hero)
 		for hit: Dictionary in hits:
 			var hit_target:=hit.get("target") as BattleUnit
 			if not is_instance_valid(hit_target):continue
 			var hit_amount:=float(hit.get("raw_damage",0.0))
+			if specializations.branch(pad)=="chain":
+				BattleVisuals.tower_shot(effects,impact+Vector3.UP,hit_target.position+Vector3.UP,2)
+				BattleVisuals.burst(effects,hit_target.position+Vector3.UP,.5,Color("a1f5e4"),.15)
 			_hit_feedback(hit_target.position+Vector3.UP,hit_amount,Color("f5b271"),3)
 		if specializations.branch(pad)=="control":BattleVisuals.burst(effects,impact,3.2,Color("8bbfcf"),.25)
 		elif specializations.branch(pad)=="piercing":BattleVisuals.sparks(effects,impact+Vector3.UP,Color("f5b271"),8)
@@ -2644,7 +2654,7 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 		kills+=1
 		var raider_reward:=14
 		scrap+=raider_reward
-		notify("劫运体已击破 · +%d 零件" % raider_reward,4)
+		notify("劫运体已击破 · +%d 光" % raider_reward,4)
 		if player_attack_resolving and _source==hero:
 			kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
 			kill_chain_time=6.0
@@ -2672,13 +2682,13 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 			phase=="night" and not quitting and not restart_pending and is_instance_valid(hero) and hero.alive and hero.hp>0.0 and beacon_hp>0.0)
 	if bonus>0:
 		scrap+=bonus
-		notify("甲壳悬赏完成 · 额外 +%d 零件" % bonus,4)
+		notify("甲壳悬赏完成 · 额外 +%d 光" % bonus,4)
 	var wager_state: Dictionary=wave_wager.snapshot()
 	if String(wager_state.get("state", "")) == "locked" and reward_id == int(wager_state.get("target_reward_id", -1)) and int(ledger.get("kills", 0)) == int(wager_state.get("target_count", 0)) and int(ledger.get("kills", 0)) == previous_kills + 1:
 		var wager_result: Dictionary=wave_wager.settle_wave(String(wager_state.get("plan_signature", "")), reward_id, int(wager_state.get("target_count", 0)), int(ledger.get("kills", 0)), phase == "night" and not quitting and not restart_pending and is_instance_valid(hero) and hero.alive and hero.hp > 0.0 and beacon_hp > 0.0)
 		if bool(wager_result.get("ok", false)):
 			scrap += int(wager_result.get("wallet_delta", 0))
-			notify("夜战押注派彩 · +%d零件" % int(wager_result.get("payout", 0)), 4)
+			notify("夜战押注派彩 · +%d光" % int(wager_result.get("payout", 0)), 4)
 	if player_attack_resolving and _source==hero:
 		kill_chain=(kill_chain+1) if kill_chain_time>0 else 1
 		kill_chain_time=6.0
@@ -2689,7 +2699,7 @@ func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
 			var extra_scrap: int=[9,14,22][milestone_index]
 			scrap+=extra_scrap
 			combat_milestone_title="%d 连斩 · %s" % [kill_chain,["余烬初燃","灯火燎原","长夜破晓"][milestone_index]]
-			combat_milestone_detail="额外 +%d 零件" % extra_scrap
+			combat_milestone_detail="额外 +%d 光" % extra_scrap
 			combat_milestone_time=2.2
 			if combat:combat.milestone(kill_chain,extra_scrap)
 	if deaths:
@@ -2710,9 +2720,9 @@ func request_upgrade() -> bool:
 			return false
 		var cost: int=run.memory_cost()
 		if scrap<cost:
-			notify("铭刻需要%d零件 · 还差%d" % [cost,cost-scrap],2)
+			notify("铭刻需要%d光 · 还差%d" % [cost,cost-scrap],2)
 			return false
-		run.grant("零件铭刻 · 第%d次强化" % (run.memory_level+1))
+		run.grant("光铭刻 · 第%d次强化" % (run.memory_level+1))
 		# Only commit the shared payment after a real legal offer exists.
 		if not run.draft():return false
 		scrap-=run.register_memory_upgrade()
@@ -2799,10 +2809,11 @@ func choose_card(index: int) -> bool:
 		opening_night_pending=false
 		start_night()
 		notify("第 1 夜 · 两座守门塔已就位，B 布障 / R 灯焰；守住南门",6)
-		# The opening draft completes once per run. Reuse the normal delivery
-		# path so blocked ground stays due and retries on game time.
-		supply_crate_clock=SUPPLY_CRATE_INTERVAL
-		advance_supply_crates(0.0)
+		_ensure_opening_supply()
+		for vehicle: Node3D in supply_crates:
+			if _valid_construction_vehicle(vehicle):
+				notify("开局补给箱已到位 · 靠近自动揭晓，拖动部署物后D展开",6.0)
+				break
 	elif day_start_pending:begin_day()
 	else:phase=return_phase
 	return true
@@ -2859,7 +2870,7 @@ func repair_tower() -> bool:
 	if pad.level<=0 or pad.hp>=pad.max_hp:return false
 	var cost: int=districts.repair_cost(20)
 	if scrap<cost:
-		notify("修复防御塔需要 %d 零件" % cost,2)
+		notify("修复防御塔需要 %d 光" % cost,2)
 		return false
 	scrap-=cost
 	pad.hp=minf(pad.max_hp,float(pad.hp)+100.0)
@@ -2894,13 +2905,13 @@ func train_troop(kind: String) -> bool:
 	var barracks_id: int=rally.selection_id() if rally else -1
 	var result: Dictionary=squads.enqueue(kind,barracks_id)
 	if not result.ok:notify(String(result.reason),2);return false
-	notify("%s加入营%d训练队列 · -%d零件" % [String(Catalog.troop(kind).get("title","部队")),int(result.barracks_id)+1,int(result.cost)],3)
+	notify("%s加入营%d训练队列 · -%d光" % [String(Catalog.troop(kind).get("title","部队")),int(result.barracks_id)+1,int(result.cost)],3)
 	return true
 
 func cancel_troop_training(barracks_id: int, queue_index: int) -> bool:
 	var result: Dictionary=squads.cancel_training(barracks_id,queue_index)
 	if not result.ok:notify(String(result.reason),2);return false
-	notify("已取消训练 · 退回%d零件" % int(result.get("refund",result.get("cost",0))),2)
+	notify("已取消训练 · 退回%d光" % int(result.get("refund",result.get("cost",0))),2)
 	return true
 
 func toggle_squad_order() -> bool:
@@ -2911,7 +2922,7 @@ func toggle_squad_order() -> bool:
 		return bool(guard.ok)
 	var snapshot: Dictionary=squads.snapshot()
 	if int(snapshot.count)<=0:
-		notify("先建兵营，再用U/I/N训练部队",2)
+		notify("先建国旗基地，再用U/I/N训练部队",2)
 		return false
 	var hold := true
 	for row: Dictionary in snapshot.squads:
@@ -2941,7 +2952,7 @@ func refill_squads() -> bool:
 	if not result.ok:
 		notify(result.reason,2)
 		return false
-	notify("小队补员休整完成 · -%d零件" % result.cost,3)
+	notify("小队补员休整完成 · -%d光" % result.cost,3)
 	return true
 
 func near_gate_controls() -> bool:
@@ -2962,7 +2973,7 @@ func build_gate_barricade() -> bool:
 		notify("南门路障仍可抵挡夜行体",2)
 		return false
 	if scrap<BARRICADE_COST:
-		notify("部署路障需要 %d 零件" % BARRICADE_COST,2)
+		notify("部署路障需要 %d 光" % BARRICADE_COST,2)
 		return false
 	scrap-=BARRICADE_COST
 	gate_barricade_hp=BARRICADE_MAX
@@ -3015,7 +3026,7 @@ func arm_gate_trap() -> bool:
 		notify("南门火焰机关已装满",2)
 		return false
 	if scrap<GATE_TRAP_COST:
-		notify("零件不足 · 装填机关需要 %d" % GATE_TRAP_COST,2)
+		notify("光不足 · 装填机关需要 %d" % GATE_TRAP_COST,2)
 		return false
 	scrap-=GATE_TRAP_COST
 	gate_trap_charges+=1
@@ -3106,9 +3117,9 @@ func contract_interaction_prompt(action: Dictionary) -> String:
 				return "先清守卫%d/2 · 清后F开启3秒补给箱" % int(guard_state.get("remaining",0))
 			if String(source.get("state",""))=="channel":
 				return "正在开启补给箱 · 留在4米内3秒"
-		return "F 带回追加%s · 返回灯塔领取 +%d 零件" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0))]
+		return "F 带回追加%s · 返回灯塔领取 +%d 光" % [contracts.BONUS_TITLES.get(String(source.get("kind","")),"补给"),int(contracts.bonus_target.get("scrap",0))]
 	match contracts.kind:
-		"salvage":return "F 采集委托废料 · +%d 零件" % (int(source.amount)+3)
+		"salvage":return "F 采集委托废料 · +%d 光" % (int(source.amount)+3)
 		"generator":
 			if String(source.state)=="ready":return "F 启动指定发电机 · 守住灯区 12 秒"
 			var ratio:=clampf(float(source.progress)/12.0,0.0,1.0)
@@ -3117,7 +3128,7 @@ func contract_interaction_prompt(action: Dictionary) -> String:
 			if String(source.state)=="waiting":return "F 接回指定哨兵 · 日落前经南门返家"
 			return "委托护送 · %s跟随中 · 返回灯塔" % String(source.scout_name)
 		"nest":
-			return "委托封巢 · 先清除夜巢守卫" if nest_guarded(source.position) else "F 封闭指定夜巢 · +90 零件"
+			return "委托封巢 · 先清除夜巢守卫" if nest_guarded(source.position) else "F 封闭指定夜巢 · +90 光"
 	return ""
 
 func interaction_prompt() -> String:
@@ -3134,32 +3145,32 @@ func interaction_prompt() -> String:
 	var wildlife_prompt: String=wildlife.interaction_prompt()
 	if wildlife_prompt!="":return wildlife_prompt
 	var cache:=nearest_salvage()
-	if cache>=0:return "F  搜集废墟零件 · +%d 零件" % (int(world.salvage[cache].amount)+3)
+	if cache>=0:return "F  搜集废墟光 · +%d 光" % (int(world.salvage[cache].amount)+3)
 	var nest_index:=nearest_nest()
 	if nest_index>=0:
-		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 零件，减轻夜袭"
+		return "清除夜巢附近的守卫" if nest_guarded(world.nests[nest_index].position) else "F  封闭夜巢 · +90 光，减轻夜袭"
 	if Vector2(hero.position.x,hero.position.z).length()<4.2 and beacon_hp<BEACON_MAX and scrap>=beacon_repair_cost():
-		return "F  消耗 %d 零件修复灯塔" % beacon_repair_cost()
-	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 零件"
+		return "F  消耗 %d 光修复灯塔" % beacon_repair_cost()
+	if nearest_relay()>=0:return "F  修复旧通信塔 · +85 光"
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:
 		var level: int=world.tower_pads[pad_index].level
 		var zone_label: String="核心防线 · " if String(world.tower_pads[pad_index].get("zone","outer"))=="core" else ""
-		if level==0:return "F  %s建造自动防御塔 · 消耗 %d 零件" % [zone_label,districts.tower_cost(TOWER_COSTS[0])]
+		if level==0:return "F  %s建造自动防御塔 · 消耗 %d 光" % [zone_label,districts.tower_cost(TOWER_COSTS[0])]
 		var mode_label: String=tower_mode_label(String(world.tower_pads[pad_index].mode))
 		var durability: String="%d/%d" % [ceili(world.tower_pads[pad_index].hp),ceili(world.tower_pads[pad_index].max_hp)]
 		var repair_hint: String=" · H 修复%d" % districts.repair_cost(20) if world.tower_pads[pad_index].hp<world.tower_pads[pad_index].max_hp else ""
 		if level>=3:return "%s塔耐久 %s%s · G %s · 满级" % [zone_label,durability,repair_hint,mode_label]
 		return "%s塔耐久 %s · F 升级%d%s · G %s" % [zone_label,durability,districts.tower_cost(TOWER_COSTS[level]),repair_hint,mode_label]
 	if near_gate_controls() and gate_trap_charges<GATE_TRAP_MAX:
-		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65零件",gate_trap_charges,GATE_TRAP_MAX]
-	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 零件"
+		return "B 路障%s · T 火焰机关 %d/%d" % [" %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else " 65光",gate_trap_charges,GATE_TRAP_MAX]
+	if near_gate_controls():return "B  南门路障 %d/%d" % [ceili(gate_barricade_hp),int(BARRICADE_MAX)] if gate_barricade_hp>0 else "B  部署南门路障 · 65 光"
 	var district_index: int=districts.nearest()
 	if district_index>=0:
 		var plot: Dictionary=districts.plots[district_index]
 		var definition:=Catalog.building(String(plot.kind))
 		var title:=String(definition.title)
-		if int(plot.level)==0:return "F 重建%s · %d零件" % [title,int(definition.cost)]
+		if int(plot.level)==0:return "F 重建%s · %d光" % [title,int(definition.cost)]
 		return "%s %d/%d · %s" % [title,ceili(plot.hp),ceili(plot.max_hp),"F升级80" if int(plot.level)<2 else "已满级"]
 	return ""
 
@@ -3231,7 +3242,7 @@ func interact_nest(index: int=-1) -> bool:
 	if phase=="day":
 		bounty_removed=prepare_next_night_plan(false)
 	BattleVisuals.burst(effects,nest.position,3.2,Color("79c7bb"),.6)
-	var result_text:="夜巢已封闭 · +90 零件，下一夜预告已按公开规则减少普通随从" if phase=="day" else "夜巢已封闭 · +90 零件，今夜来袭减弱"
+	var result_text:="夜巢已封闭 · +90 光，下一夜预告已按公开规则减少普通随从" if phase=="day" else "夜巢已封闭 · +90 光，今夜来袭减弱"
 	if bounty_removed:result_text+="；悬赏取消：普通随从不足两名，请重新选择反制"
 	notify(result_text,4)
 	return true
@@ -3262,7 +3273,7 @@ func interact() -> bool:
 		world.relays[relay_index].activated=true
 		scrap+=85
 		BattleVisuals.burst(effects,world.relays[relay_index].position,3.0,Color("78cbd0"),.55)
-		notify("通信塔重新亮起 · +85 零件，防御塔射程与火力提升",4)
+		notify("通信塔重新亮起 · +85 光，防御塔射程与火力提升",4)
 		return true
 	var pad_index:=nearest_tower_pad()
 	if pad_index>=0:return build_or_upgrade_tower(pad_index)
@@ -3281,7 +3292,7 @@ func toggle_tower_construction() -> bool:
 		construction.cancel()
 		return true
 	if pending_build_permit_kind.is_empty():
-		notify("选择建筑车 · 右键移动，D展开",2.4)
+		notify("靠近补给箱自动揭晓 · 随后拖动部署物，D展开",2.4)
 		return false
 	if not construction.begin(pending_build_permit_kind):return false
 	hud.dismiss_details()
@@ -3292,11 +3303,23 @@ func toggle_tower_construction() -> bool:
 func build_structure_at(point: Vector3, kind: String) -> bool:
 	if phase not in ["day","night"] or not is_instance_valid(construction):return false
 	if deployment_vehicle_id!=0:
-		if not _valid_construction_vehicle(deployment_vehicle) or deployment_vehicle.get_instance_id()!=deployment_vehicle_id or kind!=String(deployment_vehicle.supply_kind):return false
+		if not _valid_construction_vehicle(deployment_vehicle) or not deployment_vehicle.revealed or deployment_vehicle.get_instance_id()!=deployment_vehicle_id or kind!=String(deployment_vehicle.supply_kind):return false
 		var vehicle_point: Vector3=Grid.placement(deployment_vehicle.position,kind).point
 		if Vector2(point.x,point.z).distance_to(Vector2(vehicle_point.x,vehicle_point.z))>.01:return false
 	if kind=="tower":
+		var branch_cost: int=45 if _valid_construction_vehicle(deployment_vehicle) and deployment_vehicle.tower_variant!="standard" else 0
+		if scrap<districts.tower_cost(TOWER_COSTS[0])+branch_cost:
+			notify("光不足 · 此塔部署需要%d光" % (districts.tower_cost(TOWER_COSTS[0])+branch_cost),3.0);return false
 		var tower_built:=build_tower_at(point)
+		if tower_built and branch_cost>0:
+			for pad: Dictionary in world.tower_pads:
+				if int(pad.level)>0 and (pad.position as Vector3).distance_to(point)<.01:
+					pad.specialization=deployment_vehicle.tower_variant
+					var color: Color={"piercing":Color("d791ff"),"control":Color("79ccff"),"flame":Color("ff824e"),"chain":Color("a1f5e4")}[String(pad.specialization)]
+					BattleVisuals.box(pad.turret,Vector3(0,2.3,0),Vector3(.35,.45,.35),BattleVisuals.material(color,.8)).name="TowerVariantSignal"
+					pad.paid_investment=int(pad.get("paid_investment",0))+branch_cost
+					scrap-=branch_cost
+					break
 		if tower_built and pending_build_permit_kind==kind:
 			_consume_deployment_vehicle()
 			pending_build_permit_kind=""
@@ -3319,7 +3342,7 @@ func build_structure_at(point: Vector3, kind: String) -> bool:
 		if notice.begins_with("训练订单已加入"):
 			notify("建筑已部署 · "+notice,3.0)
 	else:
-		notify("%s建成 · -%d零件 · 可继续放置" % [String(placement.title),int(result.cost)],3)
+		notify("%s建成 · -%d光 · 可继续放置" % [String(placement.title),int(result.cost)],3)
 	return true
 
 func demolition_at(point: Vector3) -> Dictionary:
@@ -3363,7 +3386,7 @@ func build_or_upgrade_tower(index: int) -> bool:
 			return false
 	var tower_cost: int=districts.tower_cost(TOWER_COSTS[level])
 	if scrap<tower_cost:
-		notify("零件不足 · 需要 %d" % tower_cost,2)
+		notify("光不足 · 需要 %d" % tower_cost,2)
 		return false
 	if level==0:
 		pad.turret=world.place("res://assets/models/auto_turret.glb",pad.position,1.0,0)
@@ -3492,9 +3515,9 @@ func homecoming_summary() -> Dictionary:
 		response="返家的 %d 人曾与你并肩；这一夜没守住，还可以重新出发。" % people if people>0 else "荒原的求救声还在。下一次守望，也为他们留一条回家的路。"
 	else:
 		response=["荒原里还有人在等待。第四次日出，也是再次出发的机会。",
-			"庭院多了一盏灯。下一次修灯，有人为你递来零件。",
+			"庭院多了一盏灯。下一次修灯，有人为你递来光。",
 			"两个人都回到灯下。守住这个家，已经不再是你一个人的事。"][people]
-	return {"people":people,"names":names,"record":"返家记录 %d / 2%s · 协作修灯 %d 零件" % [people,name_record,beacon_repair_cost()],
+	return {"people":people,"names":names,"record":"返家记录 %d / 2%s · 协作修灯 %d 光" % [people,name_record,beacon_repair_cost()],
 		"response":response,"repair_cost":beacon_repair_cost()}
 
 func hit_area(point: Vector3,radius: float,amount: float) -> void:
@@ -3620,6 +3643,7 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 			selection_dragging=true
 			selection_start=event.position;selection_end=event.position
 			selection_additive=event.shift_pressed
+			vehicle_drag_source=construction_vehicle_under_cursor(event.position)
 		elif selection_dragging:
 			selection_dragging=false
 			selection_end=event.position
@@ -3629,11 +3653,15 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 				else:
 					select_construction_vehicle(null)
 					squads.select_at(ground_point(event.position),selection_additive)
+			elif _valid_construction_vehicle(vehicle_drag_source) and vehicle_drag_source.revealed:
+				select_construction_vehicle(vehicle_drag_source)
+				var moved: bool=vehicle_drag_source.command_move(ground_point(event.position),self)
+				notify("部署物移动中 · 到达后D展开" if moved else "无法到达这里",2.0)
 			else:
 				var rect:=Rect2(selection_start,selection_end-selection_start).abs()
 				var vehicle: Node3D
 				for candidate: Node3D in supply_crates:
-					if _valid_construction_vehicle(candidate) and not camera.is_position_behind(candidate.global_position) and rect.has_point(camera.unproject_position(candidate.global_position)):
+					if _valid_construction_vehicle(candidate) and candidate.revealed and not camera.is_position_behind(candidate.global_position) and rect.has_point(camera.unproject_position(candidate.global_position)):
 						vehicle=candidate;break
 				select_construction_vehicle(vehicle)
 				if not is_instance_valid(vehicle):squads.select_rect(camera,rect,selection_additive)
@@ -3642,7 +3670,7 @@ func handle_strategy_mouse(event: InputEvent) -> bool:
 	if _valid_construction_vehicle(selected_construction_vehicle):
 		selection_dragging=false
 		var moved: bool=selected_construction_vehicle.command_move(ground_point(event.position),self)
-		notify("建筑车移动中 · D在当前位置展开" if moved else "建筑车无法到达这里",2.0)
+		notify("部署物移动中 · D在当前位置展开" if moved else "部署物无法到达这里",2.0)
 		return true
 	if event.alt_pressed:
 		var escort_result: Dictionary=squads.command_escort(hauler_under_cursor(event.position))
@@ -3830,6 +3858,28 @@ func supply_crate_status() -> Dictionary:
 		"next_seconds": maxf(remaining,supply_crate_retry), "pending_build": pending_build_permit_kind,
 		"pending_training": pending_training_order_kind}
 
+func _ensure_opening_supply() -> bool:
+	if opening_supply_delivered:return true
+	if quitting or restart_pending or shutting_down or day_number!=1:return false
+	if phase!="night" and not (phase=="draft" and opening_night_pending):return false
+	if not is_instance_valid(camera):return false
+	camera.force_update_transform()
+	supply_crate_clock=SUPPLY_CRATE_INTERVAL
+	if _spawn_supply_crate():
+		supply_crate_clock=0.0
+		supply_crate_retry=0.0
+		return true
+	# No game time advances in the card screen. Once play starts, this due
+	# delivery uses the existing one-second retry instead of a new interval.
+	supply_crate_retry=SUPPLY_CRATE_RETRY_SECONDS
+	return false
+
+func opening_supply_label() -> String:
+	for vehicle: Node3D in supply_crates:
+		if _valid_construction_vehicle(vehicle):
+			return "开局补给箱已抵达 · 选卡后靠近开启，再拖动部署物、D展开"
+	return "开局补给箱：等待附近可通行空地，选卡后继续配送"
+
 func clear_supply_crates(clear_rewards: bool = true) -> void:
 	# Player vehicles survive the day/night transition. Only unfinished
 	# deployment is cancelled; terminal/retry cleanup retires the roster.
@@ -3874,6 +3924,7 @@ func advance_supply_crates(delta: float) -> void:
 			supply_crate_clock-=SUPPLY_CRATE_INTERVAL
 	else:
 		supply_crate_clock=minf(supply_crate_clock,SUPPLY_CRATE_INTERVAL)
+	_try_open_supply_crates()
 	_drain_supply_rewards()
 
 func _spawn_supply_crate() -> bool:
@@ -3882,11 +3933,13 @@ func _spawn_supply_crate() -> bool:
 	var crate:=SupplyCrateScript.new() as Node3D
 	var reward:=_roll_supply_reward()
 	if crate.has_method("setup"):crate.setup(supply_crate_serial,String(reward.kind),String(reward.title))
+	crate.tower_variant=String(reward.get("variant","standard"))
 	supply_crate_serial+=1
 	crate.position=point
 	add_child(crate)
 	supply_crates.append(crate)
-	notify("建筑车抵达：%s · 左键选中，右键移动，D展开" % String(reward.title),3.0)
+	opening_supply_delivered=true
+	notify("发现补给箱 · 靠近自动开启",3.0)
 	return true
 
 func _supply_crate_spawn_position() -> Vector3:
@@ -3901,6 +3954,24 @@ func _supply_crate_spawn_position() -> Vector3:
 		candidate.y=outpost_height(candidate)
 		if not _supply_crate_in_view(candidate) or not can_traverse(hero.position,candidate):continue
 		if _supply_crate_position_legal(candidate,start_cell):return candidate
+	return _supply_crate_fallback_position(start_cell)
+
+func _supply_crate_fallback_position(start_cell: Vector2i) -> Vector3:
+	# Exhaust the nearby one-metre grid if random samples missed the remaining
+	# safe ground. The exact same full-body, terrain and path rules still apply.
+	if not is_instance_valid(hero) or not is_instance_valid(hero_navigation) or start_cell.x==999:return Vector3.INF
+	var extent:=ceili(SUPPLY_CRATE_NEAR_MAX)
+	var center:=Vector2(roundf(hero.position.x),roundf(hero.position.z))
+	for z in range(-extent,extent+1):
+		for x in range(-extent,extent+1):
+			var flat:=center+Vector2(x,z)
+			var distance:=flat.distance_to(Vector2(hero.position.x,hero.position.z))
+			if distance<SUPPLY_CRATE_NEAR_MIN or distance>SUPPLY_CRATE_NEAR_MAX:continue
+			if absf(flat.x)>Layout.MAP_HALF_X-1.0 or absf(flat.y)>Layout.MAP_HALF_Z-1.0:continue
+			var candidate:=Vector3(flat.x,0,flat.y)
+			candidate.y=outpost_height(candidate)
+			if not _supply_crate_in_view(candidate) or not can_traverse(hero.position,candidate):continue
+			if _supply_crate_position_legal(candidate,start_cell):return candidate
 	return Vector3.INF
 
 func _supply_crate_in_view(point: Vector3) -> bool:
@@ -3955,22 +4026,37 @@ func _supply_opener_valid(unit: Variant) -> bool:
 	return false
 
 func _try_open_supply_crates() -> void:
-	# Legacy helper retained for older fixtures. Contact no longer consumes a
-	# vehicle; selecting, moving and deploying it is an explicit RTS command.
-	pass
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down:return
+	var units: Array = construction._living_units()
+	for crate: Node3D in supply_crates.duplicate():
+		if not _valid_construction_vehicle(crate) or crate.revealed:continue
+		for unit in units:
+			if not _supply_opener_valid(unit):continue
+			if unit.global_position.distance_to(crate.global_position)>1.65:continue
+			if not can_traverse(to_local(unit.global_position),crate.position):continue
+			if crate.reveal():
+				notify("补给揭晓：%s · 拖动或右键移动，D展开" % String(crate.display_name),4.0)
+			break
 
 func _roll_supply_reward() -> Dictionary:
-	var candidates: Array[String]=[]
+	# Flag and towers dominate; occasional infrastructure preserves real tech
+	# progression rather than granting advanced training prerequisites for free.
+	var candidates: Array[String]=["barracks","barracks","tower","tower","tower"]
 	for kind: String in Catalog.BUILDING_IDS:
-		if bool(districts.build_eligibility(kind).get("available",false)):candidates.append(kind)
-	var kind: String="tower" if candidates.is_empty() else candidates[supply_rng.randi_range(0,candidates.size()-1)]
-	return {"type":"building_permit","kind":kind,"title":String(Catalog.building(kind).get("title",kind))}
+		if opening_supply_delivered and kind not in ["tower","barracks"] and bool(districts.build_eligibility(kind).get("available",false)):candidates.append(kind)
+	var kind: String=candidates[supply_rng.randi_range(0,candidates.size()-1)]
+	var variant: String="standard"
+	var title: String=String(Catalog.building(kind).get("title",kind))
+	if kind=="tower":
+		variant=["standard","piercing","control","flame","chain"][supply_rng.randi_range(0,4)]
+		title={"standard":"光炮塔","piercing":"破甲光塔","control":"牵制光塔","flame":"灯焰光塔","chain":"连锁光塔"}[variant]
+	return {"type":"building_permit","kind":kind,"title":title,"variant":variant}
 
 func _valid_construction_vehicle(vehicle: Variant) -> bool:
 	return is_instance_valid(vehicle) and vehicle is OutpostSupplyCrate and vehicle in supply_crates and vehicle.get_parent()==self and vehicle.is_inside_tree() and not vehicle.is_queued_for_deletion() and not bool(vehicle.get("opened"))
 
 func select_construction_vehicle(vehicle: Node3D) -> bool:
-	if is_instance_valid(vehicle) and (phase not in ["day","night"] or not _valid_construction_vehicle(vehicle)):return false
+	if is_instance_valid(vehicle) and (phase not in ["day","night"] or not _valid_construction_vehicle(vehicle) or not vehicle.revealed):return false
 	if is_instance_valid(deployment_vehicle) and is_instance_valid(construction):construction.cancel()
 	if is_instance_valid(selected_construction_vehicle):selected_construction_vehicle.set_selected(false)
 	selected_construction_vehicle=vehicle
@@ -3985,7 +4071,7 @@ func construction_vehicle_under_cursor(screen: Vector2) -> Node3D:
 	var chosen: Node3D
 	var distance:=22.0*get_viewport().get_visible_rect().size.x/1440.0
 	for vehicle: Node3D in supply_crates:
-		if not _valid_construction_vehicle(vehicle) or camera.is_position_behind(vehicle.global_position):continue
+		if not _valid_construction_vehicle(vehicle) or not vehicle.revealed or camera.is_position_behind(vehicle.global_position):continue
 		var feet:=camera.unproject_position(vehicle.global_position)
 		var head:=camera.unproject_position(vehicle.global_position+Vector3.UP*1.8)
 		var delta:=Geometry2D.get_closest_point_to_segment(screen,feet,head).distance_to(screen)
@@ -4002,7 +4088,7 @@ func cancel_vehicle_deployment() -> void:
 	deployment_vehicle_id=0
 
 func deploy_selected_vehicle() -> bool:
-	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or not _valid_construction_vehicle(selected_construction_vehicle):return false
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or not _valid_construction_vehicle(selected_construction_vehicle) or not selected_construction_vehicle.revealed:return false
 	var vehicle:=selected_construction_vehicle
 	if not pending_build_permit_kind.is_empty() and not is_same(deployment_vehicle,vehicle):
 		notify("请先完成或取消当前许可",2.0);return false
@@ -4113,8 +4199,8 @@ func salvage_draw_reason(reason: String) -> String:
 		"exploration_required":return "今天先完成一次探索"
 		"return_home":return "返回灯塔旁的高台（6米内）"
 		"daily_limit":return "今日两次已用完 · 下个白昼再开放"
-		"insufficient_scrap":return "至少保留30零件才能抽取"
-		"insufficient_scrap_jackpot":return "押大档需要至少60零件"
+		"insufficient_scrap":return "至少保留30光才能抽取"
+		"insufficient_scrap_jackpot":return "押大档需要至少60光"
 		"settling":return "补给正在结算"
 		_:return "本次守望已结束"
 
@@ -4126,7 +4212,7 @@ func draw_salvage_supply(mode: String="safe") -> Dictionary:
 	var net: int=int(result.net)
 	var net_text: String="+%d" % net if net>=0 else str(net)
 	var mode_text: String="押大" if String(result.get("mode","safe"))=="jackpot" else "稳妥"
-	var detail: String="%s档 · 支付%d · 回款%d · 净%s零件" % [mode_text,int(result.cost),int(result.payout),net_text]
+	var detail: String="%s档 · 支付%d · 回款%d · 净%s光" % [mode_text,int(result.cost),int(result.payout),net_text]
 	var color:=Color("a3d7bd") if net>=0 else Color("e2a960")
 	# The draw has already settled the one wallet. This is a receipt, not a
 	# gathering event: no exploration count, route bonus or milestone is granted.
@@ -4154,7 +4240,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, hp
 	hero.hp+=actual_hp
 	mana+=actual_mana
 	var gains: Array[String]=[]
-	if scrap_gain>0:gains.append("零件 +%d" % scrap_gain)
+	if scrap_gain>0:gains.append("光 +%d" % scrap_gain)
 	if actual_hp>0:gains.append("生命 +%d" % int(actual_hp))
 	if actual_mana>0:gains.append("法力 +%d" % int(actual_mana))
 	var detail: String="探索进度 +1" if gains.is_empty() else "  ·  ".join(gains)
@@ -4162,7 +4248,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, hp
 	reward_toasts.append({"title":"探索里程碑 · " + title if milestone else title,"detail":detail,"time":3.2,"color":color})
 	if reward_toasts.size()>3:reward_toasts.pop_front()
 	if not String(route.event).is_empty():
-		var route_detail: String="路线加成：+%d零件" % int(route.scrap)
+		var route_detail: String="路线加成：+%d光" % int(route.scrap)
 		if float(route.get("speed_seconds",0.0))>0.0:route_detail+=" · 加速%.0f秒" % float(route.speed_seconds)
 		reward_toasts.append({"title":String(route.event),"detail":route_detail,"time":3.8,"color":Color("a6d9c6")})
 		while reward_toasts.size()>4:reward_toasts.pop_front()
@@ -4182,7 +4268,7 @@ func grant_exploration_reward(title: String, point: Vector3, scrap_gain: int, hp
 		effects.add_child(sound);sound.stream=pickup_sound;sound.volume_db=-15
 		sound.pitch_scale=1.15 if milestone else 1.0
 		sound.finished.connect(sound.queue_free);sound.play()
-	if milestone:notify("探索 %d 次 · 额外 +55 零件" % exploration_count,3)
+	if milestone:notify("探索 %d 次 · 额外 +55 光" % exploration_count,3)
 
 func make_pickup_sound() -> AudioStreamWAV:
 	var stream:=AudioStreamWAV.new()

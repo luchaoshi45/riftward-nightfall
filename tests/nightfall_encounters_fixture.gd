@@ -3,36 +3,36 @@ extends SceneTree
 const Encounters = preload("res://scripts/nightfall_encounters.gd")
 var encounters: RefCounted = Encounters.new()
 
-# Frozen from actual production plans at main e83a414 before summoner changes.
-# Restoring summoner, warder, shellguard and burstling to basic must reproduce the same
-# frozen original order/counts; adding a role must not replace the baselines.
+# Frozen density baselines after the approved 2026-10-11 population increase.
+# Ordinary additions alter the deterministic shuffle; special-role schedules,
+# nest reductions, boss counts and wave times are independently asserted below.
 const BASELINE_ROLE_DIGESTS := {
-	"echo:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
-	"echo:2": "4d28a37bc7398a86024e17a51dc0364022f2b505729efd4edc397395bb8a85f3",
-	"echo:3": "0f1d7e01bffacd63df794074bcd3ce08457c4402df3cc90aa14ad4c41ae8b3f3",
-	"echo:4": "1c4a67f469fe35cf43db2e39e341df6cd5aa7436c00c51b30e6caf6549a03798",
-	"siege:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
-	"siege:2": "ce0dfb731dd9b236447fdd61d836680e029cfa8262e28a2660d7117f2c39947c",
-	"siege:3": "fdacfc6fb1a879511713035b16d127f9e9a255479e048680f8f970f9404b69f4",
-	"siege:4": "a2bb4ea4ada0ca4008c19d19a4bf861d73a63933657ee072442e83798fefb8c7",
-	"standard:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
-	"standard:2": "1f91a17435d14ab29bfe55d9faaea49488e8292bc1cf4b55b5ca4c6b5f8f7352",
-	"standard:3": "d07fd2d2aeb95d99c40cc68cec396de4edc7a23597287efe781b940e56af2a32",
-	"standard:4": "1c4a67f469fe35cf43db2e39e341df6cd5aa7436c00c51b30e6caf6549a03798",
-	"teaching:1": "b0bfdfd82c64fc796454c5e2c57315e640777ad9fd8afbcdc3bbe2feb4ee6486",
-	"teaching:2": "1f91a17435d14ab29bfe55d9faaea49488e8292bc1cf4b55b5ca4c6b5f8f7352",
-	"teaching:3": "578b02e0b0acb654c8a4e3de111713f2da4be072dc307e813c1c73e50e07e569",
-	"teaching:4": "152c28af869affed4d8f8d3065561fd2850b38dad282a1c9473a6c5e8ff56e9f"
+	"echo:1": "3e89401c583d739d59c000fd6fd579c25c60919e7974dd0e6c79879dc9147fa6",
+	"echo:2": "8cf6fdb5e536f6e28fe118771b9b60c1200945601f65d125817478f4b15c877e",
+	"echo:3": "0185beec0a18276eab9eb2e26a78f82b4641f9e62ce69bc54f4dcc34ecd38bb3",
+	"echo:4": "c82d19b77c60ac91409e18b1b4db9938b99d22c04ace0255d273c9fb71de4386",
+	"siege:1": "3e89401c583d739d59c000fd6fd579c25c60919e7974dd0e6c79879dc9147fa6",
+	"siege:2": "7d685cb9d58a72b83761033a04b811c0192cb390903219276c7f96e93a779f13",
+	"siege:3": "b63be34e02647216fb6b602e1df9a9cb2e22abb2ef98993fc4e9b93b651b8620",
+	"siege:4": "3243601313b364c3ec78c3570ef7a83cfc1642db7a1411fad83b5666a390482b",
+	"standard:1": "3e89401c583d739d59c000fd6fd579c25c60919e7974dd0e6c79879dc9147fa6",
+	"standard:2": "4b8d7034e3a64b65aaaaa603da40001230dedd72962087b839094934d109ce0a",
+	"standard:3": "17a060b2df67e3a5b6181855adaf2f793419662d45946f3a52e612ccf41b00c1",
+	"standard:4": "c82d19b77c60ac91409e18b1b4db9938b99d22c04ace0255d273c9fb71de4386",
+	"teaching:1": "8dfb8b7f8730b5a47ec7644760e77293dad03a818e287733dc223aa0d55b9a04",
+	"teaching:2": "601989a50f16b425237f79da2414c125718bfc44e753b365ac7d83ac77183250",
+	"teaching:3": "fe1f35eb6fe68507fdcdeb6ca94462f15019a9775cadaf015a218d62e371c7e8",
+	"teaching:4": "6fb9ed4e68b74428279f85950265fe27768c1bd9cf9bee74981849a8d58e86c9"
 }
 const EARLY_METADATA_DIGESTS := {
-	"echo:1": "b21b759310ad379e59d4bdd63f755f4448f8b396b9d5c6b04effdb8d4fef2b7b",
-	"echo:2": "34cc816010c4e8ed48745b9631a89e2ce88676bc3567a3a05eeb643ed9cea25e",
-	"siege:1": "80b5419d8ceb9111d2c4851c164a9236cd6ce1913f5aa321aa67ef29c6c84603",
-	"siege:2": "7ccb90daba6565c0ad72580358fe7393aa5593514434c660a6befc05029f8ace",
-	"standard:1": "80b5419d8ceb9111d2c4851c164a9236cd6ce1913f5aa321aa67ef29c6c84603",
-	"standard:2": "70cc1d07344b4c6c0b70efbda5ea31beb448e1351e0d49dd110070cd0db09777",
-	"teaching:1": "80b5419d8ceb9111d2c4851c164a9236cd6ce1913f5aa321aa67ef29c6c84603",
-	"teaching:2": "70cc1d07344b4c6c0b70efbda5ea31beb448e1351e0d49dd110070cd0db09777"
+	"echo:1": "9389fd20244e274e34037c9764152577e5bd5360bc6e538ad83ca40969576009",
+	"echo:2": "8ceeef654dc13827f64ccc0be585037f0886573ba86bebbf77915bfa8ad48778",
+	"siege:1": "8cc7b88150520c08e4bba5388516637abc2cf8c651d6981b6ce8415f12331768",
+	"siege:2": "fc91ae4447c54bcad521aa3b895f5d15b570f8679d53dec9b40dbd6b29201ef1",
+	"standard:1": "8cc7b88150520c08e4bba5388516637abc2cf8c651d6981b6ce8415f12331768",
+	"standard:2": "7a20ee0504da6980d1e187b49b53d3dc3289cde98845d24f4a9522fd74b9a090",
+	"teaching:1": "0e17b8cf9da17bf48b00571c6550ca263c95535deffa00f01b07a64d3e69cf90",
+	"teaching:2": "2a39a3eb6e700175c9b41bda0d561cef46686c0b51adf2f74cebaed556b560dc"
 }
 const MODES := ["teaching", "standard", "siege", "echo"]
 const LOBBERS := {1: [0,0,0,0,0], 2: [0,0,1,0,1], 3: [0,1,2,1,2], 4: [0,2,3,2,3]}
@@ -45,7 +45,7 @@ const BURSTLINGS := {1: [0,0,0,0,0], 2: [0,1,0,0,0], 3: [0,1,0,1,0], 4: [0,1,0,1
 class NoFollowerEncounters:
 	extends "res://scripts/nightfall_encounters.gd"
 	func _later_night(_index: int, _night: int, _theme: String, _random: RandomNumberGenerator) -> Dictionary:
-		return _composition("专职守卫", "runner", "原专职提示", _repeat("runner", 24))
+		return _composition("专职守卫", "runner", "原专职提示", _repeat("runner", 40))
 
 var checks := 0
 var failures: Array[String] = []
@@ -64,14 +64,14 @@ func _initialize() -> void:
 	var first: Array[Dictionary] = encounters.make_plan("teaching", 1, 45, 0)
 	check(first == encounters.make_plan("teaching", 1, 45, 0))
 	check(first.size() == 5)
-	check(first[0].roles.size() == 11 and first[4].roles.size() == 18)
+	check(first[0].roles.size() == 12 and first[4].roles.size() == 19)
 	for index in range(first.size()):
 		check(first[index].time == [0.0, 20.0, 40.0, 65.0, 85.0][index])
 		check(not "light_eater" in first[index].roles)
 		check(not first[index].boss_entry)
 		if index < 3:
 			check(not "sapper" in first[index].roles and not "breaker" in first[index].roles)
-	check(first[0].roles.count("basic") == 11)
+	check(first[0].roles.count("basic") == 12)
 	check(first[1].roles.count("runner") >= 3)
 	check(first[2].roles.count("runner") == 2)
 	check(first[3].roles.count("sapper") == 2)
@@ -93,7 +93,7 @@ func _initialize() -> void:
 			for index in range(original.size()):
 				var wave: Dictionary = original[index]
 				var less: Dictionary = reduced[index]
-				check(wave.count <= 25 and wave.count >= 4)
+				check(wave.count <= 31 and wave.count >= 4)
 				check(wave.count == wave.roles.size() + int(wave.get("boss_count",0)) and less.count == less.roles.size() + int(less.get("boss_count",0)))
 				check(less.count >= 4 and wave.count - less.count == 6)
 				check(wave.title == less.title and wave.advice == less.advice)
@@ -114,7 +114,7 @@ func _initialize() -> void:
 	check(preview.remaining == 7.5 and preview.roles == first[1].roles)
 	preview.roles.clear()
 	preview.title = "测试修改"
-	check(first[1].roles.size() == 12 and first[1].title == "疾行突破")
+	check(first[1].roles.size() == 13 and first[1].title == "疾行突破")
 	check(encounters.next_preview(first, 1, 25.0).remaining == 0.0)
 	check(encounters.next_preview(first, 0, -5.0).remaining == 0.0)
 	check(encounters.next_preview(first, -1, 0.0).is_empty())
@@ -286,7 +286,7 @@ func shellguard_without_followers() -> void:
 			for nests in [0, 3]:
 				var plan: Array[Dictionary] = no_followers.make_plan(mode, night, 17, nests)
 				for entry: Dictionary in plan:
-					check(not entry.roles.has("basic") and int(entry.role_count) == 24, "Synthetic all-specialist fixture has no padded ordinary follower to replace")
+					check(not entry.roles.has("basic") and int(entry.role_count) == 40, "Synthetic all-specialist fixture has no padded ordinary follower to replace")
 					check(int(entry.shellguard_count) == 0 and not entry.roles.has("shellguard"), "Without a real basic slot armor cannot displace an original specialist")
 					check(not String(entry.title).contains("甲壳护卫") and not String(entry.advice).contains("甲壳卫"), "Skipped armor replacement cannot add false public guidance")
 					check(int(entry.burstling_count) == 0 and not entry.roles.has("burstling"), "Without a real basic slot a burstling cannot displace an original specialist")

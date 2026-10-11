@@ -5,9 +5,9 @@ const Layout = preload("res://scripts/outpost_layout.gd")
 const Grid = preload("res://scripts/construction_grid.gd")
 const FORT_HEIGHT := Layout.FORT_HEIGHT
 const LIGHT_TRANSITION_SECONDS := 6.0
-const COURTYARD_LAMP_RANGE := 19.0
+const COURTYARD_LAMP_RANGE := 23.0
 const COURTYARD_LAMP_DAY_ENERGY := 0.10
-const COURTYARD_LAMP_NIGHT_ENERGY := 2.8
+const COURTYARD_LAMP_NIGHT_ENERGY := 5.0
 const MASONRY_MATERIAL_NAMES := ["Weathered concrete", "Concrete fracture"]
 const DECORATION_CULL_NEAR := 104.0
 const DECORATION_CULL_FAR := 126.0
@@ -535,7 +535,7 @@ func create_courtyard_lamps() -> void:
 			lamp.light_energy=COURTYARD_LAMP_DAY_ENERGY
 			lamp.light_specular=.15
 			lamp.omni_range=COURTYARD_LAMP_RANGE
-			lamp.omni_attenuation=.65
+			lamp.omni_attenuation=.8
 			lamp.shadow_enabled=false
 			fixture.add_child(lamp)
 			courtyard_lamps.append(lamp)

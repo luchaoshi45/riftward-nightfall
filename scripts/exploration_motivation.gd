@@ -139,7 +139,7 @@ func arm_contract_affinity(kinds: Array) -> void:
 			affinity_kinds.append(String(kind))
 	affinity_time = 75.0 if not affinity_kinds.is_empty() else 0.0
 	if not affinity_kinds.is_empty():
-		last_event = "委托共鸣已准备 · 下一次匹配探索额外获得零件"
+		last_event = "委托共鸣已准备 · 下一次匹配探索额外获得光"
 
 func affinity_active() -> bool:
 	return affinity_time > 0.0 and not affinity_kinds.is_empty()
@@ -234,18 +234,18 @@ func streak_text() -> String:
 	return "换类连段 %d · 余时 %.1f秒" % [streak, streak_time]
 
 func streak_reward_text() -> String:
-	if streak_time>0.0 and streak==1:return "下一段：+4零件 · 加速18秒"
-	if streak_time>0.0 and streak==2:return "下一段：+18零件"
+	if streak_time>0.0 and streak==1:return "下一段：+4光 · 加速18秒"
+	if streak_time>0.0 and streak==2:return "下一段：+18光"
 	return "同类会重置 · 废墟与动物不续段"
 
 func collection_reward_text() -> String:
-	return "四类合集已领 · 次日可重新收集" if full_set_claimed else "四类各一次：+52零件"
+	return "四类合集已领 · 次日可重新收集" if full_set_claimed else "四类各一次：+52光"
 
 func affinity_text() -> String:
 	if not affinity_active():return ""
 	var names: Array[String] = []
 	for kind in affinity_kinds:names.append(String(KIND_NAMES.get(kind,kind)))
-	return "共鸣 %s · +8零件 · %.0f秒" % ["/".join(names),ceilf(affinity_time)]
+	return "共鸣 %s · +8光 · %.0f秒" % ["/".join(names),ceilf(affinity_time)]
 
 func run_summary() -> String:
 	return "本局探索 %d 次 · 最长连段 %d · 深处 %d · 夜行 %d" % [run_discoveries, best_streak, deep_discoveries, night_discoveries]

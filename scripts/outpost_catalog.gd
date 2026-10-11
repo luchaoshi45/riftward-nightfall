@@ -5,7 +5,7 @@ const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory"
 const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery", "hunter", "flamer", "netter"]
 const BUILDINGS := {
 	"tower": {"title": "防御塔", "cost": 60, "size": Vector2i(3, 3), "hp": 280.0, "requires": []},
-	"barracks": {"title": "兵营", "cost": 60, "size": Vector2i(4, 3), "hp": 600.0, "requires": []},
+	"barracks": {"title": "国旗基地", "cost": 60, "size": Vector2i(4, 3), "hp": 1800.0, "requires": []},
 	"workshop": {"title": "工坊", "cost": 60, "size": Vector2i(3, 2), "hp": 450.0, "requires": []},
 	"recycler": {"title": "回收站", "cost": 90, "size": Vector2i(3, 3), "hp": 500.0, "requires": ["workshop"]},
 	"laboratory": {"title": "研究所", "cost": 120, "size": Vector2i(4, 3), "hp": 550.0, "requires": ["barracks", "workshop"]},

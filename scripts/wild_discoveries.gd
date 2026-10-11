@@ -179,9 +179,9 @@ func interaction_prompt() -> String:
 	var guard_prompt:=cache_guard_prompt(index)
 	if not guard_prompt.is_empty():return guard_prompt
 	match items[index].kind:
-		"ember_bloom":return "F 采集余烬花 · +12 零件，恢复 70 生命"
-		"memory_crystal":return "F 采集余烬晶簇 · +12 零件，恢复 45 法力"
-		"supply_cache":return "F 开启补给箱 · 守住 3 秒，+46 零件"
+		"ember_bloom":return "F 采集余烬花 · +12 光，恢复 70 生命"
+		"memory_crystal":return "F 采集余烬晶簇 · +12 光，恢复 45 法力"
+		"supply_cache":return "F 开启补给箱 · 守住 3 秒，+46 光"
 		"waylight":return "F 点亮引路灯碑 · 30 秒护盾灯区"
 	return ""
 
@@ -190,7 +190,7 @@ func cache_guard_prompt(index: int) -> String:
 	var state: Dictionary=cache_guards.snapshot(index)
 	if not bool(state.blocked):return ""
 	if not bool(state.day_active):return "日落未清 · 补给箱仍封锁，次日再试"
-	return "先清守卫%d/2 · 清后3秒/46零件" % int(state.remaining)
+	return "先清守卫%d/2 · 清后3秒/46光" % int(state.remaining)
 
 func interact() -> bool:
 	if not gameplay_active():return false

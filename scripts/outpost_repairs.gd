@@ -57,9 +57,9 @@ func quote_at(point: Vector3) -> Dictionary:
 			var title := String(Catalog.building(kind).get("title", "建筑"))
 			var damaged := hp < max_hp
 			var cost := int(result.cost)
-			var reason := "每秒%d零件 · 最多25耐久 · 末次仍整价" % cost
+			var reason := "每秒%d光 · 最多25耐久 · 末次仍整价" % cost
 			if not damaged and not repairing: reason = "建筑耐久已满"
-			elif int(game.scrap) < cost: reason = "待零件 · 每秒%d零件/最多25耐久 · 末次整价" % cost
+			elif int(game.scrap) < cost: reason = "待光 · 每秒%d光/最多25耐久 · 末次整价" % cost
 			result.merge({"valid": damaged or repairing, "space_valid": true, "kind": kind,
 				"title": title, "hp": hp, "max_hp": max_hp, "repairing": repairing,
 				"target_type": target_type, "target_index": index, "reason": reason}, true)

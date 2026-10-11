@@ -116,14 +116,14 @@ func nearest() -> int:
 func interaction_prompt() -> String:
 	var index:=nearest()
 	if index<0:return ""
-	return "F 抚触荧角鹿 · +6 零件，恢复生命与 90 护盾" if animals[index].kind=="stag" else "F 与苔背甲虫交换 · 花费 20 零件，获得恢复与 8 零件"
+	return "F 抚触荧角鹿 · +6 光，恢复生命与 90 护盾" if animals[index].kind=="stag" else "F 与苔背甲虫交换 · 花费 20 光，获得恢复与 8 光"
 
 func interact() -> bool:
 	var index:=nearest()
 	if index<0:return false
 	var animal: Dictionary=animals[index]
 	if animal.kind=="beetle" and game.scrap<BEETLE_COST:
-		game.notify("甲虫需要 20 零件 · 当前材料不足",2)
+		game.notify("甲虫需要 20 光 · 当前材料不足",2)
 		return true
 	# Consume the encounter before reward callbacks can trigger another action.
 	animal.state="leaving";animal.timer=3.0;animal.refresh=REFRESH_SECONDS

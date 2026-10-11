@@ -526,7 +526,7 @@ func complete_generator(site: Dictionary) -> void:
 	site.label.modulate=Color("7eaea5");site.lamp.light_energy=.5
 	game.scrap+=GENERATOR_REWARD;game.generator_cells+=1
 	BattleVisuals.burst(game.effects,site.position,4.2,Color("9cddd1"),.7)
-	game.notify("能源芯取回 · +100 零件，灯塔攻击脉冲加快",5)
+	game.notify("能源芯取回 · +100 光，灯塔攻击脉冲加快",5)
 	for binding: Dictionary in _capture_orders.duplicate():
 		if is_same(binding.site, site): _retire_capture(binding, true)
 	for token in _generator_guards.keys():
@@ -589,7 +589,7 @@ func deliver_scout(camp: Dictionary, index: int) -> void:
 	game.beacon_hp=minf(game.BEACON_MAX,game.beacon_hp+120)
 	game.hero.hp=minf(game.hero.max_hp,game.hero.hp+100)
 	BattleVisuals.burst(game.effects,npc.position,3,Color("e2bc79"),.6)
-	game.notify("%s回家了 · +80零件，灯塔+120，协作修灯%d零件" % [camp.scout_name,game.beacon_repair_cost()],6)
+	game.notify("%s回家了 · +80光，灯塔+120，协作修灯%d光" % [camp.scout_name,game.beacon_repair_cost()],6)
 
 func light_home_lantern(camp: Dictionary, index: int) -> void:
 	if camp.state!="delivered":return

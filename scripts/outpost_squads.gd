@@ -1,5 +1,5 @@
 extends Node3D
-## RTS编组、独立兵营训练队列、地形寻路与付费工程/医护支援。
+## RTS编组、独立国旗基地训练队列、地形寻路与付费工程/医护支援。
 ## 主控制器每帧advance，并在enemy.tick后调用intercept_enemy。
 
 const UnitScript = preload("res://scripts/unit.gd")
@@ -146,7 +146,7 @@ func hire(kind: String) -> Dictionary:
 	if not bool(eligibility.available): return _result(false, String(eligibility.reason))
 	var troop: Dictionary = Catalog.troop(kind)
 	var cost := int(troop.cost)
-	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
+	if int(game.get("scrap")) < cost: return _result(false, "光不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	var id := _create_squad(kind, Vector3(0, 5, 3.9))
 	if id < 0: return _result(false, "编组生成期间场景已重置", cost)
@@ -210,7 +210,7 @@ func enqueue(kind: String, barracks_id: int = -1) -> Dictionary:
 	var eligibility := training_eligibility(kind)
 	if not bool(eligibility.available): return _result(false, String(eligibility.reason))
 	var active_barracks := _barracks()
-	if active_barracks.is_empty(): return _result(false, "先建造兵营才能生产部队")
+	if active_barracks.is_empty(): return _result(false, "先建造国旗基地才能生产部队")
 	var chosen := barracks_id
 	if chosen < 0:
 		var shortest := INF
@@ -218,14 +218,14 @@ func enqueue(kind: String, barracks_id: int = -1) -> Dictionary:
 			var duration := 0.0
 			for item: Dictionary in training_queues.get(int(row.index), []): duration += float(item.remaining)
 			if duration < shortest: shortest = duration; chosen = int(row.index)
-	if _barracks_row(chosen).is_empty(): return _result(false, "该兵营无法训练")
+	if _barracks_row(chosen).is_empty(): return _result(false, "该国旗基地无法训练")
 	var troop: Dictionary = Catalog.troop(kind)
 	var cost := int(troop.cost)
-	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
+	if int(game.get("scrap")) < cost: return _result(false, "光不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	if not training_queues.has(chosen): training_queues[chosen] = []
 	training_queues[chosen].append({"kind": kind, "title": String(troop.title), "remaining": float(troop.time), "total": float(troop.time), "cost": cost})
-	var result := _result(true, "%s已加入兵营训练队列" % String(troop.title), cost)
+	var result := _result(true, "%s已加入国旗基地训练队列" % String(troop.title), cost)
 	result.barracks_id = chosen
 	return result
 
@@ -236,7 +236,7 @@ func cancel_training(barracks_id: int, queue_index: int = 0) -> Dictionary:
 	var refund := int(queue[queue_index].cost)
 	queue.remove_at(queue_index)
 	game.set("scrap", int(game.get("scrap")) + refund)
-	var result := _result(true, "训练已取消，零件已退还", -refund)
+	var result := _result(true, "训练已取消，光已退还", -refund)
 	result.refund = refund
 	return result
 
@@ -891,7 +891,7 @@ func set_medic_enabled(squad_id: int, enabled: bool) -> Dictionary:
 		squad.therapy_enabled = enabled
 		for soldier: BattleUnit in squad.members:
 			if _living(soldier): _cancel_medic(soldier, "therapy_disabled" if not enabled else "")
-	var result := _result(true, "医护治疗已开启，每次实际治疗付2零件" if enabled else "医护治疗已关闭", 0, squad_id)
+	var result := _result(true, "医护治疗已开启，每次实际治疗付2光" if enabled else "医护治疗已关闭", 0, squad_id)
 	result.therapy_enabled = enabled
 	return result
 
@@ -1141,7 +1141,7 @@ func refill(squad_id: int = -1) -> Dictionary:
 	if squad_id < -1 or squad_id >= squads.size(): return _result(false, "没有这支小队")
 	var cost := refill_cost(squad_id)
 	if cost <= 0: return _result(false, "小队无需补员休整")
-	if int(game.get("scrap")) < cost: return _result(false, "零件不足")
+	if int(game.get("scrap")) < cost: return _result(false, "光不足")
 	game.set("scrap", int(game.get("scrap")) - cost)
 	for squad in squads:
 		if squad_id >= 0 and int(squad.id) != squad_id: continue

@@ -34,7 +34,7 @@ static func quote_at(game: Node3D, point: Vector3) -> Dictionary:
 					int(quote.investment), int(quote.queue_refund))
 				if live and String(plot.kind) == "recycler" and int(plot.pending) > 0:
 					target.pending_loss = int(plot.pending)
-					target.reason = "实付折价50%% · 未加工%d零件作废 · 维修不退" % int(plot.pending)
+					target.reason = "实付折价50%% · 未加工%d光作废 · 维修不退" % int(plot.pending)
 				elif live and String(plot.kind) == "depot":
 					target.reason = "实付折价50% · 工队保货，改找存活中转站"
 				return target
@@ -49,8 +49,8 @@ static func _target(result: Dictionary, center: Vector3, kind: String, target_ty
 	result.merge(Grid.placement(center, kind), true)
 	var title := String(Catalog.building(kind).get("title", "建筑"))
 	var refund := floori(float(investment) * .5)
-	var reason := "实付折价50% · 维修不退" if live else "残基免费清除 · 不返还零件"
-	if queue_refund > 0: reason = "未完成训练另全退%d零件 · 已出部队保留" % queue_refund
+	var reason := "实付折价50% · 维修不退" if live else "残基免费清除 · 不返还光"
+	if queue_refund > 0: reason = "未完成训练另全退%d光 · 已出部队保留" % queue_refund
 	result.merge({"valid": true, "space_valid": true, "kind": kind, "title": title,
 		"target_type": target_type, "target_index": index, "live": live,
 		"refund": refund, "investment": investment, "queue_refund": queue_refund,
@@ -96,7 +96,7 @@ static func sell_at(game: Node3D, point: Vector3) -> bool:
 		creature.attack_windup = 0.0
 		creature.set_meta("attack_target_kind", "")
 		creature.set_meta("attack_target_index", -1)
-	var message := "%s已拆除 · +%d零件" % [String(quote.title), refund]
+	var message := "%s已拆除 · +%d光" % [String(quote.title), refund]
 	if queue_refund > 0: message += " · 训练全退%d" % queue_refund
 	if int(quote.pending_loss) > 0: message += " · 未加工%d作废" % int(quote.pending_loss)
 	game.notify(message, 3)

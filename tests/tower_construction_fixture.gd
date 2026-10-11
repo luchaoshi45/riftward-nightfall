@@ -109,9 +109,9 @@ func run() -> void:
 	game.phase = "day"
 	allowed(Vector3(-8, 0, 8), "Cursor height normalizes to the castle floor")
 	check(is_equal_approx(float(module.validity(Vector3(-8, 0, 8)).point.y), 5.0), "Normalized placement returns actual height")
-	allowed(Vector3(11.5, 5, .5), "A complete grid footprint may touch the inner wall")
-	refused(Vector3(12.5, 5, .5), "城墙")
-	refused(Vector3(13.01, 5, 0), "城内")
+	allowed(Vector3(Layout.FORT_INNER-1.5, 5, .5), "A complete grid footprint may touch the inner wall")
+	refused(Vector3(Layout.FORT_INNER-.5, 5, .5), "城墙")
+	refused(Vector3(Layout.FORT_INNER+.01, 5, 0), "城内")
 	for point: Vector3 in [Vector3(NAN, 5, 8), Vector3(8, INF, 8), Vector3(8, 5, -INF)]: refused(point, "无效")
 	refused(Vector3.ZERO, "核心")
 	allowed(Vector3(4.5, 5, .5), "Core and tower grid footprints may touch")
@@ -146,7 +146,7 @@ func run() -> void:
 	allowed(Vector3(8.5, 5, -5.5), "A tower may touch an actual building grid boundary")
 	check(bool(module.validity(Vector3(5, 5, -5.5), -1, "barracks", 0).valid), "Ignoring a building excludes only that physical structure")
 	check(module.navigation_blocks().size() == 2, "Built district contributes exactly one physical navigation block")
-	check(bool(game.districts.damage(0, 600).destroyed), "Building damage can remove the live structure")
+	check(bool(game.districts.damage(0, float(game.districts.plots[0].max_hp)).destroyed), "Building damage can remove the live structure")
 	allowed(Vector3(5.5, 5, -5.5), "Destroyed building no longer blocks new construction")
 	check(module.navigation_blocks().size() == 1, "Destroyed district immediately loses its navigation block")
 	refused(game.hero.position, "单位")
@@ -164,7 +164,7 @@ func run() -> void:
 	soldier.hp = 0.0
 	allowed(soldier.position, "Dead squad member does not block a real building", "workshop")
 	game.scrap = 59
-	refused(game.aim, "零件不足")
+	refused(game.aim, "光不足")
 	check(bool(module.snapshot().space_valid) and int(module.snapshot().cost) == 60, "Advice retains real cost deficit on usable land")
 	game.scrap = 1000
 	game.districts.build_at(Vector3(8.5, 5, -8), "workshop")

@@ -230,10 +230,10 @@ func supply_crate_navigation_label() -> String:
 	var navigation:=supply_crate_navigation_snapshot()
 	var count:=int(navigation.get("count",0))
 	if count>0 and navigation.has("direction"):
-		return "建筑车 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
-	if count>0:return "建筑车 %d · 地图可见" % count
+		return "补给 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
+	if count>0:return "补给 %d · 地图可见" % count
 	var status: Dictionary=game.supply_crate_status() if is_instance_valid(game) and game.has_method("supply_crate_status") else {}
-	return "建筑车：%d秒" % ceili(float(status.get("next_seconds",0.0)))
+	return "补给箱：%d秒" % ceili(float(status.get("next_seconds",0.0)))
 
 func countermeasure_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,280,160,62)
@@ -426,7 +426,7 @@ func draw_context_prompt() -> void:
 			break
 	else:
 		var pad: Dictionary=game.world.tower_pads[game.nearest_tower_pad()]
-		var hint: String="J 破甲 / K 牵制 · 45零件 · 每座只能改装一次" if game.specializations.branch(pad)=="standard" else "H 修复 · G 目标模式 · C 指定集火"
+		var hint: String="J 破甲 / K 牵制 · 45光 · 每座只能改装一次" if game.specializations.branch(pad)=="standard" else "H 修复 · G 目标模式 · C 指定集火"
 		label(hint,rect.position+Vector2(0,64),13,muted)
 
 func _draw() -> void:
@@ -539,9 +539,9 @@ func draw_construction() -> void:
 			label("维修 · %s · %d/%d · %s" % [String(placement.title),ceili(float(placement.hp)),ceili(float(placement.max_hp)),"停止" if bool(placement.repairing) else "点击确认"],Vector2(457,690),17,ink)
 		else:label("维修 · 指向受损建筑",Vector2(457,690),17,muted)
 	elif selling:
-		label("%s · %s · 返还%d零件" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖 · 指向建筑查看退款",Vector2(457,690),17,red if bool(placement.valid) else muted)
+		label("%s · %s · 返还%d光" % ["拆卖" if bool(placement.get("live",false)) else "清除",String(placement.title),int(placement.refund)] if bool(placement.valid) else "拆卖 · 指向建筑查看退款",Vector2(457,690),17,red if bool(placement.valid) else muted)
 	else:
-		label("许可 · %s · %d×%d格 · %d零件" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,690),17,ink)
+		label("许可 · %s · %d×%d格 · %d光" % [placement.title,grid_size.x,grid_size.y,int(placement.cost)],Vector2(457,690),17,ink)
 	var reason:=String(placement.reason)
 	if reason.is_empty() and not repairing and not selling:reason="移动鼠标选择合法格子"
 	label(reason,Vector2(457,718),14,tint if not bool(placement.valid) else muted)
@@ -572,7 +572,7 @@ func draw_building_repairs() -> void:
 		var waiting: bool=String(target.status)=="waiting"
 		var tint:=amber if waiting else Color("85d5a5")
 		box(rect,panel,tint)
-		label("待零件" if waiting else "维修",rect.position+Vector2(15 if waiting else 25,16),12,tint)
+		label("待光" if waiting else "维修",rect.position+Vector2(15 if waiting else 25,16),12,tint)
 		if not waiting:
 			draw_line(rect.position+Vector2(5,22),rect.position+Vector2(5+66*clampf(float(target.elapsed),0,1),22),tint,2)
 		occupied.append(rect)
@@ -912,7 +912,7 @@ func draw_day_forecast() -> void:
 		var selected: bool=String(bounty_state.state)=="selected"
 		var rect:=bounty_rect()
 		box(rect,Color(.12,.09,.055,.95) if selected else panel,amber if selected else Color("665b45"))
-		label("甲壳悬赏 · 清波额外+48零件"+(" · 已选" if selected else ""),rect.position+Vector2(10,21),15,amber if bool(bounty_state.available) or selected else muted)
+		label("甲壳悬赏 · 清波额外+48光"+(" · 已选" if selected else ""),rect.position+Vector2(10,21),15,amber if bool(bounty_state.available) or selected else muted)
 		label("放弃免费反制 · 第三波两名普通随从换成甲壳卫",Vector2(46,405),14,ink)
 		label("该波须在夜间倒计时结束前全部击败；未清无额外奖。",Vector2(46,426),14,muted)
 		label("7/8/9 切回免费反制 · 天黑前可更换" if game.phase=="day" else "暂停中 · 恢复后可更换",Vector2(46,448),13,Color("a3c7b7"))
@@ -1146,7 +1146,7 @@ func night_haul_caption(selection: Dictionary) -> String:
 	if String(selection.action)=="stop":
 		return "取消夜采准备" if game.phase=="day" else "停止夜采 · 载货返站"
 	var cost:=int(selection.cost)
-	return "准备夜采 · 日落每队%d零件" % cost if game.phase=="day" else "装配夜采 · 每队%d零件" % cost
+	return "准备夜采 · 日落每队%d光" % cost if game.phase=="day" else "装配夜采 · 每队%d光" % cost
 
 func toggle_selected_night_hauling() -> void:
 	if not night_haul_button_visible():return
@@ -1193,7 +1193,7 @@ func toggle_selected_medics() -> void:
 		var result: Dictionary=game.squads.set_medic_enabled(id,enabled)
 		if bool(result.ok):changed+=1
 		reason=String(result.reason)
-	if changed>0:reason="医护%d队 · %s" % [changed,"开启治疗，每次2零件" if enabled else "停止治疗"]
+	if changed>0:reason="医护%d队 · %s" % [changed,"开启治疗，每次2光" if enabled else "停止治疗"]
 	game.notify(reason,3)
 	queue_redraw()
 
@@ -1211,7 +1211,7 @@ func draw_squads() -> void:
 	var snapshot: Dictionary=game.squads.snapshot()
 	var growth: Dictionary=game.squads.veterancy.snapshot() if game.squads.veterancy else {}
 	label("部队 · 已选%d/%d队 · 老兵%d / 精锐%d" % [int(snapshot.selected),int(snapshot.count),maxi(0,int(growth.get("veterans",0))-int(growth.get("elite",0))),int(growth.get("elite",0))],Vector2(46,184),17,Color("a9d8cf"))
-	label("存活 %d/%d人 · L白昼补员%d零件" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
+	label("存活 %d/%d人 · L白昼补员%d光" % [int(snapshot.alive),int(snapshot.capacity),int(snapshot.refill_cost)],Vector2(46,212),13,ink)
 	var kinds:=visible_training_kinds()
 	for index in kinds.size():
 		var kind:=kinds[index]
@@ -1253,7 +1253,7 @@ func draw_squads() -> void:
 		box(rect,panel,muted)
 		label("取消退%d" % int(order.cost),rect.position+Vector2(6,17),11,amber)
 		training_cancel_buttons.append({"rect":rect,"barracks":row.barracks,"queue_index":row.queue_index})
-	if rows.is_empty():label("暂无训练订单 · 点击兵种安排生产" if not snapshot.queues.is_empty() else "先自由建兵营 · 每营独立队列",Vector2(46,325),13,muted)
+	if rows.is_empty():label("暂无训练订单 · 点击兵种安排生产" if not snapshot.queues.is_empty() else "先自由建国旗基地 · 每营独立队列",Vector2(46,325),13,muted)
 	var production:=rally_state()
 	var has_barracks: bool=int(production.barracks_id)>=0
 	box(RALLY_SELECTOR_RECT,panel,Color("668a78"))
@@ -1264,7 +1264,7 @@ func draw_squads() -> void:
 	var rally_hint: String=" · 集结%s" % ("已设" if bool(production.configured) else "默认") if has_barracks else ""
 	var duration_multiplier: float=float(snapshot.get("training_duration_multiplier",1.0))
 	var relay_hint: String=" · 中继时长×%.1f" % duration_multiplier if duration_multiplier < .999 else ""
-	label("兵营%d · 训练%d组 · 页%d/%d%s%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint,relay_hint],Vector2(46,465),12,muted)
+	label("国旗基地%d · 训练%d组 · 页%d/%d%s%s" % [snapshot.queues.size(),total_orders,training_page+1,pages,rally_hint,relay_hint],Vector2(46,465),12,muted)
 	label(control_group_hint(),Vector2(46,494),13,amber)
 	label("Shift+右键推进 · Alt+右键护航 · Alt+O撤回",Vector2(46,522),13,muted)
 	if troop_page==0:
@@ -1286,7 +1286,7 @@ func draw_squads() -> void:
 		CleanHud._paragraph(self,member_text,Vector2(46,648),496,13,ink,20,1)
 		CleanHud._paragraph(self,"按真实成员记功，无需尾刀；护盾、溢伤和援军不计。",Vector2(46,676),496,12,muted,18,1)
 	elif troop_page==1:
-		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2零件",Vector2(46,553),14,ink)
+		label("重弩12.8米/46伤/3.2秒 · 医护4.8米/36治疗/2光",Vector2(46,553),14,ink)
 		var eligibility: Dictionary=game.squads.training_eligibility("hauler")
 		var medics:=selected_medic_ids()
 		var support_hint:="工队右键废料堆指定采运 · 采尽后自动" if bool(eligibility.available) else "采运 · "+String(eligibility.reason)
@@ -1319,7 +1319,7 @@ func draw_squads() -> void:
 			var medical: Dictionary=game.squads.medic_snapshot()
 			if not night_haul_button_visible():CleanHud._paragraph(self,"医护合计%d次 · 恢复%.0f · 花费%d" % [int(medical.treatments),float(medical.healed_hp),int(medical.spent)],Vector2(46,681),296,12,muted,18,1)
 			box(MEDIC_BUTTON_RECT,panel,Color("668a78") if game.phase in ["day","night"] else muted)
-			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2零件"
+			var caption:="停止治疗" if selected_medics_enabled() else "开启治疗 · 每次2光"
 			label("暂停 · 医护保持" if game.phase=="paused" else caption,MEDIC_BUTTON_RECT.position+Vector2(9,18),12,muted if game.phase=="paused" else amber)
 	elif troop_page==2:
 		if not selected_hunter_ids().is_empty():
@@ -1340,7 +1340,7 @@ func draw_squads() -> void:
 					footer="炮兵准备%d · 在途%d · 命中%d次" % [int(barrage.get("casting",0)),int(barrage.get("flight",0)),int(barrage.get("hits",0))]
 			CleanHud._paragraph(self,"喷火队 · 射程2.5–6.5米 / 22伤 · 扇形32° · 最多4目标 · 前摇0.55秒 · %s" % footer,Vector2(46,681),496,12,muted,18,1)
 	elif troop_page==3:
-		label("投网队 · 需存活研究所 · 100零件 / 9秒",Vector2(46,553),14,ink)
+		label("投网队 · 需存活研究所 · 100光 / 9秒",Vector2(46,553),14,ink)
 		label("射程2.5–9米 · 10伤 · 前摇0.6秒",Vector2(46,580),14,amber)
 		CleanHud._paragraph(self,"网控2秒 · 普通减速45% / 重敌20% · 间隔4秒",Vector2(46,609),496,14,muted,21,1)
 		CleanHud._paragraph(self,"配合固定落点炮击与近程喷火 · 不直接打断首领拍击",Vector2(46,648),496,13,ink,20,1)
@@ -1349,18 +1349,18 @@ func draw_squads() -> void:
 func growth_memory_text(snapshot: Dictionary) -> String:
 	var memory: Dictionary=snapshot.memory
 	if int(memory.pending)>0:
-		return "V / 点击领取%d张 · 下张%d零件" % [int(memory.pending),int(memory.cost)]
+		return "V / 点击领取%d张 · 下张%d光" % [int(memory.pending),int(memory.cost)]
 	if not bool(memory.available):return "当前强化已全部铭刻"
-	return "V 铭刻%d零件 · 还差%d" % [int(memory.cost),int(memory.shortfall)]
+	return "V 铭刻%d光 · 还差%d" % [int(memory.cost),int(memory.shortfall)]
 
 func growth_lines(snapshot: Dictionary) -> Array[String]:
 	var tower: Dictionary=snapshot.tower
-	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","零件可用于维修、城区或小队","塔改装与城区选择均由你决定"]
+	if tower.is_empty():return ["防线：暂无建造、升级或改装目标","光可用于维修、城区或小队","塔改装与城区选择均由你决定"]
 	var action: String={"build":"建造一级","place":"自由建造","upgrade":"升至%d级" % int(tower.target_level),"specialize":"选择改装"}.get(String(tower.action),"")
 	var state: String="可负担" if bool(tower.affordable) else "还差%d" % int(tower.shortfall)
-	var operation: String="建筑车部署" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
+	var operation: String="部署物展开" if String(tower.action)=="place" else "到塔旁 %s" % String(tower.key)
 	return ["防线：%s · %s" % [String(tower.label),action],
-		"%d零件 · %s · %s" % [int(tower.cost),state,operation],String(tower.benefit)]
+		"%d光 · %s · %s" % [int(tower.cost),state,operation],String(tower.benefit)]
 
 func draw_growth_guidance() -> void:
 	if game.phase not in ["day","night"]:return
@@ -1385,7 +1385,7 @@ func draw_exploration_rewards() -> void:
 	var collected: int=game.exploration_count%5
 	for i in 5:
 		draw_circle(Vector2(49+i*20,272),4.5,Color("e8bc70") if i<collected else Color("3f5b55"))
-	label("%d/5 · +55零件" % collected,Vector2(151,277),12,amber)
+	label("%d/5 · +55光" % collected,Vector2(151,277),12,amber)
 	label("荧光互动点 %d · 采集后会刷新" % ready,Vector2(43,298),11,muted)
 	if game.exploration:
 		label(game.exploration.route_text(),Vector2(43,317),11,amber if game.exploration.streak>1 else Color("a3c7b7"))
@@ -1457,8 +1457,9 @@ func draw_draft() -> void:
 		draw_line(OPENING_CONTRACT_RECT.position+Vector2(0,4),OPENING_CONTRACT_RECT.position+Vector2(24,4),Color(CleanHud.GREEN,.5) if selected else Color(muted,.24),1.0)
 		label("C · 双灯同行 %s" % ("已选" if selected else "可选"),Vector2(205,722),14,CleanHud.GREEN if selected else muted)
 		label("救回两名哨兵并完成末夜清场 · %s · F 重抽 %d 次" % ["已完成过" if game.archive.has_challenge("homecoming_pair") else "挑战记录",game.run.rerolls],Vector2(438,722),12,muted)
+		label(game.opening_supply_label(),Vector2(205,747),13,amber)
 	else:
-		label("世界已暂停 · 开局/黎明赠卡，V 消耗零件铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
+		label("世界已暂停 · 开局/黎明赠卡，V 消耗光铭刻 · F 重抽 %d 次" % game.run.rerolls,Vector2(205,722),14,muted)
 
 func draw_result() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.005,.012,.020,.71))
@@ -1475,7 +1476,7 @@ func draw_result() -> void:
 		label("哨站的人开始准备远行，而不再只是等待黑夜过去。",Vector2(425,464),16,muted)
 	elif game.victory:
 		label("灯塔撑过了 %d 夜，但荒原仍有 %d 处夜巢在呼吸。" % [game.max_nights(),game.remaining_nests()],Vector2(425,425),17,ink)
-		label("许弦将零件留给下一次远征：先清理黑夜的源头。",Vector2(425,464),16,muted)
+		label("许弦将光留给下一次远征：先清理黑夜的源头。",Vector2(425,464),16,muted)
 	else:
 		label("灯塔的耐久归零，守夜的防线失守了。" if game.beacon_hp<=0 else "守望者没能回到灯下。哨站还在等待下一次出发。",Vector2(425,425),17,ink)
 		label("下一次出城，需要更早回防或修复据点。",Vector2(425,464),16,muted)

@@ -126,6 +126,19 @@ func tick(delta: float) -> void:
 	if not _active() or not is_finite(delta) or delta <= 0.0: return
 	for index in plots.size():
 		var plot: Dictionary = plots[index]
+		if String(plot.kind) == BARRACKS and _living(plot):
+			if float(plot.hp)<float(plot.max_hp) and int(game.scrap)>0:
+				plot["repair_clock"]=float(plot.get("repair_clock",0.0))+delta
+				var ticks: int=mini(floori(float(plot.repair_clock)),int(game.scrap))
+				ticks=mini(ticks,ceili((float(plot.max_hp)-float(plot.hp))/18.0))
+				if ticks>0:
+					game.scrap-=ticks
+					plot.hp=minf(float(plot.max_hp),float(plot.hp)+ticks*18.0)
+					plot.repair_clock=float(plot.repair_clock)-ticks
+					if int(game.scrap)==0 or float(plot.hp)>=float(plot.max_hp):plot.repair_clock=0.0
+					_refresh_label(index)
+			else:plot["repair_clock"]=0.0
+			continue
 		if String(plot.kind) != RECYCLER or not _living(plot): continue
 		if int(plot.pending) < WRECK_SCRAP:
 			plot.recovery_elapsed = 0.0
@@ -177,7 +190,7 @@ func build_at(point: Vector3, kind: String) -> Dictionary:
 	technology = build_eligibility(kind)
 	if not bool(technology.available): return _failure(String(technology.reason))
 	var cost := int(definition.cost)
-	if int(game.scrap) < cost: return _failure("零件不足 · 需要%d" % cost)
+	if int(game.scrap) < cost: return _failure("光不足 · 需要%d" % cost)
 	var index := -1
 	for candidate in plots.size():
 		if not bool(plots[candidate].get("removed", false)) and int(plots[candidate].level) == 0 and (plots[candidate].position as Vector3).distance_to(placement.point) <= 0.01:
@@ -197,6 +210,7 @@ func build_at(point: Vector3, kind: String) -> Dictionary:
 	plot.pending = 0
 	plot.recovery_elapsed = 0.0
 	plot.recovered = 0
+	plot["repair_clock"] = 0.0
 	_build_model(plot)
 	_refresh_label(index)
 	_changed()
@@ -214,7 +228,7 @@ func upgrade(index: int) -> Dictionary:
 	var plot: Dictionary = plots[index]
 	if not _living(plot): return _failure("请先重建建筑")
 	if int(plot.level) >= MAX_LEVEL: return _failure("建筑已达到二级")
-	if int(game.scrap) < UPGRADE_COST: return _failure("升级需要 80 零件")
+	if int(game.scrap) < UPGRADE_COST: return _failure("升级需要 80 光")
 	game.scrap -= UPGRADE_COST
 	plot.paid_investment = maxi(0, int(plot.get("paid_investment", 0))) + UPGRADE_COST
 	plot.level = int(plot.level) + 1
@@ -372,12 +386,12 @@ func snapshots() -> Array[Dictionary]:
 		match kind:
 			BARRACKS: benefit = "据点恢复 +%d/秒 · 部队生命 +%d%%" % [level * 3, level * 20]
 			WORKSHOP: benefit = "塔建设与维修减费 · 全城最高20%%"
-			RECYCLER: benefit = "12米内夜袭残骸 · %.0f秒加工2零件 · 全城每夜24上限" % _recovery_interval(plot)
-			LABORATORY: benefit = "存活时解锁重弩组 · 前置兵营与工坊"
+			RECYCLER: benefit = "12米内夜袭残骸 · %.0f秒加工2光 · 全城每夜24上限" % _recovery_interval(plot)
+			LABORATORY: benefit = "存活时解锁重弩组 · 前置国旗基地与工坊"
 			DEPOT: benefit = "工队真实返站才入账 · 有限废料 · 二级卸货更快"
 			INFIRMARY: benefit = "存活时解锁医护队 · 治疗须在部队页开启并付费"
 			ARMORY: benefit = "存活时解锁迫击炮队 · 前置研究所与工坊"
-			COMMAND_RELAY: benefit = "存活时缩短兵营训练时长 · 一级×0.9 · 二级×0.8 · 双站封顶"
+			COMMAND_RELAY: benefit = "存活时缩短国旗基地训练时长 · 一级×0.9 · 二级×0.8 · 双站封顶"
 			SIGNAL_BEACON: benefit = "存活时 C 集火持续更久、冷却更短 · 一级12/18秒 · 二级14/16秒"
 			HOLDFAST_BEACON: benefit = "核心灯塔与南门路障承伤 · 一级-10% · 二级-18% · 全城封顶18%"
 		if not _living(plot):
@@ -398,7 +412,7 @@ func prompt() -> String:
 	var plot: Dictionary = plots[index]
 	var title := String(Catalog.building(String(plot.kind)).get("title", "建筑"))
 	if not _living(plot): return "%s残址 · 进入建设模式付费重建" % title
-	if int(plot.level) < MAX_LEVEL: return "%s一级 · F 升级二级 · 80 零件" % title
+	if int(plot.level) < MAX_LEVEL: return "%s一级 · F 升级二级 · 80 光" % title
 	return "%s二级 · 建设完成" % title
 
 func footprint(kind: String) -> Vector2:
@@ -415,7 +429,14 @@ func create_model(kind: String) -> Node3D:
 	var scene: PackedScene = BARRACKS_SCENE if kind in [BARRACKS, LABORATORY, INFIRMARY] else WORKSHOP_SCENE
 	var base := scene.instantiate() as Node3D
 	prepare_model(base)
-	if kind in [BARRACKS, WORKSHOP]: return base
+	if kind == BARRACKS:
+		var stone := BattleVisuals.material(Color("546776"))
+		var gold := BattleVisuals.material(Color("f4d889"), .25)
+		BattleVisuals.box(base,Vector3(0,.24,0),Vector3(3.8,.45,2.8),stone).name="FlagBarricade"
+		BattleVisuals.box(base,Vector3(0,2.0,0),Vector3(.10,3.8,.10),gold).name="FlagPole"
+		BattleVisuals.box(base,Vector3(.65,3.5,0),Vector3(1.3,.75,.06),gold).name="NationalFlag"
+		return base
+	if kind == WORKSHOP:return base
 	# New types share the editable original assets, with purpose-specific native
 	# geometry. The same factory is used by real buildings and construction.
 	var model := Node3D.new()
@@ -618,7 +639,7 @@ func _refresh_label(index: int) -> void:
 	var title := String(Catalog.building(String(plot.kind)).get("title", "建筑"))
 	(plot.label as Label3D).text = "%s · %d级 · %d/%d" % [title, int(plot.level), ceili(float(plot.hp)), ceili(float(plot.max_hp))] if _living(plot) else title + "残址"
 	if String(plot.kind) == RECYCLER and _living(plot) and int(plot.pending) > 0:
-		(plot.label as Label3D).text += "\n待处理 %d 零件" % int(plot.pending)
+		(plot.label as Label3D).text += "\n待处理 %d 光" % int(plot.pending)
 	(plot.ring as MeshInstance3D).material_override = BattleVisuals.material(Color("e0b36d") if _living(plot) else Color("805b51"), 0.25)
 
 func _levels(kind: String) -> int:
