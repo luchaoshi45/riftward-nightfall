@@ -525,8 +525,9 @@ func complete_generator(site: Dictionary) -> void:
 	site.label.text="能源芯已取回 · 灯塔脉冲强化"
 	site.label.modulate=Color("7eaea5");site.lamp.light_energy=.5
 	game.scrap+=GENERATOR_REWARD;game.generator_cells+=1
+	var located: bool=game.locate_tech_supply()
 	BattleVisuals.burst(game.effects,site.position,4.2,Color("9cddd1"),.7)
-	game.notify("能源芯取回 · +100 光，灯塔攻击脉冲加快",5)
+	game.notify("能源芯取回 · +100 光，灯塔攻击脉冲加快"+(" · 科技补给已定位" if located else ""),5)
 	for binding: Dictionary in _capture_orders.duplicate():
 		if is_same(binding.site, site): _retire_capture(binding, true)
 	for token in _generator_guards.keys():

@@ -234,6 +234,8 @@ var supply_crate_retry := 0.0
 var supply_crate_serial := 0
 var supply_rng := RandomNumberGenerator.new()
 var opening_supply_delivered := false
+var tech_supply_pending := false
+var tech_supply_day := -1
 var supply_rewards_draining := false
 var supply_training_reason := ""
 var pending_build_permit_kind := ""
@@ -3909,6 +3911,8 @@ func clear_supply_crates(clear_rewards: bool = true) -> void:
 	supply_crate_clock=0.0
 	supply_crate_retry=0.0
 	if not clear_rewards:return
+	tech_supply_pending=false
+	tech_supply_day=-1
 	select_construction_vehicle(null)
 	for crate: Node3D in supply_crates:
 		if is_instance_valid(crate):crate.queue_free()
@@ -3950,6 +3954,7 @@ func advance_supply_crates(delta: float) -> void:
 	_drain_supply_rewards()
 
 func _spawn_supply_crate() -> bool:
+	if supply_crates.size()>=SUPPLY_CRATE_MAX:return false
 	var point:=_supply_crate_spawn_position()
 	if not point.is_finite():return false
 	var crate:=SupplyCrateScript.new() as Node3D
@@ -3960,6 +3965,7 @@ func _spawn_supply_crate() -> bool:
 	crate.position=point
 	add_child(crate)
 	supply_crates.append(crate)
+	tech_supply_pending=false
 	opening_supply_delivered=true
 	notify("发现补给箱 · 靠近自动开启",3.0)
 	return true
@@ -4063,12 +4069,35 @@ func _try_open_supply_crates() -> void:
 				notify("补给揭晓：%s · 拖动或右键移动，D展开" % String(crate.display_name),4.0)
 			break
 
+func locate_tech_supply() -> bool:
+	if phase!="day" or quitting or restart_pending or shutting_down or tech_supply_day==day_number:return false
+	tech_supply_day=day_number
+	tech_supply_pending=true
+	notify("科技补给已定位 · 下次配送优先补足科技",4.0)
+	return true
+
+func _tech_supply_candidates() -> Array[String]:
+	var result: Array[String]=[]
+	var delivered: Array[String]=[]
+	for vehicle: Node3D in supply_crates:
+		if _valid_construction_vehicle(vehicle):delivered.append(String(vehicle.supply_kind))
+	for kind: String in Catalog.BUILDING_IDS:
+		if kind=="tower" or districts.has_live(kind) or kind in delivered:continue
+		if not bool(districts.build_eligibility(kind).get("available",false)):continue
+		if kind=="workshop":return [kind]
+		result.append(kind)
+	if "barracks" in result:return ["barracks"]
+	return result
+
 func _roll_supply_reward() -> Dictionary:
 	# Flag and towers dominate; occasional infrastructure preserves real tech
 	# progression rather than granting advanced training prerequisites for free.
 	var candidates: Array[String]=["barracks","barracks","tower","tower","tower"]
 	for kind: String in Catalog.BUILDING_IDS:
 		if opening_supply_delivered and kind not in ["tower","barracks"] and bool(districts.build_eligibility(kind).get("available",false)):candidates.append(kind)
+	if tech_supply_pending:
+		var technology:=_tech_supply_candidates()
+		if not technology.is_empty():candidates=technology
 	var kind: String=candidates[supply_rng.randi_range(0,candidates.size()-1)]
 	var variant: String="standard"
 	var title: String=String(Catalog.building(kind).get("title",kind))
