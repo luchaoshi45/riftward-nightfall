@@ -502,6 +502,9 @@ func _draw() -> void:
 			label("已暂停 · Esc 先收起详情",Vector2(626,768),16,amber)
 		else:draw_pause()
 
+func supply_reward_instruction(selected: bool) -> String:
+	return ("D展开 · Del回收%d光" % int(game.VEHICLE_RECYCLE_LIGHT)) if selected else "选中 · 移动后D展开"
+
 func supply_reward_labels() -> Array[Dictionary]:
 	var rows: Array[Dictionary]=[]
 	if not is_instance_valid(game) or game.phase not in ["day","night"] or game.music_credits_open or not detail_tab.is_empty() or map_expanded:return rows
@@ -511,6 +514,7 @@ func supply_reward_labels() -> Array[Dictionary]:
 		var point: Vector2=game.camera.unproject_position(crate.global_position+Vector3(0,2.2,0))*Vector2(1440,900)/get_viewport_rect().size
 		var title:=String(crate.display_name)
 		var width:=maxf(166,font.get_string_size(title,HORIZONTAL_ALIGNMENT_LEFT,-1,22).x+28)
+		width=maxf(width,font.get_string_size(supply_reward_instruction(crate.selected),HORIZONTAL_ALIGNMENT_LEFT,-1,14).x+28)
 		var footprint:=Rect2(point-Vector2(width/2,58),Vector2(width,58))
 		if not Rect2(0,0,1440,900).has_point(point):continue
 		footprint.position.x=clampf(footprint.position.x,8,1152-width)
@@ -528,7 +532,7 @@ func draw_supply_reward_labels() -> void:
 		var rect: Rect2=row.rect
 		box(rect,Color("101b22",.91),Color("bba469"))
 		label(String(row.title),rect.position+Vector2(14,25),22,ink)
-		label("D展开" if bool(row.selected) else "选中 · 移动后D展开",rect.position+Vector2(14,47),14,amber)
+		label(supply_reward_instruction(bool(row.selected)),rect.position+Vector2(14,47),14,amber)
 
 func draw_pause() -> void:
 	draw_rect(Rect2(0,0,1440,900),Color(.01,.018,.022,.58))

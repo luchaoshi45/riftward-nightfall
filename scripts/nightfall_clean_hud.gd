@@ -337,7 +337,7 @@ static func _draw_navigation_buttons(ui: Control, game: Node3D) -> void:
 	# it adds no panel or mouse exclusion area over the battlefield.
 	var vehicle: Node3D=game.selected_construction_vehicle
 	var vehicle_selected: bool=game._valid_construction_vehicle(vehicle)
-	var supply_label: String="%s · 拖动/右键移动 · D展开" % String(vehicle.display_name) if vehicle_selected else ui.supply_crate_navigation_label()
+	var supply_label: String="%s · 移动后D展开 · Del回收%d光" % [String(vehicle.display_name),int(game.VEHICLE_RECYCLE_LIGHT)] if vehicle_selected else ui.supply_crate_navigation_label()
 	ui.label(supply_label,Vector2(24,827),11,ui.amber if supply_count>0 else LIVE_MUTED)
 	if not String(game.pending_build_permit_kind).is_empty():
 		ui.label("D展开" if vehicle_selected else "Y许可",Vector2(278,849),11,ui.amber)

@@ -217,6 +217,10 @@ var quitting := false
 var restart_pending := false
 var shutting_down := false
 const SALVAGE_REFRESH := 55.0
+const VEHICLE_RECYCLE_LIGHT := 8
+const VEHICLE_RECYCLE_CONFIRM_SECONDS := 3.0
+var vehicle_recycle_id := 0
+var vehicle_recycle_time := 0.0
 const SUPPLY_CRATE_INTERVAL := 25.0
 const SUPPLY_CRATE_MAX := 3
 const SUPPLY_CRATE_TRIGGER_RADIUS := 1.65
@@ -3835,6 +3839,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_DELETE,KEY_BACKSPACE:
 				if construction.active:construction.toggle_sell()
+				elif _valid_construction_vehicle(selected_construction_vehicle):recycle_selected_vehicle()
 			KEY_U:hire_shield_squad()
 			KEY_I:hire_ranged_squad()
 			KEY_N:train_troop("engineer")
@@ -3905,6 +3910,8 @@ func opening_supply_label() -> String:
 	return "开局补给箱：等待附近可通行空地，选卡后继续配送"
 
 func clear_supply_crates(clear_rewards: bool = true) -> void:
+	vehicle_recycle_id=0
+	vehicle_recycle_time=0.0
 	# Player vehicles survive the day/night transition. Only unfinished
 	# deployment is cancelled; terminal/retry cleanup retires the roster.
 	if is_instance_valid(deployment_vehicle) and is_instance_valid(construction):construction.cancel()
@@ -3927,6 +3934,8 @@ func clear_supply_crates(clear_rewards: bool = true) -> void:
 
 func advance_supply_crates(delta: float) -> void:
 	if phase not in ["day", "night"] or quitting or restart_pending or shutting_down:return
+	vehicle_recycle_time=maxf(0.0,vehicle_recycle_time-delta)
+	if vehicle_recycle_time<=0.0:vehicle_recycle_id=0
 	if deployment_vehicle_id!=0 and not _valid_construction_vehicle(deployment_vehicle):construction.cancel()
 	if not _valid_construction_vehicle(selected_construction_vehicle):selected_construction_vehicle=null
 	for index in range(supply_crates.size()-1,-1,-1):
@@ -4111,6 +4120,8 @@ func _valid_construction_vehicle(vehicle: Variant) -> bool:
 
 func select_construction_vehicle(vehicle: Node3D) -> bool:
 	if is_instance_valid(vehicle) and (phase not in ["day","night"] or not _valid_construction_vehicle(vehicle) or not vehicle.revealed):return false
+	if not is_same(vehicle,selected_construction_vehicle):
+		vehicle_recycle_id=0;vehicle_recycle_time=0.0
 	if is_instance_valid(deployment_vehicle) and is_instance_valid(construction):construction.cancel()
 	if is_instance_valid(selected_construction_vehicle):selected_construction_vehicle.set_selected(false)
 	selected_construction_vehicle=vehicle
@@ -4119,6 +4130,32 @@ func select_construction_vehicle(vehicle: Node3D) -> bool:
 		squads.cancel_selection()
 		hero_path.clear();move_goal=hero.position;hero_keyboard_active=false
 		hud.dismiss_details()
+	return true
+
+func recycle_selected_vehicle() -> bool:
+	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or music_credits_open:return false
+	if is_instance_valid(hud) and (hud.map_expanded or not hud.detail_tab.is_empty()):return false
+	if construction.active or (rally and rally.active):return false
+	var vehicle:=selected_construction_vehicle
+	if not _valid_construction_vehicle(vehicle) or not vehicle.revealed:
+		vehicle_recycle_id=0;vehicle_recycle_time=0.0
+		return false
+	var token:=vehicle.get_instance_id()
+	if vehicle_recycle_id!=token or vehicle_recycle_time<=0.0:
+		vehicle_recycle_id=token
+		vehicle_recycle_time=VEHICLE_RECYCLE_CONFIRM_SECONDS
+		notify("放弃%s？3秒内再按Del回收%d光；切换选择取消" % [String(vehicle.display_name),VEHICLE_RECYCLE_LIGHT],3.0)
+		return false
+	# Retire the identity before crediting; repeated keys cannot sell it twice.
+	if not vehicle.open():return false
+	supply_crates.erase(vehicle)
+	selected_construction_vehicle=null
+	vehicle_drag_source=null
+	selection_dragging=false
+	vehicle_recycle_id=0;vehicle_recycle_time=0.0
+	vehicle.queue_free()
+	scrap+=VEHICLE_RECYCLE_LIGHT
+	notify("部署物已回收 · +%d光，配送位已释放" % VEHICLE_RECYCLE_LIGHT,3.0)
 	return true
 
 func construction_vehicle_under_cursor(screen: Vector2) -> Node3D:
@@ -4143,6 +4180,7 @@ func cancel_vehicle_deployment() -> void:
 
 func deploy_selected_vehicle() -> bool:
 	if phase not in ["day","night"] or quitting or restart_pending or shutting_down or not _valid_construction_vehicle(selected_construction_vehicle) or not selected_construction_vehicle.revealed:return false
+	vehicle_recycle_id=0;vehicle_recycle_time=0.0
 	var vehicle:=selected_construction_vehicle
 	if not pending_build_permit_kind.is_empty() and not is_same(deployment_vehicle,vehicle):
 		notify("请先完成或取消当前许可",2.0);return false
