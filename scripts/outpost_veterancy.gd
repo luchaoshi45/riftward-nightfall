@@ -2,7 +2,7 @@ extends RefCounted
 ## Run-local experience belongs to the original member, group and slot.
 ## Confirmed enemy HP contributions are paid only by a genuine death receipt.
 const Catalog := preload("res://scripts/outpost_catalog.gd")
-const COMBAT_KINDS := ["shield", "ranged", "engineer", "ballista", "artillery", "hunter", "flamer", "netter"]
+const COMBAT_KINDS := ["shield", "ranged", "engineer", "ballista", "artillery", "hunter", "flamer", "netter", "breacher"]
 const VETERAN_XP := 300.0
 const ELITE_XP := 900.0
 const XP_CAP := ELITE_XP

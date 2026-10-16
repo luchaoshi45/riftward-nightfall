@@ -11,11 +11,12 @@ const EscortScript := preload("res://scripts/outpost_escort.gd")
 const FlamethrowerScript := preload("res://scripts/outpost_flamethrower.gd")
 const NetterScript := preload("res://scripts/outpost_netters.gd")
 const VeterancyScript := preload("res://scripts/outpost_veterancy.gd")
+const BreacherScript := preload("res://scripts/outpost_breachers.gd")
 const MEMBERS_PER_SQUAD := 3
-const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110, "flamer": 125, "netter": 100}
-const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0, "flamer": 11.0, "netter": 9.0}
-const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队", "artillery": "迫击炮队", "hunter": "猎手队", "flamer": "喷火队", "netter": "投网队"}
-const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26, "artillery": 36, "hunter": 32, "flamer": 30, "netter": 28}
+const HIRE_COST := {"shield": 70, "ranged": 80, "engineer": 65, "ballista": 110, "hauler": 70, "medic": 90, "artillery": 150, "hunter": 110, "flamer": 125, "netter": 100, "breacher": 180}
+const TRAIN_TIME := {"shield": 6.0, "ranged": 8.0, "engineer": 7.0, "ballista": 10.0, "hauler": 8.0, "medic": 9.0, "artillery": 12.0, "hunter": 10.0, "flamer": 11.0, "netter": 9.0, "breacher": 14.0}
+const TITLES := {"shield": "盾卫", "ranged": "弩手", "engineer": "工程员", "ballista": "重弩组", "hauler": "采运工队", "medic": "医护队", "artillery": "迫击炮队", "hunter": "猎手队", "flamer": "喷火队", "netter": "投网队", "breacher": "破甲突击机组"}
+const REPLACE_COST := {"shield": 22, "ranged": 26, "engineer": 20, "ballista": 32, "hauler": 22, "medic": 26, "artillery": 36, "hunter": 32, "flamer": 30, "netter": 28, "breacher": 48}
 const MEDIC_RANGE := 4.8
 const MEDIC_HEIGHT_LIMIT := 1.0
 const MEDIC_MIN_MISSING := 12.0
@@ -344,12 +345,12 @@ func _spawn_member(squad: Dictionary, slot: int) -> BattleUnit:
 	soldier.title = String(Catalog.troop(String(squad.kind)).title)
 	soldier.max_hp = _base_max_hp(squad.kind) * health_multiplier
 	soldier.hp = soldier.max_hp
-	soldier.armor = 25.0 if squad.kind == "shield" else 0.0
-	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0, "artillery": 32.0, "hunter": 12.0, "flamer": 22.0, "netter": 10.0}[squad.kind])
-	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0, "artillery": 16.0, "hunter": 2.3, "flamer": FlamethrowerScript.MAX_RANGE, "netter": NetterScript.MAX_RANGE}[squad.kind])
-	soldier.attack_interval = NetterScript.COOLDOWN if squad.kind == "netter" else (1.4 if squad.kind == "hunter" else (3.2 if squad.kind == "flamer" else (4.8 if squad.kind == "artillery" else (3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)))))
-	soldier.speed = 5.4 if squad.kind == "hunter" else (2.4 if squad.kind == "artillery" else (3.06 if squad.kind == "ballista" else 3.6))
-	soldier.windup_duration = NetterScript.WINDUP if squad.kind == "netter" else (.22 if squad.kind == "hunter" else (FlamethrowerScript.WINDUP if squad.kind == "flamer" else (1.0 if squad.kind == "artillery" else (.55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)))))
+	soldier.armor = 10.0 if squad.kind == "breacher" else (25.0 if squad.kind == "shield" else 0.0)
+	soldier.damage = float({"shield": 10.0, "ranged": 16.0, "engineer": 5.0, "ballista": 46.0, "hauler": 0.0, "medic": 0.0, "artillery": 32.0, "hunter": 12.0, "flamer": 22.0, "netter": 10.0, "breacher": 30.0}[squad.kind])
+	soldier.attack_range = float({"shield": 2.7, "ranged": 8.6, "engineer": 2.3, "ballista": 12.8, "hauler": 1.5, "medic": 0.0, "artillery": 16.0, "hunter": 2.3, "flamer": FlamethrowerScript.MAX_RANGE, "netter": NetterScript.MAX_RANGE, "breacher": 4.8}[squad.kind])
+	soldier.attack_interval = 2.6 if squad.kind == "breacher" else NetterScript.COOLDOWN if squad.kind == "netter" else (1.4 if squad.kind == "hunter" else (3.2 if squad.kind == "flamer" else (4.8 if squad.kind == "artillery" else (3.2 if squad.kind == "ballista" else (1.45 if squad.kind == "shield" else 1.65)))))
+	soldier.speed = 3.9 if squad.kind == "breacher" else 5.4 if squad.kind == "hunter" else (2.4 if squad.kind == "artillery" else (3.06 if squad.kind == "ballista" else 3.6))
+	soldier.windup_duration = .45 if squad.kind == "breacher" else NetterScript.WINDUP if squad.kind == "netter" else (.22 if squad.kind == "hunter" else (FlamethrowerScript.WINDUP if squad.kind == "flamer" else (1.0 if squad.kind == "artillery" else (.55 if squad.kind == "ballista" else (.18 if squad.kind == "shield" else .26)))))
 	soldier.visual.scale *= .85
 	soldier.selection.visible = int(squad.id) in selected_ids
 	soldier.position = _resolve_destination(squad.origin + Vector3((slot - 1) * 1.2, 0, 0))
@@ -413,12 +414,14 @@ func _resolve_destination(point: Vector3) -> Vector3:
 	return goal
 
 func _style_member(soldier: BattleUnit, kind: String) -> void:
+	if kind == "breacher":
+		BreacherScript.style(soldier);return
 	# 复用原创卫兵骨架；不同兵种有独立胸徽和工具轮廓。
 	var marker := MeshInstance3D.new()
 	var badge := BoxMesh.new()
 	badge.size = Vector3(.24, .26, .055)
 	marker.mesh = badge
-	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7", "artillery": "73bcb8", "hunter": "d8a087", "flamer": "ee9852", "netter": "8fc9de"}[kind]), .15)
+	marker.material_override = BattleVisuals.material(Color({"shield": "72c5d2", "ranged": "e7bb69", "engineer": "88d18b", "ballista": "d99867", "hauler": "adc89b", "medic": "b7e0d7", "artillery": "73bcb8", "hunter": "d8a087", "flamer": "ee9852", "netter": "8fc9de", "breacher": "86e1ed"}[kind]), .15)
 	soldier.visual.add_child(marker)
 	marker.position = Vector3(0, 1.15, -.26)
 	if kind == "shield": return
@@ -1547,6 +1550,9 @@ func _repair_nearby(soldier: BattleUnit, delta: float) -> void:
 	_beam(soldier.position + Vector3.UP, candidate.position + Vector3.UP, Color("88d18b"))
 
 func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -> void:
+	var breacher := String(soldier.get_meta("squad_kind", "")) == "breacher"
+	if breacher and not BreacherScript.source_valid(self,soldier):
+		soldier.attack_queued=false;soldier.target=null;return
 	if String(soldier.get_meta("squad_kind", "")) in ["hauler", "medic", "artillery", "netter"]:
 		soldier.attack_queued = false; soldier.target = null; soldier.attack_windup = 0.0
 		return
@@ -1563,10 +1569,13 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 		soldier.attack_pose = 1.0
 		var victim_hp:=victim.hp
 		var victim_shield:=victim.shield
-		victim.hurt(soldier.damage, soldier) # Never source hero or mark a player attack.
+		victim.hurt(BreacherScript.damage(soldier,victim) if breacher else soldier.damage, soldier) # Never source hero or mark a player attack.
+		if breacher and not is_instance_valid(victim):return
 		_hit_feedback(impact,maxf(0.0,victim_hp-victim.hp)+maxf(0.0,victim_shield-victim.shield),Color("f0b26f"),4)
 		if not _owns_member(soldier, generation): return
-		if str(soldier.get_meta("squad_kind")) == "ballista":
+		if breacher:
+			_beam(soldier.position + Vector3.UP*.8, impact, Color("86e1ed"), .09, .18, .8)
+		elif str(soldier.get_meta("squad_kind")) == "ballista":
 			_beam(soldier.position + Vector3.UP, impact, Color("efb774"), .065, .24, .95)
 		elif str(soldier.get_meta("squad_kind")) == "ranged": _beam(soldier.position + Vector3.UP, impact)
 		return
@@ -1589,6 +1598,7 @@ func _pick_enemy(soldier: BattleUnit, real_only: bool = false) -> BattleUnit:
 		var enemy := candidate as BattleUnit
 		if not _in_range(soldier, enemy): continue
 		var candidate_score := -_ground_distance(soldier.position, enemy.position)
+		if str(soldier.get_meta("squad_kind")) == "breacher":candidate_score += minf(500.0,maxf(0.0,enemy.armor))*10.0
 		if str(soldier.get_meta("squad_kind")) in ["ranged", "ballista"]:
 			var threat := str(enemy.get_meta("threat", ""))
 			var priority := int({"breaker": 4, "sapper": 3, "lobber": 3, "light_eater": 2, "shellguard": 4}.get(threat, 0))
@@ -1605,6 +1615,7 @@ func _pick_enemy(soldier: BattleUnit, real_only: bool = false) -> BattleUnit:
 	return selected
 
 func _in_range(soldier: BattleUnit, enemy: BattleUnit) -> bool:
+	if String(soldier.get_meta("squad_kind", "")) == "breacher":return BreacherScript.legal(self,soldier,enemy)
 	return _ground_distance(soldier.position, enemy.position) <= soldier.attack_range and _attack_line(soldier.position, enemy.position)
 
 func blocker_for(enemy: Variant) -> BattleUnit:

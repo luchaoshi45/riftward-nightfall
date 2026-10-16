@@ -99,7 +99,7 @@ func draw(ui: Control) -> void:
 	ui.label("兵种 %d / %d" % [page+1,ceili(Catalog.TROOP_IDS.size()/float(PAGE_SIZE))],Vector2(1232,239),16,ui.muted)
 	var available:=kinds()
 	var has_base: bool=not ui.game.squads.snapshot().queues.is_empty()
-	var badges: Dictionary={"shield":"盾","ranged":"弩","engineer":"工","ballista":"重","hauler":"运","medic":"医","artillery":"炮","hunter":"猎","flamer":"焰","netter":"网"}
+	var badges: Dictionary={"shield":"盾","ranged":"弩","engineer":"工","ballista":"重","hauler":"运","medic":"医","artillery":"炮","hunter":"猎","flamer":"焰","netter":"网","breacher":"甲"}
 	for index in available.size():
 		var kind:=available[index]
 		var troop: Dictionary=Catalog.troop(kind)

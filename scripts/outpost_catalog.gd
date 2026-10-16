@@ -2,7 +2,7 @@ class_name OutpostCatalog
 extends RefCounted
 ## The shared playable building and troop definitions used by costs and technology.
 const BUILDING_IDS := ["tower", "barracks", "workshop", "recycler", "laboratory", "depot", "infirmary", "armory", "command_relay", "signal_beacon", "holdfast_beacon"]
-const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery", "hunter", "flamer", "netter"]
+const TROOP_IDS := ["shield", "ranged", "engineer", "ballista", "hauler", "medic", "artillery", "hunter", "flamer", "netter", "breacher"]
 const BUILDINGS := {
 	"tower": {"title": "防御塔", "cost": 60, "size": Vector2i(3, 3), "hp": 280.0, "requires": []},
 	"barracks": {"title": "国旗基地", "cost": 60, "size": Vector2i(4, 3), "hp": 1800.0, "requires": []},
@@ -17,6 +17,7 @@ const BUILDINGS := {
 	"holdfast_beacon": {"title": "坚守信标", "cost": 110, "size": Vector2i(3, 2), "hp": 520.0, "requires": ["workshop"]},
 }
 const TROOPS := {
+	"breacher": {"title": "破甲突击机组", "cost": 180, "time": 14.0, "hp": 180.0, "requires": ["armory", "workshop", "laboratory"]},
 	"shield": {"title": "盾卫", "cost": 70, "time": 6.0, "hp": 200.0, "requires": []},
 	"ranged": {"title": "弩手", "cost": 80, "time": 8.0, "hp": 110.0, "requires": []},
 	"engineer": {"title": "工程员", "cost": 65, "time": 7.0, "hp": 90.0, "requires": []},
