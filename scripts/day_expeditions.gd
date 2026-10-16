@@ -17,6 +17,7 @@ var camps: Array[Dictionary] = []
 var _capture_orders: Array[Dictionary] = []
 var _generator_guards: Dictionary = {}
 var _epoch := 0
+var overload=preload("res://scripts/generator_overload.gd").new()
 
 func _retire_node(value: Variant) -> void:
 	if is_instance_valid(value) and value is Node and not value.is_queued_for_deletion(): value.queue_free()
@@ -43,6 +44,7 @@ func setup(owner_game: Node3D) -> void:
 	_generator_guards.clear()
 	generators.clear(); camps.clear()
 	game=owner_game
+	overload.setup(game,self)
 
 	# The east site uses the outer flank, clear of the unchanged northeast
 	# relay. Scaling its former z=7 would overlap that interactive relay.
@@ -277,6 +279,7 @@ func _retire_generator_guards(site: Dictionary) -> void:
 	site.guards=[];site.guard_tokens=[];site.guard_deaths={}
 
 func cancel_capture_orders() -> void:
+	overload.clear()
 	for binding: Dictionary in _capture_orders.duplicate(): _retire_capture(binding)
 	_capture_orders.clear()
 	for site: Dictionary in generators:
@@ -407,6 +410,8 @@ func nearest_camp() -> int:
 	return selected
 
 func interaction_prompt() -> String:
+	var overload_prompt: String=overload.prompt()
+	if overload_prompt!="":return overload_prompt
 	if nearest_generator()>=0:return "F 启动发电机 · 守住灯区，获得能源芯"
 	var camp_index:=nearest_camp()
 	if camp_index>=0:return "F 接回%s · 日落前经南门返家" % camps[camp_index].scout_name
@@ -444,6 +449,7 @@ func start_camp(index: int) -> bool:
 	return true
 
 func interact() -> bool:
+	if not overload.prompt().is_empty():return overload.interact()
 	var index:=nearest_generator()
 	if index>=0:return start_generator(index)
 	index=nearest_camp()
@@ -475,6 +481,7 @@ func guards_alive(site: Dictionary) -> bool:
 	return false
 
 func tick(delta: float) -> void:
+	overload.tick(delta)
 	if game.phase!="day":
 		if game.phase=="night":
 			for camp in camps:

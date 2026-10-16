@@ -1453,7 +1453,8 @@ func _resolve_enemy_spawn_point(point: Vector3) -> Vector3:
 	# Existing outer gate staging is always outside the expanded retaining wall.
 	return Vector3(0,outpost_height(Vector3(0,0,Layout.RAMP_END+3)),Layout.RAMP_END+3)
 
-func spawn_creature(night: bool, role: String="", register_veterancy: bool=true) -> BattleUnit:
+func spawn_creature(night: bool, role: String="", register_veterancy: bool=true, source_rng: RandomNumberGenerator=null) -> BattleUnit:
+	var random_source: RandomNumberGenerator=source_rng if source_rng!=null else spawn_rng
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
 	var is_warder: bool=night and role=="warder"
@@ -1462,12 +1463,12 @@ func spawn_creature(night: bool, role: String="", register_veterancy: bool=true)
 	var is_burstling: bool=night and role=="burstling"
 	var creature:=UnitScript.new() as BattleUnit
 	add_child(creature)
-	var angle:=spawn_rng.randf_range(0,TAU)
-	var radius:=spawn_rng.randf_range(29,98)
-	creature.position=Vector3(spawn_rng.randf_range(-10,10),0,spawn_rng.randf_range(Layout.RAMP_END+8.5,Layout.RAMP_END+28.5)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
+	var angle:=random_source.randf_range(0,TAU)
+	var radius:=random_source.randf_range(29,98)
+	creature.position=Vector3(random_source.randf_range(-10,10),0,random_source.randf_range(Layout.RAMP_END+8.5,Layout.RAMP_END+28.5)) if night else Vector3(cos(angle)*radius,0,sin(angle)*radius)
 	creature.position=_resolve_enemy_spawn_point(creature.position)
-	creature.set_meta("gate_lane",spawn_rng.randf_range(-1.15,1.15))
-	var roll:=spawn_rng.randf() if night else 1.0
+	creature.set_meta("gate_lane",random_source.randf_range(-1.15,1.15))
+	var roll:=random_source.randf() if night else 1.0
 	if night and not role.is_empty():
 		roll={"basic":1.0,"breaker":0.0,"runner":.061+day_number*.025,"sapper":.231+day_number*.035,"light_eater":.341+day_number*.035}.get(role,1.0)
 	var is_light_eater: bool=night and roll>=.34+day_number*.035 and roll<.43+day_number*.035
@@ -2739,6 +2740,7 @@ func beacon_pulse() -> void:
 	if hits>0:BattleVisuals.burst(effects,Vector3(0,NightfallWorld.FORT_HEIGHT,0),10.5,Color("ffaa58"),.28)
 
 func _on_creature_defeated(creature: BattleUnit, _source: BattleUnit) -> void:
+	if is_instance_valid(expeditions) and not expeditions.overload.on_defeated(creature):return
 	if is_instance_valid(discoveries) and not discoveries.cache_guards.on_defeated(creature):
 		return
 	if is_instance_valid(squads) and squads.veterancy:squads.veterancy.on_enemy_defeated(creature)
