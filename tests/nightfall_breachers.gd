@@ -63,7 +63,7 @@ func run() -> void:
  check(source.visual.find_child("BreacherVehicle",true,false)!=null,"Mechanical body exists")
  var visible_old:=0
  for part in source.visual.find_children("*","MeshInstance3D",true,false):
-  if not String(part.get_parent().name).begins_with("BreacherVehicle") and part.visible:visible_old+=1
+  if not source.visual.get_node("BreacherVehicle").is_ancestor_of(part) and part.visible:visible_old+=1
  check(visible_old==0,"Imported humanoid meshes remain hidden")
  var open:=Vector3(20,0,30);source.position=open
  var target: BattleUnit=game.spawn_creature(false)

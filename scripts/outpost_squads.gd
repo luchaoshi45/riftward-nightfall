@@ -1209,22 +1209,22 @@ func advance(delta: float, active: bool = true) -> void:
 			if String(squad.kind) == "hunter":
 				hunters.advance_member(squad, soldier, slot, elapsed, recovering_hunter)
 				if generation != _epoch or not _active(): return
-				if _living(soldier): _animate_member(soldier)
+				if _living(soldier): _animate_member(soldier, elapsed)
 				continue
 			if String(squad.kind) == "flamer":
 				_advance_flamethrower_member(squad, soldier, elapsed, designated, slot)
 				if not _owns_squad(squad, generation): return
-				if _living(soldier): _animate_member(soldier)
+				if _living(soldier): _animate_member(soldier, elapsed)
 				continue
 			if String(squad.kind) == "netter":
 				_advance_netter_member(squad, soldier, elapsed, designated, slot)
 				if not _owns_squad(squad, generation): return
-				if _living(soldier): _animate_member(soldier)
+				if _living(soldier): _animate_member(soldier, elapsed)
 				continue
 			if String(squad.kind) == "artillery":
 				_advance_artillery_member(squad,soldier,elapsed,designated,slot)
 				if not _owns_squad(squad, generation): return
-				if _living(soldier): _animate_member(soldier)
+				if _living(soldier): _animate_member(soldier, elapsed)
 				continue
 			if String(squad.kind) == "medic":
 				# Attack commands retain their issued destination for medics.
@@ -1232,12 +1232,12 @@ func advance(delta: float, active: bool = true) -> void:
 				var medic_station := _station(squad, slot, String(squad.order))
 				_move_member(soldier, medic_station, elapsed)
 				_advance_medic(squad, soldier, elapsed, medic_station)
-				_animate_member(soldier)
+				_animate_member(soldier, elapsed)
 				continue
 			if squad.order in [AMOVE, ESCORT]:
 				_advance_attack_move_member(squad, soldier, slot, elapsed)
 				if not _owns_squad(squad, generation): return
-				if _living(soldier): _animate_member(soldier)
+				if _living(soldier): _animate_member(soldier, elapsed)
 				continue
 			if squad.order == ATTACK and _enemy(designated) and _in_range(soldier, designated):
 				soldier.moving = false
@@ -1249,7 +1249,7 @@ func advance(delta: float, active: bool = true) -> void:
 				if not soldier.moving and squad.order != RECALL:
 					if str(squad.kind) == "engineer": _repair_nearby(soldier, elapsed)
 					_attack(soldier, elapsed)
-			_animate_member(soldier)
+			_animate_member(soldier, elapsed)
 		if generation != _epoch or not _active(): return
 		_finish_training_rally(squad)
 		if not _owns_squad(squad, generation): return
@@ -1574,6 +1574,7 @@ func _attack(soldier: BattleUnit, delta: float, designated: BattleUnit = null) -
 		_hit_feedback(impact,maxf(0.0,victim_hp-victim.hp)+maxf(0.0,victim_shield-victim.shield),Color("f0b26f"),4)
 		if not _owns_member(soldier, generation): return
 		if breacher:
+			BreacherScript.fire(self,soldier)
 			_beam(soldier.position + Vector3.UP*.8, impact, Color("86e1ed"), .09, .18, .8)
 		elif str(soldier.get_meta("squad_kind")) == "ballista":
 			_beam(soldier.position + Vector3.UP, impact, Color("efb774"), .065, .24, .95)
@@ -1759,7 +1760,9 @@ func _retire_member(unit: BattleUnit) -> void:
 	if is_instance_valid(veterancy): veterancy.forget_member(unit)
 	if is_instance_valid(unit) and not unit.is_queued_for_deletion(): unit.queue_free()
 
-func _animate_member(soldier: BattleUnit) -> void:
+func _animate_member(soldier: BattleUnit, elapsed: float = 0.0) -> void:
+	if String(soldier.get_meta("squad_kind", "")) == "breacher":
+		BreacherScript.advance_visual(self,soldier,elapsed);return
 	for label in ["LegL", "LegR"]:
 		var limb := soldier.visual.find_child(label, true, false) as Node3D
 		if limb: limb.rotation.x = sin(soldier.age * 8.0 + (PI if label == "LegR" else 0.0)) * (.32 if soldier.moving else .0)
