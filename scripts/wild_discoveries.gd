@@ -32,12 +32,14 @@ var motivation_cache: Dictionary = {}
 var motivation_refresh_time := 0.0
 var motivation_route_queries := 0
 var cache_guards: Node3D
+var expedition_cover = preload("res://scripts/waylight_expedition_cover.gd").new()
 
 func _init() -> void:
 	rng.randomize()
 
 func setup(owner_game: Node3D, run_seed: int = 0) -> void:
 	game = owner_game
+	expedition_cover.setup(game,self)
 	# A nonzero run seed owns this stream; zero preserves fixture RNG injection.
 	if run_seed!=0:rng.seed=preload("res://scripts/run_session.gd").stream_seed(run_seed,"discoveries")
 	motivation_revision=0
@@ -165,7 +167,7 @@ func nearest_item() -> int:
 	var selected := -1
 	var distance := USE_RADIUS
 	for index in items.size():
-		if items[index].state!="ready" and items[index].state!="channel":continue
+		if items[index].state!="ready" and items[index].state!="channel" and not (items[index].kind=="waylight" and items[index].state=="active"):continue
 		var candidate: float=game.hero.position.distance_to(items[index].position)
 		if candidate<distance:selected=index;distance=candidate
 	return selected
@@ -178,6 +180,10 @@ func interaction_prompt() -> String:
 	if index<0:return ""
 	var guard_prompt:=cache_guard_prompt(index)
 	if not guard_prompt.is_empty():return guard_prompt
+	if items[index].kind=="waylight" and items[index].state=="active":
+		var cover: Dictionary=expedition_cover.snapshot(items[index])
+		if cover.get("paid",false):return "远征掩护 · %d秒 · 已护%d员" % [ceili(float(cover.remaining)),int(cover.granted)]
+		return "F 改装远征掩护 · 12光 · 需工坊 · 每员一次20盾/4秒"
 	match items[index].kind:
 		"ember_bloom":return "F 采集余烬花 · +12 光，恢复 70 生命"
 		"memory_crystal":return "F 采集余烬晶簇 · +12 光，恢复 45 法力"
@@ -208,6 +214,10 @@ func interact_index(index: int) -> bool:
 	for item: Dictionary in items:
 		if item.state=="channel":return item == items[index]
 	var item: Dictionary=items[index]
+	if item.kind=="waylight" and item.state=="active":
+		var result: Dictionary=expedition_cover.purchase(item)
+		game.notify(String(result.reason),3)
+		return bool(result.ok)
 	if item.state!="ready":return false
 	if game.hero.position.distance_to(item.position)>USE_RADIUS and item.kind!="supply_cache":return false
 	if game.hero.position.distance_to(item.position)>CHANNEL_RADIUS and item.kind=="supply_cache":return false
@@ -232,6 +242,7 @@ func interact_index(index: int) -> bool:
 	return true
 
 func begin_cooling(item: Dictionary, seconds: float) -> void:
+	expedition_cover.retire(item)
 	motivation_revision+=1
 	item.state="cooling";item.respawn=seconds;item.progress=0.0;item.remaining=0.0
 	item.node.visible=false;item.lamp.light_energy=0.0
@@ -246,6 +257,7 @@ func apply_waylight(item: Dictionary) -> void:
 			game.hero.shield_time=2.0
 
 func respawn_item(index: int) -> void:
+	expedition_cover.retire(items[index])
 	motivation_revision+=1
 	var item: Dictionary=items[index]
 	var point:=choose_position(index,item.position)
@@ -294,6 +306,7 @@ func tick(delta: float) -> void:
 		if item.state=="channel":item.label.text="补给箱 %d%%" % roundi(float(item.progress)/CHANNEL_SECONDS*100)
 		elif item.state=="active":item.label.text="护盾灯区 · %d秒" % ceili(item.remaining)
 		else:item.label.text=TITLES[item.kind]+" · F"
+	expedition_cover.tick(delta)
 	_refresh_motivation_lights()
 	update_lights()
 

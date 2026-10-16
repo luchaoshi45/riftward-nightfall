@@ -1033,6 +1033,7 @@ func finish_night() -> void:
 		# unplaced/unqueued rewards instead of carrying them into a new session.
 		clear_supply_crates(true)
 		discoveries.cache_guards.clear()
+		discoveries.expedition_cover.clear()
 		salvage_draw.clear()
 		control_groups.clear()
 		repairs.clear()
@@ -2846,7 +2847,9 @@ func end_defeat(message: String) -> void:
 	night_clearance_elapsed=0.0
 	final_clearance_active=false
 	_settle_wave_wager_loss("defeat")
-	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
+	if is_instance_valid(discoveries):
+		discoveries.cache_guards.clear()
+		discoveries.expedition_cover.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
@@ -4445,7 +4448,9 @@ func make_pickup_sound() -> AudioStreamWAV:
 	return stream
 
 func _exit_tree() -> void:
-	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
+	if is_instance_valid(discoveries):
+		discoveries.cache_guards.clear()
+		discoveries.expedition_cover.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
@@ -4494,7 +4499,9 @@ func prepare_shutdown() -> void:
 	final_clearance_active=false
 	set_process(false)
 	specializations.reset_effects()
-	if is_instance_valid(discoveries):discoveries.cache_guards.clear()
+	if is_instance_valid(discoveries):
+		discoveries.cache_guards.clear()
+		discoveries.expedition_cover.clear()
 	salvage_draw.clear()
 	control_groups.clear()
 	repairs.clear()
