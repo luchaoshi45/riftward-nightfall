@@ -256,11 +256,14 @@ func supply_crate_navigation_snapshot() -> Dictionary:
 func supply_crate_navigation_label() -> String:
 	var navigation:=supply_crate_navigation_snapshot()
 	var count:=int(navigation.get("count",0))
-	if count>0 and navigation.has("direction"):
-		return "补给 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)]
-	if count>0:return "补给 %d · 地图可见" % count
 	var status: Dictionary=game.supply_crate_status() if is_instance_valid(game) and game.has_method("supply_crate_status") else {}
-	return "补给箱：%d秒" % ceili(float(status.get("next_seconds",0.0)))
+	var suffix: String=""
+	if bool(status.get("tech_pending",false)):
+		suffix=" · 科技待配送" if count<int(status.get("max",3)) else " · 科技待配送，部署腾位"
+	if count>0 and navigation.has("direction"):
+		return ("补给 %d · %s %d米" % [count,String(navigation.direction),int(navigation.distance_meters)])+suffix
+	if count>0:return ("补给 %d · 地图可见" % count)+suffix
+	return ("补给箱：%d秒" % ceili(float(status.get("next_seconds",0.0))))+suffix
 
 func countermeasure_rect(index: int) -> Rect2:
 	return Rect2(44+index*168,280,160,62)

@@ -66,6 +66,7 @@ func run() -> void:
 	check(game.scrap == guarded_money + 100,"Location adds no currency beyond original 100 generator reward")
 	game.expeditions.complete_generator(site)
 	check(game.scrap == guarded_money + 100 and not game.locate_tech_supply(),"Duplicate completion/location cannot pay or locate twice same day")
+	check(game.hud.supply_crate_navigation_label().contains("科技待配送"),"Navigation preserves discovered pending technology after toast expires")
 	var rng_state: int = game.rng.state
 	for repeat in 20:
 		check(game._roll_supply_reward().kind == "workshop","Missing workshop receives priority over ordinary flag/tower lottery")
@@ -79,6 +80,7 @@ func run() -> void:
 	game.supply_crates.clear()
 	for index in 3:vehicle("tower")
 	check(not game._spawn_supply_crate() and game.tech_supply_pending,"Full delivery roster retains pending technology request")
+	check(game.hud.supply_crate_navigation_label().contains("部署腾位"),"Full roster explains how to free delivery capacity")
 	game.clear_supply_crates(false)
 	check(game.tech_supply_pending and game.tech_supply_day == game.day_number,"Day/night cleanup preserves unfulfilled request and daily stamp")
 	for item: Node3D in game.supply_crates:item.queue_free()
@@ -91,6 +93,7 @@ func run() -> void:
 	var wallet: int = game.scrap
 	check(game._spawn_supply_crate(),"Qualified request spawns real nearby physical box")
 	check(not game.tech_supply_pending and game.supply_crates.size() == 1,"Successful physical delivery consumes location once")
+	check(not game.hud.supply_crate_navigation_label().contains("科技待配送"),"Successful delivery clears pending navigation without leaking sealed reward")
 	if not game.supply_crates.is_empty():
 		var box: Node3D = game.supply_crates[0]
 		check(box.supply_kind == "workshop" and not box.revealed,"Technology reward is sealed workshop box rather than free structure")

@@ -3879,7 +3879,7 @@ func notify(message: String, duration: float=3.0) -> void:
 func supply_crate_status() -> Dictionary:
 	var remaining := maxf(0.0, SUPPLY_CRATE_INTERVAL - supply_crate_clock)
 	return {"count": supply_crates.size(), "max": SUPPLY_CRATE_MAX,
-		"next_seconds": maxf(remaining,supply_crate_retry), "pending_build": pending_build_permit_kind,
+		"next_seconds": maxf(remaining,supply_crate_retry), "tech_pending": tech_supply_pending, "pending_build": pending_build_permit_kind,
 		"pending_training": pending_training_order_kind}
 
 func _ensure_opening_supply() -> bool:
