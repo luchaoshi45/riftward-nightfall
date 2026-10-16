@@ -26,6 +26,12 @@ func page_rect(direction: int) -> Rect2:
 func producer_rect() -> Rect2:
 	return Rect2(1172,184,232,30)
 
+func rally_rect(reset: bool=false) -> Rect2:
+	return Rect2(1292 if reset else 1172,704,112,28)
+
+func rally_available(ui: Control) -> bool:
+	return not ui.game.construction.active and int(ui.rally_state().barracks_id)>=0
+
 func queue_rows(ui: Control) -> Array[Dictionary]:
 	var rows: Array[Dictionary]=[]
 	var snapshot: Dictionary=ui.game.squads.snapshot()
@@ -58,6 +64,14 @@ func handle(ui: Control, event: InputEvent, point: Vector2) -> bool:
 				ui.queue_redraw();return true
 		if producer_rect().has_point(point):
 			ui.game.rally.cycle_selection(1);ui.queue_redraw();return true
+		if rally_rect().has_point(point) or rally_rect(true).has_point(point):
+			if rally_available(ui):
+				if rally_rect(true).has_point(point):
+					var result: Dictionary=ui.game.rally.reset_selected()
+					ui.game.notify(String(result.reason),3)
+				else:ui.begin_rally_setting()
+			else:ui.game.notify("先结束建造并选择一座国旗基地",3)
+			ui.queue_redraw();return true
 		var available:=kinds()
 		for index in available.size():
 			if kind_rect(index).has_point(point):
@@ -121,4 +135,13 @@ func draw(ui: Control) -> void:
 			ui.progress(Rect2(1178,y+8,170,4),1.0-float(order.remaining)/maxf(.01,float(order.total)) if int(row.index)==0 else 0.0,ui.amber)
 			ui.box(queue_cancel_rect(slot),Color("21312f"),Color("506963"))
 			ui.label("取消",queue_cancel_rect(slot).position+Vector2(7,20),14,ui.muted)
-	ui.label("完成训练后自动出兵",Vector2(1178,735),14,ui.muted)
+	var can_rally:=rally_available(ui)
+	for reset in [false,true]:
+		var rect:=rally_rect(reset)
+		ui.box(rect,Color("21312f") if can_rally else Color("172128"),Color("506963"))
+		var title: String="恢复默认" if reset else ("重设集结" if bool(producer.configured) else "设置集结")
+		ui.label(title,rect.position+Vector2(12,20),16,ui.amber if can_rally else ui.muted)
+	var status: String="新兵前往集结点" if bool(producer.configured) else "新兵默认驻守"
+	if int(producer.barracks_id)<0:status="点击上方选择国旗基地"
+	if ui.game.construction.active:status="结束建造后可设置集结"
+	ui.label(status,Vector2(1178,748),13,ui.muted)

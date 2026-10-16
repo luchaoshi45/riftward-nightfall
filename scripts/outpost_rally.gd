@@ -254,7 +254,10 @@ func tick(_delta: float) -> void:
 			preview = true
 	elif _can_browse():
 		var hud: Control = game.get("hud") as Control
-		if is_instance_valid(hud) and String(hud.get("detail_tab")) == "army":
+		var show_destination := is_instance_valid(hud) and String(hud.get("detail_tab")) == "army"
+		if is_instance_valid(hud) and hud.get("production_sidebar") != null:
+			show_destination = show_destination or hud.production_sidebar.visible(hud)
+		if show_destination:
 			var destination := destination_for(_selected)
 			if bool(destination.enabled): point = destination.point
 	if point.is_finite(): _update_marker(point, preview)

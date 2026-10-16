@@ -100,6 +100,40 @@ func run() -> void:
 	await click(sidebar.page_rect(-1))
 	await click(sidebar.producer_rect())
 	check(game.rally.selection_id()>=0,"Sidebar cycles to a real production base")
+	paid=game.scrap
+	await click(sidebar.rally_rect())
+	check(game.rally.active and not sidebar.visible(game.hud),"Actual set-rally button enters existing world selection")
+	var committed:=false
+	for z in range(-12,13,3):
+		for x in range(-12,13,3):
+			if bool(game.rally.commit(Vector3(x,5,z)).ok):
+				committed=true;break
+		if committed:break
+	check(committed and bool(game.rally.snapshot().configured),"Rally accepts a reachable real destination")
+	var destination: Vector3=game.rally.snapshot().point
+	game.rally.tick(0)
+	check(is_instance_valid(game.rally._marker) and game.rally._marker.visible,"Production rail shows the selected base destination")
+	await click(sidebar.rally_rect())
+	check(game.rally.active,"Configured base can re-enter selection")
+	check(not bool(game.rally.commit(Vector3.INF).ok),"Invalid world destination cannot replace rally")
+	game.rally.cancel_setting()
+	check(game.rally.snapshot().point==destination,"Cancelling re-selection preserves existing destination")
+	var old_destination: Vector3=game.squads.squads[0].destination
+	var before_training: int=game.squads.squads.size()
+	game.squads.advance(6.1)
+	check(game.squads.squads.size()==before_training+1 and game.squads.squads[-1].destination==destination,"Paid pending training reads selected base rally when completed")
+	check(game.squads.squads[0].destination==old_destination,"Setting rally preserves existing squad orders")
+	await click(sidebar.rally_rect(true))
+	check(game.squads.squads[-1].destination==destination,"Reset does not redirect already deployed troops")
+	check(not bool(game.rally.snapshot().configured) and game.scrap==paid,"Reset uses original binding and does not charge light")
+	game.rally.tick(0)
+	check(not game.rally._marker.visible,"Default rally hides old destination marker")
+	await click(sidebar.producer_rect())
+	await click(sidebar.rally_rect())
+	check(not game.rally.active and game.scrap==paid,"Automatic producer cannot set or charge a rally destination")
+	await click(sidebar.producer_rect())
+	for reset in [false,true]:
+		check(sidebar.PANEL.encloses(sidebar.rally_rect(reset)),"Rally controls remain within protected sidebar")
 	game.hud.toggle_details("army")
 	check(not sidebar.visible(game.hud) and not game.hud.visible_hud_rects().has(sidebar.PANEL),"Details hide rail and its input footprint")
 	game.hud.dismiss_details();game.hud.toggle_map()
