@@ -89,6 +89,42 @@ func step(delta: float = STEP) -> void:
 	var stock: Dictionary = game.logistics.snapshot()
 	check(int(stock.remaining)+int(stock.cargo)+int(stock.delivered)+int(stock.lost)==480,"Rally simulation preserves all480 finite transport parts")
 
+func fresh(keep_wave: bool = false) -> void:
+	await super.fresh(keep_wave)
+	# Isolate controlled permit/route fixtures from random opening deliveries.
+	# Natural box discovery and vehicle deployment have separate acceptance.
+	game.clear_supply_crates(true)
+
+func select_building(kind: String) -> void:
+	if game.construction.active: await press(KEY_ESCAPE)
+	var wallet: int = game.scrap
+	if game.pending_build_permit_kind == kind:
+		await press(KEY_Y) # Resume an already owned permit; never browse a catalogue.
+	else:
+		game._apply_supply_reward({"type":"building_permit", "kind":kind,
+			"title":String(Catalog.building(kind).get("title",kind))})
+	await redraw()
+	check(game.scrap == wallet and game.pending_build_permit_kind == kind
+		and game.construction.active and String(game.construction.kind) == kind,
+		"Controlled earned permit enters the real grid preview without charging construction")
+
+func build_gui(kind: String, point: Vector3) -> int:
+	stand(HOME)
+	await select_building(kind); await aim_at(point)
+	var preview: Dictionary = game.construction.snapshot()
+	check(bool(preview.valid) and bool(preview.tech_valid) and bool(preview.space_valid),
+		"Actual live grid preview permits " + kind + ": " + String(preview.reason))
+	var wallet: int = game.scrap
+	await mouse(game.camera.unproject_position(point),true)
+	var id := plot_at(kind,preview.point)
+	check(id >= 0 and game.scrap == wallet-int(preview.cost)
+		and not game.construction.active and game.pending_build_permit_kind.is_empty(),
+		"Actual confirmation creates one paid building and consumes its one-shot permit")
+	wallet = game.scrap
+	check(not game.build_structure_at(preview.point,kind) and game.scrap == wallet,
+		"Occupied duplicate deployment cannot charge twice")
+	return id
+
 func ready(two: bool = false) -> void:
 	await fresh()
 	barracks_index = await build_gui("barracks",BARRACKS)
@@ -249,7 +285,7 @@ func camps_queues_and_pure_setting() -> void:
 	check(not bool(invalid.ok) and game.rally.active,"A non-ground height outside the actual tolerance cannot configure the camp")
 	invalid=game.rally.commit(Vector3(Layout.MAP_HALF_X+.001,0,33))
 	check(not bool(invalid.ok) and game.rally.active,"Finite points beyond the real map cannot configure a rally")
-	invalid=game.rally.commit(Vector3(12.5,5,3.5))
+	invalid=game.rally.commit(Vector3(Layout.FORT_INNER-.5,5,3.5))
 	check(not bool(invalid.ok) and game.rally.active,"A clear center cannot hide one of the three formation stations inside the real side wall")
 	game.rally.cancel_setting()
 	check(int(game.scrap)==int(before.parts) and game.run.rng.state==before.rng and game.phase_time==before.time and game.squads.training_queues==before.queues,"Rejected/repeated rally setting never charges or advances production clocks or RNG")
@@ -415,10 +451,10 @@ func physical_ui_modes_and_release() -> void:
 		await begin_gui(barracks_index); await press(KEY_F3)
 		check(not game.rally.active and not game.hud.detail_tab.is_empty(),"Explicit F3 reopening cancels temporary setting and returns the real detail drawer")
 		await close_drawer(); await begin_gui(barracks_index); await press(KEY_Y)
-		check(not game.rally.active and game.construction.active,"Explicit Y construction switch cancels setting and opens the existing construction tool")
+		check(game.rally.active and not game.construction.active,"Live rally input consumes Y without exposing the removed building catalogue")
 		await press(KEY_ESCAPE)
 		await begin_gui(barracks_index); await click_ui(game.hud.BUILD_BUTTON_RECT)
-		check(not game.rally.active and game.construction.active,"Actual Y GUI button cancels setting and opens the existing construction tool")
+		check(not game.rally.active and not game.construction.active,"Legacy build action cannot expose an unearned building catalogue")
 		await press(KEY_ESCAPE)
 		await setting_gui(barracks_index,RALLY_A)
 		var configured: Dictionary=game.rally.destination_for(barracks_index).duplicate(true)
