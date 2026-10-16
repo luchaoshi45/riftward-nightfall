@@ -72,6 +72,7 @@ func bonus_target(target: Variant) -> bool:
 	if not real_enemy(target): return false
 	var role := String(target.get_meta("threat", ""))
 	return role in ["runner", "light_eater", "lobber", "burstling"] or (role == "summoner" and bool(target.get_meta("summoner_active", false))) \
+		or (role == "mender" and bool(target.get_meta("mender_active", false))) \
 		or (role == "warder" and bool(target.get_meta("warder_active", false)))
 
 func _priority(target: BattleUnit) -> int:
@@ -80,8 +81,9 @@ func _priority(target: BattleUnit) -> int:
 	# the most urgent target inside the same fixed, reachable pursuit area.
 	if role == "burstling": return -1 if bool(target.get_meta("burstling_winding", false)) else 0
 	if role == "summoner" and bool(target.get_meta("summoner_active", false)): return 0
-	if role == "warder" and bool(target.get_meta("warder_active", false)): return 1
-	return int({"lobber": 2, "light_eater": 3, "runner": 4, "breaker": 6, "sapper": 6, "shellguard": 6}.get(role, 5))
+	if role == "mender" and bool(target.get_meta("mender_active", false)): return 1
+	if role == "warder" and bool(target.get_meta("warder_active", false)): return 2
+	return int({"lobber": 3, "light_eater": 4, "runner": 5, "breaker": 7, "sapper": 7, "shellguard": 7}.get(role, 6))
 
 func _block_signature() -> int:
 	return hash(game.get("construction_blocks")) if bool(roster.get("_has_construction_blocks")) else 0

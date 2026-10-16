@@ -1595,6 +1595,7 @@ func _pick_enemy(soldier: BattleUnit, real_only: bool = false) -> BattleUnit:
 			# A finite source can still add real units; ranged fire can prevent
 			# those births. Once spent it follows ordinary melee/interception.
 			if threat == "summoner" and bool(enemy.get_meta("summoner_active", false)): priority = 5
+			if threat == "mender" and bool(enemy.get_meta("mender_active", false)): priority = 5
 			if threat == "warder" and bool(enemy.get_meta("warder_active", false)): priority = 5
 			# An idle burstling can still prepare its blast. A real preparation
 			# adds an urgency tier without changing range or distance scoring.

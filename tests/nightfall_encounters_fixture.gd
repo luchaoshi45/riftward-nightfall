@@ -135,7 +135,7 @@ func frozen_baselines() -> void:
 			for wave: Dictionary in plan:
 				var restored: Array = wave.roles.duplicate()
 				for index in restored.size():
-					if restored[index] in ["summoner", "warder", "shellguard", "burstling"]: restored[index] = "basic"
+					if restored[index] in ["summoner", "mender", "warder", "shellguard", "burstling"]: restored[index] = "basic"
 				role_rows.append([restored, wave.count, wave.role_count, wave.boss_count])
 				var restored_title := String(wave.title).trim_suffix(" · 爆裂逼近").trim_suffix(" · 甲壳护卫").trim_suffix(" · 织壳护卫")
 				var restored_advice := String(wave.advice).trim_suffix(" " + Encounters.BURSTLING_ADVICE).trim_suffix(" " + Encounters.SHELLGUARD_ADVICE).trim_suffix(" " + Encounters.WARDER_ADVICE)
@@ -161,6 +161,8 @@ func finite_source_matrix() -> void:
 					var less: Dictionary = reduced[index]
 					var count: int = wave.roles.count("summoner")
 					var warder_count: int = wave.roles.count("warder")
+					var mender_expected: int = 1 if mode != "teaching" and night >= 3 and index == 0 else 0
+					check(wave.roles.count("mender") == mender_expected and less.roles.count("mender") == mender_expected and int(wave.heal_cast_cap) == mender_expected * 2, context + ": declared finite healer replaces basic and preserves nest budget")
 					var shellguard_count: int = wave.roles.count("shellguard")
 					var burstling_count: int = wave.roles.count("burstling")
 					var burstling_expected: int = int(BURSTLINGS[night][index]) if mode != "teaching" else 0

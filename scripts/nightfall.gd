@@ -22,6 +22,7 @@ const GrowthGuidanceScript = preload("res://scripts/growth_guidance.gd")
 const SiegeBossScript = preload("res://scripts/nightfall_siege_boss.gd")
 const LobberScript = preload("res://scripts/nightfall_lobber.gd")
 const SummonerScript = preload("res://scripts/nightfall_summoner.gd")
+const MenderScript = preload("res://scripts/nightfall_mender.gd")
 const WarderScript = preload("res://scripts/nightfall_warder.gd")
 const ShellguardScript = preload("res://scripts/nightfall_shellguard.gd")
 const BurstlingScript = preload("res://scripts/nightfall_burstling.gd")
@@ -131,6 +132,7 @@ var siege_boss: Node
 var lobbers: Array[Node3D] = []
 var summoners: Array[Node3D] = []
 var warders: Array[Node3D] = []
+var menders: Array[Node3D] = []
 var burstlings: Array[Node3D] = []
 var haul_raider = HaulRaiderScript.new()
 var mana := 300.0
@@ -433,6 +435,7 @@ func simulate(delta: float) -> void:
 	if phase=="day" and not lobbers.is_empty():clear_lobbers()
 	if phase=="day" and not summoners.is_empty():clear_summoners()
 	if phase=="day" and not warders.is_empty():clear_warders()
+	if phase=="day" and not menders.is_empty():clear_menders()
 	if phase=="day" and not burstlings.is_empty():clear_burstlings()
 	# A committed projectile outlives a defeated thrower. Advance controllers
 	# once even when that host has already left the living enemy list.
@@ -471,6 +474,7 @@ func simulate(delta: float) -> void:
 		summoner_actions[source.get_instance_id()]=summoner.advance(delta)
 		if phase not in ["day","night"]:return
 	var warder_actions:=pending_warder_actions()
+	var mender_actions:=pending_mender_actions()
 	var burstling_actions:=advance_burstlings(delta)
 	if phase not in ["day","night"]:return
 	for i in world.gate_light_drain.size():world.gate_light_drain[i]=0.0
@@ -489,6 +493,7 @@ func simulate(delta: float) -> void:
 			continue
 		if bool(summoner_actions.get(creature.get_instance_id(),false)):continue
 		if bool(warder_actions.get(creature.get_instance_id(),false)):continue
+		if bool(mender_actions.get(creature.get_instance_id(),false)):continue
 		if creature.get_meta("threat","")=="burstling":
 			# This enemy owns one fixed-area attack. Shield interception and the
 			# ordinary melee windup must never submit a second single-target hit.
@@ -506,6 +511,8 @@ func simulate(delta: float) -> void:
 	# Every recipient has ticked before granting a new shield. Its four seconds
 	# start here, independent of the source/recipient order in the enemy roster.
 	advance_warders(delta)
+	if phase not in ["day","night"]:return
+	advance_menders(delta)
 	if phase not in ["day","night"]:return
 	if countermeasure_light_time>0.0:
 		for lamp_index in world.gate_light_drain.size():world.gate_light_drain[lamp_index]*=.4
@@ -555,6 +562,7 @@ func start_night() -> void:
 	clear_burstlings()
 	clear_summoners()
 	clear_warders()
+	clear_menders()
 	cores.clear()
 	specializations.reset_effects()
 	cancel_hero_attack()
@@ -834,6 +842,46 @@ func clear_warders() -> void:
 		if not value.is_queued_for_deletion():value.queue_free()
 	warders.clear()
 
+func mender_warning_snapshot() -> Array[Dictionary]:
+	var warnings: Array[Dictionary]=[]
+	for value: Variant in menders:
+		if not is_instance_valid(value) or value.is_queued_for_deletion():continue
+		var warning: Dictionary=value.snapshot()
+		var source: Variant=warning.get("source")
+		if is_instance_valid(source) and not source.is_queued_for_deletion() and source.alive and source in enemies and String(warning.get("phase",""))=="windup":warnings.append(warning)
+	return warnings
+
+func pending_mender_actions() -> Dictionary:
+	var handled: Dictionary={}
+	for value: Variant in menders:
+		if not is_instance_valid(value) or value.is_queued_for_deletion():continue
+		var state: Dictionary=value.snapshot()
+		var source: Variant=state.get("source")
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:continue
+		handled[source.get_instance_id()]=String(state.phase) in ["windup","committing"] or (bool(source.get_meta("mender_active",false)) and specializations.movement_multiplier(source)<.9999)
+	return handled
+
+func advance_menders(delta: float) -> void:
+	for value: Variant in menders.duplicate():
+		if not is_instance_valid(value):
+			menders.erase(value)
+			continue
+		if value.is_queued_for_deletion() or value not in menders:continue
+		var source: Variant=value.get("host")
+		if not is_instance_valid(source) or source.is_queued_for_deletion() or not source.alive or source not in enemies:
+			value.clear();value.queue_free();menders.erase(value)
+			continue
+		value.advance(delta)
+		# A world callback may synchronously clear/setup the module or end a run.
+		if phase not in ["day","night"]:return
+
+func clear_menders() -> void:
+	for value: Variant in menders.duplicate():
+		if not is_instance_valid(value):continue
+		value.clear()
+		if not value.is_queued_for_deletion():value.queue_free()
+	menders.clear()
+
 func burstling_warning_snapshot() -> Array[Dictionary]:
 	var warnings: Array[Dictionary]=[]
 	for value: Variant in burstlings.duplicate():
@@ -963,6 +1011,7 @@ func finish_night() -> void:
 	clear_burstlings()
 	clear_summoners()
 	clear_warders()
+	clear_menders()
 	clear_exploration_marker()
 	cores.clear()
 	specializations.reset_effects()
@@ -1132,14 +1181,14 @@ func forecast_primary_threat_id() -> String:
 			counts["breaker"]=int(counts.get("breaker",0))+1
 	var selected: String=""
 	var best:=0
-	for role in ["summoner","warder","burstling","light_eater","lobber","sapper","breaker","shellguard","runner"]:
+	for role in ["summoner","mender","warder","burstling","light_eater","lobber","sapper","breaker","shellguard","runner"]:
 		var amount:=int(counts.get(role,0))
 		if amount>best:
 			best=amount;selected=role
 	return selected
 
 func forecast_primary_threat() -> String:
-	return {"summoner":"召潮者", "warder":"织壳者", "burstling":"爆裂体", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "shellguard":"甲壳卫", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
+	return {"summoner":"召潮者", "mender":"缝合者", "warder":"织壳者", "burstling":"爆裂体", "light_eater":"噬灯蛾", "lobber":"投蚀体", "sapper":"蚀塔体", "breaker":"破城体", "shellguard":"甲壳卫", "runner":"疾行体"}.get(forecast_primary_threat_id(),"基础夜行体")
 
 func forecast_specialist_count() -> int:
 	var total:=0
@@ -1159,7 +1208,7 @@ func countermeasure_recommended(index: int) -> bool:
 	match primary:
 		"light_eater":recommended_index=0
 		"breaker","runner":recommended_index=1
-		"sapper","lobber","summoner","warder","shellguard","burstling":recommended_index=2
+		"sapper","lobber","summoner","mender","warder","shellguard","burstling":recommended_index=2
 	return index==recommended_index
 
 func select_countermeasure(index: int) -> bool:
@@ -1407,6 +1456,7 @@ func spawn_creature(night: bool, role: String="", register_veterancy: bool=true)
 	var is_lobber: bool=night and role=="lobber"
 	var is_summoner: bool=night and role=="summoner"
 	var is_warder: bool=night and role=="warder"
+	var is_mender: bool=night and role=="mender"
 	var is_shellguard: bool=night and role=="shellguard"
 	var is_burstling: bool=night and role=="burstling"
 	var creature:=UnitScript.new() as BattleUnit
@@ -1471,6 +1521,21 @@ func spawn_creature(night: bool, role: String="", register_veterancy: bool=true)
 			add_child(warder)
 			warder.setup(self,creature)
 			warders.append(warder)
+		elif is_mender:
+			creature.set_meta("threat","mender")
+			creature.title="缝合者"
+			creature.max_hp*=.82
+			creature.hp=creature.max_hp
+			creature.armor=0.0
+			creature.damage=12.0
+			creature.speed=3.0
+			creature.attack_interval=1.4
+			creature.visual.scale=Vector3.ONE*1.08
+			var mender: Node3D=MenderScript.new()
+			mender.name="MenderController"
+			add_child(mender)
+			mender.setup(self,creature)
+			menders.append(mender)
 		elif is_summoner:
 			creature.set_meta("threat","summoner")
 			creature.title="召潮者"
@@ -1809,7 +1874,7 @@ func target_warning_snapshot() -> Array[Dictionary]:
 		if String(cast.get("phase","")) not in ["windup","committing"]:continue
 		var source: Variant=cast.get("source")
 		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
-	for cast: Dictionary in warder_warning_snapshot():
+	for cast: Dictionary in mender_warning_snapshot()+warder_warning_snapshot():
 		var source: Variant=cast.get("source")
 		if is_instance_valid(source):casting_sources[source.get_instance_id()]=true
 	for creature: BattleUnit in enemies:
@@ -2464,6 +2529,7 @@ func update_towers(delta: float) -> void:
 			if pad.mode=="threat":
 				var rank:=tower_threat_rank(String(creature.get_meta("threat","")))
 				if creature.get_meta("threat","")=="summoner" and not creature.get_meta("summoner_active",false):rank=99
+				if creature.get_meta("threat","")=="mender" and not creature.get_meta("mender_active",false):rank=99
 				if creature.get_meta("threat","")=="warder" and not creature.get_meta("warder_active",false):rank=99
 				if rank<99 and (rank<threat_rank or (rank==threat_rank and distance<threat_distance)):
 					threat_target=creature;threat_rank=rank;threat_distance=distance
@@ -2499,6 +2565,8 @@ func update_towers(delta: float) -> void:
 		if is_instance_valid(summoner):summoner.revalidate_cast()
 	for value: Variant in warders.duplicate():
 		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in warders:value.revalidate_cast()
+	for value: Variant in menders.duplicate():
+		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in menders:value.revalidate_cast()
 	for value: Variant in burstlings.duplicate():
 		if is_instance_valid(value) and not value.is_queued_for_deletion() and value in burstlings:value.revalidate_cast()
 
@@ -2787,6 +2855,7 @@ func end_defeat(message: String) -> void:
 	clear_burstlings()
 	clear_summoners()
 	clear_warders()
+	clear_menders()
 	cores.clear()
 	specializations.reset_effects()
 	if rally:rally.clear()
@@ -2871,7 +2940,7 @@ func toggle_tower_mode() -> bool:
 	return true
 
 func tower_threat_rank(threat: String) -> int:
-	return {"burstling":0,"summoner":1,"warder":2,"light_eater":3,"lobber":4,"sapper":5,"breaker":6,"shellguard":7}.get(threat,99)
+	return {"burstling":0,"summoner":1,"mender":2,"warder":3,"light_eater":4,"lobber":5,"sapper":6,"breaker":7,"shellguard":8}.get(threat,99)
 
 func tower_mode_label(mode: String) -> String:
 	return {"nearest":"最近目标","breaker":"破城优先","threat":"威胁优先"}.get(mode,"最近目标")
@@ -4386,6 +4455,7 @@ func _exit_tree() -> void:
 	clear_burstlings()
 	clear_summoners()
 	clear_warders()
+	clear_menders()
 	if is_instance_valid(effects):
 		for child in effects.get_children():
 			if child is AudioStreamPlayer:child.stop()
@@ -4434,6 +4504,7 @@ func prepare_shutdown() -> void:
 	clear_burstlings()
 	clear_summoners()
 	clear_warders()
+	clear_menders()
 	cores.clear()
 	selection_dragging=false
 	if construction:construction.clear()

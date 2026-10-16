@@ -2,11 +2,12 @@ extends RefCounted
 ## 保存实际敌群计划；预告读取同一份计划，不另行随机生成文案。
 
 const WAVE_TIMES: Array[float] = [0.0, 20.0, 40.0, 65.0, 85.0]
-const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber", "summoner", "warder", "shellguard", "burstling"]
+const KNOWN_ROLES: Array[String] = ["basic", "runner", "breaker", "sapper", "light_eater", "lobber", "summoner", "mender", "warder", "shellguard", "burstling"]
 const MAX_NEST_REDUCTION: int = 6
 const MIN_WAVE_COUNT: int = 4
 const LOBBER_ADVICE := "移出2米落点，弩手/重弩集火；射程11.2米，蓄力1.15秒＋飞行0.75秒。"
 const SUMMONER_ADVICE := "2.4秒引导可打断；冷却10秒，最多2援军从南门外进入；集火召潮者。"
+const MENDER_ADVICE := "缝合者停步引导1.6秒，单体恢复最多24生命；牵制/投网打断，成功间隔8秒、最多2次。"
 const WARDER_ADVICE := "织壳者1秒引导，可击杀或牵制打断；32护盾持续4秒，成功后间隔6秒，每源最多3次。"
 const SHELLGUARD_ADVICE := "甲壳卫60护甲；二级塔J破甲重敌×1.65、忽略一半护甲；C集火，盾卫挡线。"
 const BURSTLING_ADVICE := "爆裂体停步蓄爆1.4秒、固定圈2.4米；分兵撤离，远程先杀，牵制/投网打断。"
@@ -60,6 +61,13 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 				composition.title = String(composition.title) + " · 织壳护卫"
 				composition.advice = String(composition.advice) + " " + WARDER_ADVICE
 		var warder_count := roles.count("warder")
+		if selected_mode != "teaching" and night >= 3 and index == 0:
+			var ordinary_index := roles.rfind("basic")
+			if ordinary_index >= 0:
+				roles[ordinary_index] = "mender"
+				composition.title = String(composition.title) + " · 缝合支援"
+				composition.advice = String(composition.advice) + " " + MENDER_ADVICE
+		var mender_count := roles.count("mender")
 		# Armor changes the defender's target choice, not the wave population.
 		# Replace a padded follower without disturbing other roles or RNG draws.
 		if (night == 2 and index == 2) or (night >= 3 and index in [0, 4]):
@@ -99,6 +107,8 @@ func make_plan(mode: String, night_index: int, run_seed: int, nest_count: int) -
 			"role_count": roles.size(),
 			"reinforcement_cap": 2 * summoner_count,
 			"warder_count": warder_count,
+			"mender_count": mender_count,
+			"heal_cast_cap": 2 * mender_count,
 			"shield_cast_cap": 3 * warder_count,
 			"shellguard_count": shellguard_count,
 			"burstling_count": burstling_count,

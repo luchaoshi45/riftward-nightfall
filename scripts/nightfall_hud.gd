@@ -395,6 +395,7 @@ func _has_event_warning() -> bool:
 	if not _visible_target_warnings().is_empty():return true
 	if game.has_method("lobber_warning_snapshot") and not game.lobber_warning_snapshot().is_empty():return true
 	if game.has_method("summoner_warning_snapshot") and not game.summoner_warning_snapshot().is_empty():return true
+	if game.has_method("mender_warning_snapshot") and not game.mender_warning_snapshot().is_empty():return true
 	if game.has_method("warder_warning_snapshot") and not game.warder_warning_snapshot().is_empty():return true
 	for warning: Dictionary in game.burstling_warning_snapshot():
 		var screen: Variant=_world_screen((warning.position as Vector3)+Vector3.UP*2.1)
@@ -491,6 +492,7 @@ func _draw() -> void:
 	draw_lobber_warnings()
 	draw_summoner_warnings()
 	draw_warder_warnings()
+	draw_mender_warnings()
 	draw_burstling_warnings()
 	draw_shellguard_armor()
 	draw_veterancy_labels()
@@ -822,6 +824,24 @@ func draw_summoner_warnings() -> void:
 		if not free_position or position.y<96:continue
 		draw_string_outline(font,position,text_value,HORIZONTAL_ALIGNMENT_LEFT,-1,13,3,Color(.02,.025,.012,.94))
 		label(text_value,position,13,Color("c4a9e5"))
+		rendered_labels += 1
+
+func draw_mender_warnings() -> void:
+	if game.phase not in ["night","paused"]:return
+	var occupied: Array[Rect2]=live_panel_rects()
+	occupied.append_array(world_warning_rects)
+	var rendered_labels := 0
+	for warning: Dictionary in game.mender_warning_snapshot():
+		if rendered_labels >= MAX_RENDERED_WORLD_LABELS:break
+		var text_value:="缝合 %.1f秒 · 恢复24 · 余%d/2" % [maxf(0.0,float(warning.remaining)),maxi(0,int(warning.max_casts)-int(warning.casts))]
+		_draw_shell_label((warning.position as Vector3)+Vector3.UP*2.1,text_value,Color("8ddbc9"),occupied)
+		var target: Variant = warning.get("target")
+		if is_instance_valid(target) and not game.camera.is_position_behind(warning.position) and not game.camera.is_position_behind(target.position):
+			var scale_factor := Vector2(1440,900)/get_viewport_rect().size
+			var origin: Vector2 = game.camera.unproject_position(warning.position+Vector3.UP*1.8)*scale_factor
+			var end: Vector2 = game.camera.unproject_position(target.position+Vector3.UP*1.1)*scale_factor
+			draw_line(origin,end,Color(.55,.86,.79,.4),1.0)
+			draw_line(origin,origin.lerp(end,float(warning.progress)),Color("8ddbc9"),2.0)
 		rendered_labels += 1
 
 func draw_warder_warnings() -> void:
@@ -1157,6 +1177,9 @@ func draw_minimap() -> void:
 		var enemy_marker:=center+Vector2(creature.position.x,creature.position.z)*scale
 		if threat=="summoner":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(0,-4),enemy_marker+Vector2(4,0),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-4,0),enemy_marker+Vector2(0,-4)]),Color("c4a9e5"),1.8)
+		elif threat=="mender":
+			draw_line(enemy_marker+Vector2(-4,0),enemy_marker+Vector2(4,0),Color("e7a7c3"),2.0)
+			draw_line(enemy_marker+Vector2(0,-4),enemy_marker+Vector2(0,4),Color("e7a7c3"),2.0)
 		elif threat=="warder":
 			draw_polyline(PackedVector2Array([enemy_marker+Vector2(-3,-3),enemy_marker+Vector2(3,-3),enemy_marker+Vector2(3,1),enemy_marker+Vector2(0,4),enemy_marker+Vector2(-3,1),enemy_marker+Vector2(-3,-3)]),Color("d4dec3") if bool(creature.get_meta("warder_active",false)) else muted,1.6)
 		elif threat=="shellguard":
