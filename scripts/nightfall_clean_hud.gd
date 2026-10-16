@@ -643,7 +643,7 @@ static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
 	var selected_mode: String=String(state.get("selected_mode","safe"))
 	var selected_label: String="押大" if selected_mode=="jackpot" else "稳妥"
 	ui.label("废墟补给 · 可选抽取",Vector2(TEXT_X,184),18,GREEN)
-	_paragraph(ui,"当天完成一次探索并返回灯塔 · 第一次稳妥，第二次可押大。",Vector2(TEXT_X,215),TEXT_WIDTH,15,ui.ink,22)
+	ui.label("探索保底已解锁 · 稳妥低档20光 · 首抽稳妥" if bool(state.exploration_floor) else "已发现%d/3种 · 稳妥低档10光 · 首抽稳妥" % int(state.exploration_count),Vector2(TEXT_X,215),14,ui.ink)
 	ui.label("概率",Vector2(TEXT_X,249),14,ui.muted)
 	ui.label("回款",Vector2(230,249),14,ui.muted)
 	ui.label("扣除费用后",Vector2(380,249),14,ui.muted)
@@ -680,7 +680,8 @@ static func _draw_salvage_supply(ui: Control, game: Node3D) -> void:
 		ui.label("最近结果 · %s档 · 第%d日第%d次" % ["押大" if String(last.get("mode","safe"))=="jackpot" else "稳妥",int(last.day_id),int(last.draw_number)],Vector2(TEXT_X,550),16,GREEN)
 		_paragraph(ui,"支付%d · 回款%d · 净%s光" % [int(last.cost),int(last.payout),net_text],Vector2(TEXT_X,578),TEXT_WIDTH,16,ui.ink,23)
 	else:_paragraph(ui,"尚未抽取 · 先探索，再回家整备。",Vector2(TEXT_X,550),TEXT_WIDTH,15,ui.muted,22)
-	_paragraph(ui,"稳妥净变化−20/+10/+90；押大净变化−60/+60/+540。第二抽再决定是否加注。",Vector2(TEXT_X,628),TEXT_WIDTH,14,ui.muted,20)
+	var safe_low: int=int(state.results_by_mode.safe[0].net)
+	_paragraph(ui,"稳妥净变化%d/+10/+90；押大净变化−60/+60/+540。第二抽再决定是否加注。" % safe_low,Vector2(TEXT_X,628),TEXT_WIDTH,14,ui.muted,20)
 
 static func _draw_defense(ui: Control, game: Node3D) -> void:
 	var bounty: Dictionary=game.bounty_snapshot()

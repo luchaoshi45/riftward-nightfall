@@ -1,6 +1,7 @@
 class_name SalvageDraw
 extends RefCounted
 ## An optional, run-local draw against the existing parts wallet.
+const ExplorationScript = preload("res://scripts/exploration_motivation.gd")
 const RunSessionScript = preload("res://scripts/run_session.gd")
 const COST := 30
 const SAFE_MODE := "safe"
@@ -91,12 +92,15 @@ func snapshot() -> Dictionary:
 		"selected_mode": selected_mode,
 		"mode_options": mode_options(),
 		"results_by_mode": {
-			SAFE_MODE: RESULTS.duplicate(true),
+			SAFE_MODE: mode_results(SAFE_MODE),
 			JACKPOT_MODE: JACKPOT_RESULTS.duplicate(true),
 		},
 		"last": _last.duplicate(true),
 		"results": mode_results(selected_mode),
 		"rng_state": _rng.state,
+		"exploration_count": exploration_count(),
+		"exploration_floor": exploration_count() >= 3,
+		"exploration_status": exploration_status(),
 	}
 
 ## Selects the receipt mode without consuming randomness or wallet.  A jackpot
@@ -116,12 +120,40 @@ func mode_reason(mode: String) -> String:
 func mode_stake(mode: String) -> int:
 	return JACKPOT_STAKE if mode == JACKPOT_MODE else COST
 
+func exploration_count() -> int:
+	if not is_instance_valid(_game) or _game.is_queued_for_deletion(): return 0
+	var display_day: bool = _game.phase == "day"
+	if _game.phase == "paused":
+		for property: Dictionary in _game.get_property_list():
+			if String(property.name) == "paused_from": display_day = String(_game.get("paused_from")) == "day"; break
+	if not _day_open or not display_day or _game.quitting or _game.restart_pending or not is_finite(float(_game.phase_time)) or float(_game.phase_time) <= 0.0: return 0
+	var exploration: Variant = _game.exploration
+	if not is_instance_valid(exploration) or int(exploration.route_day) != int(_game.day_number) or int(_game.day_number) != _day_id: return 0
+	# Optional/test exploration adapters may omit the route-kind ledger.
+	var has_ledger := false
+	for property: Dictionary in exploration.get_property_list():
+		if String(property.name) == "day_kinds": has_ledger = true; break
+	if not has_ledger: return 0
+	var ledger: Variant = exploration.get("day_kinds")
+	if not ledger is Dictionary: return 0
+	var count := 0
+	for kind: String in ExplorationScript.ROUTE_KINDS:
+		if bool(ledger.get(kind, false)): count += 1
+	return count
+
+func exploration_status() -> String:
+	var count := exploration_count()
+	return "探索保底已解锁 · 稳妥低档回款20光" if count >= 3 else "已发现%d/3种 · 三种探索解锁稳妥保底" % count
+
 func mode_results(mode: String) -> Array:
-	return (JACKPOT_RESULTS if mode == JACKPOT_MODE else RESULTS).duplicate(true)
+	var results: Array = (JACKPOT_RESULTS if mode == JACKPOT_MODE else RESULTS).duplicate(true)
+	if mode != JACKPOT_MODE and exploration_count() >= 3:
+		results[0].payout = 20; results[0].net = -10
+	return results
 
 func mode_options() -> Array:
 	return [
-		{"mode": SAFE_MODE, "stake": COST, "results": RESULTS.duplicate(true)},
+		{"mode": SAFE_MODE, "stake": COST, "results": mode_results(SAFE_MODE)},
 		{"mode": JACKPOT_MODE, "stake": JACKPOT_STAKE, "results": JACKPOT_RESULTS.duplicate(true)},
 	]
 
@@ -136,7 +168,8 @@ func draw(mode: String = SAFE_MODE) -> Dictionary:
 	_settling = true
 	var wallet_before: int = int(owner_game.scrap)
 	var roll: int = _rng.randi_range(0, 99)
-	var payout: int = 10
+	var protected_floor: bool = requested_mode == SAFE_MODE and exploration_count() >= 3
+	var payout: int = 20 if protected_floor else 10
 	if requested_mode == JACKPOT_MODE:
 		payout = 600 if roll >= 95 else (120 if roll >= 70 else 0)
 	else:
@@ -160,6 +193,9 @@ func draw(mode: String = SAFE_MODE) -> Dictionary:
 		"net": payout - draw_stake,
 		"wallet_before": wallet_before,
 		"wallet_after": wallet_after,
+		"exploration_floor": protected_floor,
+		"exploration_count": exploration_count(),
+		"results": mode_results(requested_mode),
 	}
 	# Commit the quota and record before the single wallet assignment. There are
 	# no signals, nodes or yields in settlement; repeat calls see the new quota.

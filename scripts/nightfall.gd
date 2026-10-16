@@ -4379,6 +4379,7 @@ func draw_salvage_supply(mode: String="safe") -> Dictionary:
 	var net_text: String="+%d" % net if net>=0 else str(net)
 	var mode_text: String="押大" if String(result.get("mode","safe"))=="jackpot" else "稳妥"
 	var detail: String="%s档 · 支付%d · 回款%d · 净%s光" % [mode_text,int(result.cost),int(result.payout),net_text]
+	if String(result.get("mode","safe"))=="safe" and bool(result.get("exploration_floor",false)):detail+=" · 探索保底已解锁"
 	var color:=Color("a3d7bd") if net>=0 else Color("e2a960")
 	# The draw has already settled the one wallet. This is a receipt, not a
 	# gathering event: no exploration count, route bonus or milestone is granted.
